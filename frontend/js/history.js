@@ -10,7 +10,7 @@
   'use strict';
 
   /* -------------------------- CONFIG -------------------------- */
-  const CONFIG = {
+  let CONFIG = {
     apiEndpoint: 'https://api.flexgig.com.ng/api/transactions',
     pageSize: 30,
     chunkRenderSize: 12,
@@ -1971,43 +1971,66 @@ function createMonthPickerModal() {
     show(emptyEl);
   }
 
+  // === ADMIN MODE SUPPORT ===
+  const isAdminMode = window.isAdminViewingHistory === true;
+
+  if (isAdminMode) {
+    console.log("%c[Admin History Mode] Loading ALL users transactions", "color: #00ffaa; font-weight: bold");
+    CONFIG.apiEndpoint = `${API_BASE || 'https://api.flexgig.com.ng'}/api/admin/transactions`;
+    // Clear previous user-specific data
+    state.items = [];
+  } else {
+    // Normal user mode
+    CONFIG.apiEndpoint = 'https://api.flexgig.com.ng/api/transactions';
+  }
+
   // Force realtime retry (in case it failed earlier)
   subscribeToTransactions(true);
 
   // Apply current state immediately
   applyTransformsAndRender();
-  console.log('[TransactionHistory] Modal opened → rendered current state (items:', state.items.length, ')');
+  console.log(`[TransactionHistory] Modal opened → rendered current state (items: ${state.items.length}, adminMode: ${isAdminMode})`);
 
-  // NEW: Safe UID resolution + one-time fetch of monthly_history
-  const uid =
-    window.__USER_UID ||
-    localStorage.getItem('userId') ||
-    JSON.parse(localStorage.getItem('userData') || '{}')?.uid ||
-    null;
+  // Only load monthly_history for normal users (not admin)
+  if (!isAdminMode) {
+    const uid =
+      window.__USER_UID ||
+      localStorage.getItem('userId') ||
+      JSON.parse(localStorage.getItem('userData') || '{}')?.uid ||
+      null;
 
-  if (uid && uid.includes('-')) {
-    try {
-      const authClient = await getSharedAuthClient();
-      if (authClient) {
-        const { data, error } = await authClient
-          .from('users')
-          .select('monthly_history')
-          .eq('uid', uid)
-          .single();
+    if (uid && uid.includes('-')) {
+      try {
+        const authClient = await getSharedAuthClient();
+        if (authClient) {
+          const { data, error } = await authClient
+            .from('users')
+            .select('monthly_history')
+            .eq('uid', uid)
+            .single();
 
-        if (error) {
-          console.error('[Modal Open] Failed to fetch monthly_history:', error);
-        } else if (data?.monthly_history) {
-          window.monthlyHistory = Array.isArray(data.monthly_history) ? data.monthly_history : [];
-          console.log('[Modal Open] Loaded monthly_history:', window.monthlyHistory.length, 'entries');
-          refreshMonthHeaders(); // Refresh headers with fresh server data
+          if (error) {
+            console.error('[Modal Open] Failed to fetch monthly_history:', error);
+          } else if (data?.monthly_history) {
+            window.monthlyHistory = Array.isArray(data.monthly_history) ? data.monthly_history : [];
+            console.log('[Modal Open] Loaded monthly_history:', window.monthlyHistory.length, 'entries');
+            refreshMonthHeaders();
+          }
         }
+      } catch (err) {
+        console.error('[Modal Open] monthly_history fetch crashed:', err);
       }
-    } catch (err) {
-      console.error('[Modal Open] monthly_history fetch crashed:', err);
     }
   } else {
-    console.warn('[Modal Open] No valid UID for monthly_history fetch');
+    // In admin mode, we can optionally load global stats later if needed
+    console.log("[Admin History Mode] Skipped user monthly_history (admin view)");
+  }
+
+  // Reset the flag after opening
+  if (isAdminMode) {
+    setTimeout(() => {
+      window.isAdminViewingHistory = false;
+    }, 500);
   }
 }
 const container = document.getElementById('historyList');
