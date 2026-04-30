@@ -1,14 +1,19 @@
 // ====================== ADMIN DASHBOARD LOGIC ======================
 
+const API_BASE = window.__SEC_API_BASE || 'https://api.flexgig.com.ng';
+
 let isAdmin = false;
 
 // Check if current user is admin
 async function checkAdminStatus() {
   try {
     const token = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1];
-    if (!token) return false;
+    if (!token) {
+      console.log("[Admin] No token found");
+      return false;
+    }
 
-    const res = await fetch('/api/admin/dashboard', {
+    const res = await fetch(`${API_BASE}/api/admin/test`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -16,13 +21,19 @@ async function checkAdminStatus() {
       }
     });
 
+    console.log(`[Admin Check] Status: ${res.status}`);
+
     if (res.ok) {
       isAdmin = true;
-      document.getElementById('adminNavLink').style.display = 'flex';
+      const adminTab = document.getElementById('adminNavLink');
+      if (adminTab) adminTab.style.display = 'flex';
+      console.log("%c✅ Admin access confirmed", "color: #00ffaa; font-weight: bold");
       return true;
+    } else {
+      console.log("[Admin Check] Not admin or access denied");
     }
   } catch (err) {
-    console.log('[Admin] Not admin or error checking status');
+    console.error("[Admin Check] Error:", err);
   }
   return false;
 }
@@ -31,8 +42,9 @@ async function checkAdminStatus() {
 async function loadAdminDashboard() {
   try {
     const token = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1];
-    
-    const res = await fetch('/api/admin/dashboard', {
+    if (!token) throw new Error("No token");
+
+    const res = await fetch(`${API_BASE}/api/admin/dashboard`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -40,17 +52,16 @@ async function loadAdminDashboard() {
       }
     });
 
-    if (!res.ok) throw new Error('Failed to load admin data');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data = await res.json();
 
     if (!data.ok) throw new Error(data.message || 'Unknown error');
 
-    // Update Collective Balance
+    // Update Balances
     document.getElementById('collectiveBalance').textContent = 
       `₦${Number(data.collectiveBalance || 0).toLocaleString('en-NG')}`;
 
-    // Update Personal Balance
     document.getElementById('personalBalance').textContent = 
       `₦${Number(data.personalBalance || 0).toLocaleString('en-NG')}`;
 
@@ -61,18 +72,21 @@ async function loadAdminDashboard() {
     document.getElementById('totalUsers').textContent = 
       Number(data.stats?.totalUsers || 0).toLocaleString('en-NG');
 
-    // Render Recent Notifications
+    // Render Notifications
     renderAdminNotifications(data.notifications || []);
 
+    console.log("%c✅ Admin Dashboard loaded successfully", "color: #00ffaa");
+
   } catch (err) {
-    console.error('[Admin Dashboard] Load error:', err);
-    // Optional: show a friendly message in the UI
+    console.error("[Admin Dashboard] Load error:", err);
   }
 }
 
-// Render notifications list
+// Render notifications
 function renderAdminNotifications(notifications) {
   const container = document.getElementById('adminNotificationsList');
+  if (!container) return;
+
   container.innerHTML = '';
 
   if (notifications.length === 0) {
@@ -93,11 +107,10 @@ function renderAdminNotifications(notifications) {
           ${isFund ? '↑' : '↓'}
         </div>
         <div class="notif-info">
-          <div class="notif-user">${notif.user_name || 'Unknown User'}</div>
+          <div class="notif-user">${notif.user_name || 'Unknown'}</div>
           <div class="notif-desc">${notif.description || ''}</div>
           <div class="notif-time">${new Date(notif.created_at).toLocaleString('en-NG', { 
-            hour: '2-digit', 
-            minute: '2-digit' 
+            hour: '2-digit', minute: '2-digit' 
           })}</div>
         </div>
       </div>
@@ -109,37 +122,32 @@ function renderAdminNotifications(notifications) {
   });
 }
 
-// Tab Switching Logic (integrate with your existing Navigo or manual tab system)
+// Switch to Admin Tab
 function switchToAdminTab() {
-  // Hide all main content sections
-  document.querySelectorAll('.user-profile-dashboard-content, #adminDashboardContent').forEach(el => {
-    el.classList.add('hidden');
-  });
+  document.querySelectorAll('.user-profile-dashboard-content, #adminDashboardContent')
+    .forEach(el => el.classList.add('hidden'));
 
-  // Show admin dashboard
   document.getElementById('adminDashboardContent').classList.remove('hidden');
 
-  // Load data if not already loaded
+  // Load data once
   if (!document.getElementById('collectiveBalance').dataset.loaded) {
     loadAdminDashboard();
     document.getElementById('collectiveBalance').dataset.loaded = 'true';
   }
 }
 
-// Initialize Admin Features
+// Initialize
 async function initAdminFeatures() {
   const isAdminUser = await checkAdminStatus();
-  
   if (!isAdminUser) return;
 
-  // Make Admin nav item clickable
   const adminNav = document.getElementById('adminNavLink');
   if (adminNav) {
     adminNav.addEventListener('click', (e) => {
       e.preventDefault();
       switchToAdminTab();
-      
-      // Optional: remove active class from other nav items
+
+      // Remove active from others
       document.querySelectorAll('.bottom-nav .nav-item').forEach(item => {
         item.classList.remove('active');
       });
@@ -148,7 +156,7 @@ async function initAdminFeatures() {
   }
 }
 
-// Run when dashboard loads
+// Run on load
 document.addEventListener('DOMContentLoaded', () => {
   initAdminFeatures();
 });
