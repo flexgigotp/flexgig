@@ -1865,53 +1865,91 @@
 </div>
 
 
-<!-- ====================== ADMIN DASHBOARD ====================== -->
+<!-- ADMIN DASHBOARD  -->
 <div id="adminDashboardContent" class="admin-dashboard-content hidden">
 
   <div class="admin-header">
-    <h2>Admin Dashboard</h2>
+    <div class="admin-header-left">
+      <h2>Admin Dashboard</h2>
+      <p class="admin-subtitle">Overview • Real-time • Control Center</p>
+    </div>
     <div class="admin-user-info">
-      <span id="adminUsername"></span>
+      <div class="admin-avatar" id="adminAvatar"></div>
+      <div>
+        <span id="adminUsername" class="admin-username"></span>
+        <span class="admin-role">Super Admin</span>
+      </div>
     </div>
   </div>
 
-  <!-- Balance Cards -->
-  <div class="admin-balance-grid">
-    <!-- Collective Balance -->
-    <div class="admin-balance-card collective">
-      <div class="card-label">Collective Balance</div>
-      <div class="balance-value" id="collectiveBalance">₦0.00</div>
-      <div class="card-sub">All users combined</div>
+  <!-- Stats Grid -->
+  <div class="admin-stats-grid">
+    <div class="stat-card primary">
+      <div class="stat-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+        </svg>
+      </div>
+      <div class="stat-info">
+        <span class="stat-value" id="collectiveBalance">₦0.00</span>
+        <span class="stat-label">Total Platform Balance</span>
+      </div>
+      <div class="stat-trend up">↑ 12.4%</div>
     </div>
 
-    <!-- Your Personal Balance -->
-    <div class="admin-balance-card personal">
-      <div class="card-label">Your Balance</div>
-      <div class="balance-value" id="personalBalance">₦0.00</div>
-      <div class="card-sub">Your personal wallet</div>
+    <div class="stat-card">
+      <div class="stat-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+      </div>
+      <div class="stat-info">
+        <span class="stat-value" id="todayFunds">₦0</span>
+        <span class="stat-label">Today's Funding</span>
+      </div>
+      <div class="stat-trend up">↑ 8.2%</div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+      </div>
+      <div class="stat-info">
+        <span class="stat-value" id="totalUsers">0</span>
+        <span class="stat-label">Total Users</span>
+      </div>
+      <div class="stat-trend up">↑ 23</div>
+    </div>
+
+    <div class="stat-card accent">
+      <div class="stat-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+          <polyline points="22 4 12 14.01 9 11.01"/>
+        </svg>
+      </div>
+      <div class="stat-info">
+        <span class="stat-value" id="successTx">0</span>
+        <span class="stat-label">Successful Tx Today</span>
+      </div>
     </div>
   </div>
 
-  <!-- Quick Stats -->
-  <div class="admin-stats-row">
-    <div class="stat-box">
-      <div class="stat-value" id="todayFunds">₦0</div>
-      <div class="stat-label">Today's Funding</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-value" id="totalUsers">0</div>
-      <div class="stat-label">Total Users</div>
-    </div>
-  </div>
-
-  <!-- Recent Notifications -->
-  <div class="admin-notifications-section">
+  <!-- Recent Activity -->
+  <div class="admin-recent-section">
     <div class="section-header">
       <h3>Recent Activity</h3>
       <button id="viewAllNotificationsBtn" class="view-all-btn">View All</button>
     </div>
-    <div id="adminNotificationsList" class="notifications-list">
-      <!-- Populated by JavaScript -->
+    
+    <div id="adminNotificationsList" class="admin-activity-list">
+      
     </div>
   </div>
 
