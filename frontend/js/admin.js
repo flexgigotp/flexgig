@@ -1,5 +1,7 @@
 // ====================== ADMIN DASHBOARD LOGIC ======================
 
+const API_BASE = window.__SEC_API_BASE || 'https://api.flexgig.com.ng';
+
 let isAdmin = false;
 
 // Check if current user is admin
@@ -23,7 +25,7 @@ async function checkAdminStatus() {
   return false;
 }
 
-// Load Admin Overview (Stats + Quick Notifications)
+// Load Admin Overview Stats
 async function loadAdminDashboard() {
   try {
     const res = await fetch(`${API_BASE}/api/admin/dashboard`, {
@@ -38,16 +40,24 @@ async function loadAdminDashboard() {
 
     // Update Stats
     const collectiveEl = document.getElementById('collectiveBalance');
-    if (collectiveEl) collectiveEl.textContent = `₦${Number(data.collectiveBalance || 0).toLocaleString('en-NG')}`;
+    if (collectiveEl) {
+      collectiveEl.textContent = `₦${Number(data.collectiveBalance || 0).toLocaleString('en-NG')}`;
+    }
 
     const todayFundsEl = document.getElementById('todayFunds');
-    if (todayFundsEl) todayFundsEl.textContent = `₦${Number(data.stats?.todayFunds || 0).toLocaleString('en-NG')}`;
+    if (todayFundsEl) {
+      todayFundsEl.textContent = `₦${Number(data.stats?.todayFunds || 0).toLocaleString('en-NG')}`;
+    }
 
     const totalUsersEl = document.getElementById('totalUsers');
-    if (totalUsersEl) totalUsersEl.textContent = Number(data.stats?.totalUsers || 0).toLocaleString('en-NG');
+    if (totalUsersEl) {
+      totalUsersEl.textContent = Number(data.stats?.totalUsers || 0).toLocaleString('en-NG');
+    }
 
     const successTxEl = document.getElementById('successTx');
-    if (successTxEl) successTxEl.textContent = Number(data.stats?.successTx || 0).toLocaleString('en-NG');
+    if (successTxEl) {
+      successTxEl.textContent = Number(data.stats?.successTx || 0).toLocaleString('en-NG');
+    }
 
     console.log("%c✅ Admin Dashboard stats loaded", "color: #00ffaa");
 
@@ -56,12 +66,10 @@ async function loadAdminDashboard() {
   }
 }
 
-// ====================== ADMIN FULL TRANSACTION HISTORY ======================
-
-// Load all users' recent transactions (main Recent Activity)
+// Load Recent Transactions for Admin Dashboard (shows only 10)
 async function loadAdminRecentTransactions() {
   try {
-    const res = await fetch(`${API_BASE}/api/admin/transactions?limit=30`, {
+    const res = await fetch(`${API_BASE}/api/admin/transactions?limit=10`, {
       method: 'GET',
       credentials: 'include'
     });
@@ -71,10 +79,10 @@ async function loadAdminRecentTransactions() {
     const data = await res.json();
     if (!data.ok) throw new Error(data.message || 'Unknown error');
 
-    renderAdminTransactionHistory(data.transactions || []);
+    renderAdminRecentActivity(data.transactions || []);
 
   } catch (err) {
-    console.error("[Admin Transactions] Load error:", err);
+    console.error("[Admin Recent Transactions] Load error:", err);
     const container = document.getElementById('adminNotificationsList');
     if (container) {
       container.innerHTML = `<p style="padding:40px;text-align:center;color:#f66;">Failed to load recent activity</p>`;
@@ -82,8 +90,8 @@ async function loadAdminRecentTransactions() {
   }
 }
 
-// Render transactions in history style (this replaces renderAdminNotifications)
-function renderAdminTransactionHistory(transactions) {
+// Render Recent Activity (compact history-style cards)
+function renderAdminRecentActivity(transactions) {
   const container = document.getElementById('adminNotificationsList');
   if (!container) return;
 
@@ -102,7 +110,7 @@ function renderAdminTransactionHistory(transactions) {
     const amount = Math.abs(Number(tx.amount || 0));
 
     const item = document.createElement('div');
-    item.className = `admin-activity-item tx-item`;   // Reuse tx-item class from history
+    item.className = `admin-activity-item tx-item`;
     item.style.cursor = 'pointer';
 
     item.innerHTML = `
@@ -123,11 +131,7 @@ function renderAdminTransactionHistory(transactions) {
           </div>
         </div>
         <div class="tx-row meta">
-          <div class="tx-time">
-            ${new Date(tx.created_at).toLocaleString('en-NG', { 
-              day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' 
-            })}
-          </div>
+          <div class="tx-time">${formatAdminTime(tx.created_at)}</div>
           <div class="tx-status" data-status="${(tx.status || 'success').toLowerCase()}">
             ${(tx.status || 'SUCCESS').toUpperCase()}
           </div>
@@ -135,16 +139,25 @@ function renderAdminTransactionHistory(transactions) {
       </div>
     `;
 
-    // Click to open receipt (reuses your existing function)
     item.addEventListener('click', () => {
       if (typeof showTransactionReceipt === 'function') {
         showTransactionReceipt(tx);
-      } else {
-        console.log("Receipt modal not available for tx:", tx.reference);
       }
     });
 
     container.appendChild(item);
+  });
+}
+
+// 12-hour time format (e.g., 3:45 PM)
+function formatAdminTime(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('en-NG', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    day: 'numeric',
+    month: 'short'
   });
 }
 
@@ -156,18 +169,22 @@ function switchToAdminTab() {
   const adminContent = document.getElementById('adminDashboardContent');
   if (adminContent) adminContent.classList.remove('hidden');
 
-  // Load stats once
+  // Load data once
   const balanceEl = document.getElementById('collectiveBalance');
   if (balanceEl && !balanceEl.dataset.loaded) {
     loadAdminDashboard();
+    loadAdminRecentTransactions();
     balanceEl.dataset.loaded = 'true';
   }
-
-  // Load recent transactions (this is the main "Recent Activity")
-  loadAdminRecentTransactions();
 }
 
-// Initialize
+// "View All" button → Open full History Modal in Admin Mode
+document.getElementById('viewAllNotificationsBtn')?.addEventListener('click', () => {
+  window.isAdminViewingHistory = true;   // This flag will be used in history.js
+  ModalManager.openModal('historyModal');
+});
+
+// Initialize Admin Features
 async function initAdminFeatures() {
   const isAdminUser = await checkAdminStatus();
   if (!isAdminUser) return;
