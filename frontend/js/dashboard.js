@@ -3886,7 +3886,6 @@ if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
   setupBroadcastSubscription();
   subscribeToWalletBalance();
   loadLatestHistoryAsFallback();
-  loadAdminFullHistory();
   await loadInitialUserTotals();
   subscribeToUserRealtime();
 

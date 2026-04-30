@@ -565,7 +565,7 @@ window.resolvePreloadWaiters = resolvePreloadWaiters; // optional for debugging
     return text.length > maxChars ? text.slice(0, maxChars) + '…' : text;
   }
 
-  function makeTxNode(tx) {
+ function makeTxNode(tx) {
     try {
         const safeTruncate = (text) => {
             if (typeof truncateDescription === 'function') return truncateDescription(text);
@@ -639,7 +639,10 @@ window.resolvePreloadWaiters = resolvePreloadWaiters; // optional for debugging
             </div>
             <div class="tx-content">
                 <div class="tx-row">
-                    <div class="tx-desc" title="${rawDesc}">${truncatedDesc}</div>
+                    <div class="tx-desc" title="${rawDesc}">
+                        ${tx.user_name ? `<strong style="color:#00d4ff">${tx.user_name}</strong> • ` : ''}
+                        ${truncatedDesc}
+                    </div>
                     <div class="tx-amount ${isCredit ? 'credit' : 'debit'}" title="${amountObj.full}">
                         ${isCredit ? '+' : '-'} ${amountObj.display}
                     </div>
@@ -2014,77 +2017,64 @@ function createMonthPickerModal() {
     }
   });
 
-  async function handleModalOpened() {
+ async function handleModalOpened() {
   state.open = true;
   selectedMonth = null;
 
-  // Fast open: no loading spinner
   hide(loadingEl);
   if (state.items.length === 0) {
     show(emptyEl);
   }
 
-  // === ADMIN MODE DETECTION ===
   const isAdminMode = window.isAdminViewingHistory === true;
 
   if (isAdminMode) {
-    console.log("%c[ADMIN HISTORY MODE ACTIVATED] Loading ALL users transactions", "color: #00ffaa; font-weight: bold; font-size: 15px;");
+    console.log("%c[ADMIN FULL HISTORY MODE] Activated", "color: #00ffaa; font-weight: bold");
     
-    // Override endpoint for admin
-    CONFIG.apiEndpoint = `${API_BASE || 'https://api.flexgig.com.ng'}/api/admin/transactions`;
-    
-    // Clear previous data to force fresh load
-    state.items = [];
-    state.fullHistoryLoaded = false;
-    hasMorePages = true;
-    currentPage = 1;
+    // Load all users transactions only once
+    if (state.items.length === 0) {
+      await loadAdminFullHistory();
+    }
   } else {
     // Normal user mode
     CONFIG.apiEndpoint = 'https://api.flexgig.com.ng/api/transactions';
+    subscribeToTransactions(true);
+    applyTransformsAndRender();
   }
-
-  // Force reload realtime subscription
-  subscribeToTransactions(true);
-
-  // Render current state
-  applyTransformsAndRender();
 
   console.log(`[TransactionHistory] Modal opened → adminMode: ${isAdminMode}, items: ${state.items.length}`);
 
-  // Load monthly_history ONLY for normal users
+  // Reset flag after loading
+  if (isAdminMode) {
+    setTimeout(() => {
+      window.isAdminViewingHistory = false;
+    }, 1000);
+  }
+
+  // Load monthly_history only for normal users
   if (!isAdminMode) {
-    const uid = window.__USER_UID ||
-                localStorage.getItem('userId') ||
-                JSON.parse(localStorage.getItem('userData') || '{}')?.uid ||
-                null;
+    const uid = window.__USER_UID || localStorage.getItem('userId') || 
+                JSON.parse(localStorage.getItem('userData') || '{}')?.uid || null;
 
     if (uid && uid.includes('-')) {
       try {
         const authClient = await getSharedAuthClient();
         if (authClient) {
-          const { data, error } = await authClient
+          const { data } = await authClient
             .from('users')
             .select('monthly_history')
             .eq('uid', uid)
             .single();
 
-          if (!error && data?.monthly_history) {
+          if (data?.monthly_history) {
             window.monthlyHistory = Array.isArray(data.monthly_history) ? data.monthly_history : [];
             refreshMonthHeaders();
           }
         }
       } catch (err) {
-        console.error('[Modal Open] monthly_history fetch failed:', err);
+        console.error('[Modal Open] monthly_history error:', err);
       }
     }
-  }
-
-  // Reset admin flag after a short delay
-  if (isAdminMode) {
-    setTimeout(() => {
-      window.isAdminViewingHistory = false;
-      console.log("[Admin History] Flag reset");
-    }, 800);
   }
 }
 const container = document.getElementById('historyList');
