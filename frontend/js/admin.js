@@ -7,7 +7,7 @@ async function checkAdminStatus() {
   try {
     const res = await fetch(`${API_BASE}/api/admin/test`, {
       method: 'GET',
-      credentials: 'include' // ✅ cookie-based auth ONLY
+      credentials: 'include'
     });
 
     console.log(`[Admin Check] Status: ${res.status}`);
@@ -30,12 +30,13 @@ async function checkAdminStatus() {
   return false;
 }
 
+
 // Load Admin Dashboard Data
 async function loadAdminDashboard() {
   try {
     const res = await fetch(`${API_BASE}/api/admin/dashboard`, {
       method: 'GET',
-      credentials: 'include' // ✅ cookie-based auth ONLY
+      credentials: 'include'
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -44,21 +45,35 @@ async function loadAdminDashboard() {
 
     if (!data.ok) throw new Error(data.message || 'Unknown error');
 
-    // Update Balances
-    document.getElementById('collectiveBalance').textContent =
-      `₦${Number(data.collectiveBalance || 0).toLocaleString('en-NG')}`;
+    // ======================
+    // SAFE DOM UPDATES
+    // ======================
 
-    document.getElementById('personalBalance').textContent =
-      `₦${Number(data.personalBalance || 0).toLocaleString('en-NG')}`;
+    const collectiveEl = document.getElementById('collectiveBalance');
+    if (collectiveEl) {
+      collectiveEl.textContent =
+        `₦${Number(data.collectiveBalance || 0).toLocaleString('en-NG')}`;
+    }
 
-    // Update Stats
-    document.getElementById('todayFunds').textContent =
-      `₦${Number(data.stats?.todayFunds || 0).toLocaleString('en-NG')}`;
+    const todayFundsEl = document.getElementById('todayFunds');
+    if (todayFundsEl) {
+      todayFundsEl.textContent =
+        `₦${Number(data.stats?.todayFunds || 0).toLocaleString('en-NG')}`;
+    }
 
-    document.getElementById('totalUsers').textContent =
-      Number(data.stats?.totalUsers || 0).toLocaleString('en-NG');
+    const totalUsersEl = document.getElementById('totalUsers');
+    if (totalUsersEl) {
+      totalUsersEl.textContent =
+        Number(data.stats?.totalUsers || 0).toLocaleString('en-NG');
+    }
 
-    // Render Notifications
+    const successTxEl = document.getElementById('successTx');
+    if (successTxEl) {
+      successTxEl.textContent =
+        Number(data.stats?.successTx || 0).toLocaleString('en-NG');
+    }
+
+    // Render notifications
     renderAdminNotifications(data.notifications || []);
 
     console.log("%c✅ Admin Dashboard loaded successfully", "color: #00ffaa");
@@ -68,6 +83,7 @@ async function loadAdminDashboard() {
   }
 }
 
+
 // Render notifications
 function renderAdminNotifications(notifications) {
   const container = document.getElementById('adminNotificationsList');
@@ -75,8 +91,11 @@ function renderAdminNotifications(notifications) {
 
   container.innerHTML = '';
 
-  if (notifications.length === 0) {
-    container.innerHTML = `<p style="padding:20px;text-align:center;color:#888;">No recent activity</p>`;
+  if (!notifications.length) {
+    container.innerHTML = `
+      <p style="padding:20px;text-align:center;color:#888;">
+        No recent activity
+      </p>`;
     return;
   }
 
@@ -93,6 +112,7 @@ function renderAdminNotifications(notifications) {
         <div class="notif-icon ${isFund ? 'fund' : 'purchase'}">
           ${isFund ? '↑' : '↓'}
         </div>
+
         <div class="notif-info">
           <div class="notif-user">${notif.user_name || 'Unknown'}</div>
           <div class="notif-desc">${notif.description || ''}</div>
@@ -104,6 +124,7 @@ function renderAdminNotifications(notifications) {
           </div>
         </div>
       </div>
+
       <div class="notif-amount ${amountClass}">
         ${amountSign}₦${Math.abs(Number(notif.amount || 0)).toLocaleString('en-NG')}
       </div>
@@ -113,12 +134,16 @@ function renderAdminNotifications(notifications) {
   });
 }
 
+
 // Switch to Admin Tab
 function switchToAdminTab() {
   document.querySelectorAll('.user-profile-dashboard-content, #adminDashboardContent')
     .forEach(el => el.classList.add('hidden'));
 
-  document.getElementById('adminDashboardContent').classList.remove('hidden');
+  const adminContent = document.getElementById('adminDashboardContent');
+  if (adminContent) {
+    adminContent.classList.remove('hidden');
+  }
 
   // Load data once
   const balanceEl = document.getElementById('collectiveBalance');
@@ -127,6 +152,7 @@ function switchToAdminTab() {
     balanceEl.dataset.loaded = 'true';
   }
 }
+
 
 // Initialize
 async function initAdminFeatures() {
@@ -141,7 +167,6 @@ async function initAdminFeatures() {
 
       switchToAdminTab();
 
-      // Remove active from others
       document.querySelectorAll('.bottom-nav .nav-item')
         .forEach(item => item.classList.remove('active'));
 
@@ -149,6 +174,7 @@ async function initAdminFeatures() {
     });
   }
 }
+
 
 // Run on load
 document.addEventListener('DOMContentLoaded', initAdminFeatures);
