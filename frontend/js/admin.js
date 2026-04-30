@@ -121,9 +121,15 @@ function formatAdminTime(iso) {
 }
 
 // View All → Open History Modal in Admin Mode
+// "View All" button
 document.getElementById('viewAllNotificationsBtn')?.addEventListener('click', () => {
-  window.isAdminViewingHistory = true;   // This flag tells history.js to load ALL transactions
+  window.isAdminViewingHistory = true;
   ModalManager.openModal('historyModal');
+  
+  // Force load admin history after modal opens
+  setTimeout(() => {
+    loadAdminFullHistory();
+  }, 600);
 });
 
 // Switch to Admin Tab

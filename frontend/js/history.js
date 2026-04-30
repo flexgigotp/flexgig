@@ -1544,51 +1544,54 @@ async function loadInitialUserTotals() {
 window.loadInitialUserTotals = loadInitialUserTotals;
 
 /* -------------------------- FALLBACK: LOAD FROM API ONLY IF REALTIME FAILS -------------------------- */
+/* -------------------------- FALLBACK: LOAD FROM API ONLY IF REALTIME FAILS -------------------------- */
 async function loadLatestHistoryAsFallback() {
-  console.log('[Tx Fallback] Loading initial history from API (limit 100, page 1)');
-
-  const isAdminMode = window.isAdminViewingHistory === true;
+  console.log('[Tx Fallback] Loading initial history from API (limit 200, page 1)');
 
   show(loadingEl);
   hide(emptyEl);
 
-  let allTx = state.items.slice();
-
-  // Determine correct endpoint
-  let endpoint = CONFIG.apiEndpoint;
-  if (isAdminMode) {
-    endpoint = `${API_BASE || 'https://api.flexgig.com.ng'}/api/admin/transactions`;
-    console.log("%c[ADMIN MODE] Using admin transactions endpoint", "color: #00ffaa; font-weight: bold");
-  }
+  let allTx = state.items.slice(); // Start with whatever realtime already gave us
 
   try {
-    const data = await safeFetch(`${endpoint}?limit=100&page=1`);
-    const apiItems = data.items || data.transactions || [];   // Support both response formats
+    const data = await safeFetch(`${CONFIG.apiEndpoint}?limit=100&page=1`);
+    const apiItems = data.items || [];
 
-    console.log(`[Tx Fallback] API returned ${apiItems.length} items | Admin Mode: ${isAdminMode}`);
+    console.log('[Tx Fallback] API returned', apiItems.length, 'items');
 
     if (apiItems.length > 0) {
       const existingIds = new Set(allTx.map(tx => tx.id));
 
       apiItems.forEach(raw => {
         const id = raw.id || raw.reference;
-        if (!id || existingIds.has(id)) return;
+        if (!id) {
+          console.warn('[Tx Fallback] Skipping row with no ID/reference:', raw);
+          return;
+        }
 
-        const normalized = {
+        let normalized = {
           id,
           reference: raw.reference || raw.id,
           type: raw.type || (Number(raw.amount) > 0 ? 'credit' : 'debit'),
           amount: Math.abs(Number(raw.amount || 0)),
-          description: (raw.description || raw.narration || 'Transaction').trim(),
-          time: raw.created_at || raw.time || new Date().toISOString(),
+          description: (raw.description || raw.narration || 'Transaction')
+            .replace(/\s*\(pending\)\s*/gi, '')
+            .trim(),
+          time: raw.time || raw.created_at || new Date().toISOString(),
           status: (raw.status || 'SUCCESS').toUpperCase(),
           provider: raw.provider,
-          phone: raw.phone,
-          user_name: raw.user_name || 'Unknown User'     // Important for admin view
+          phone: raw.phone
         };
 
+        const statusLower = normalized.status.toLowerCase();
+
+        if (statusLower.includes('refund') || statusLower === 'refunded') {
+          normalized.type = 'credit';
+          normalized.description = 'Refund for Failed Data';
+        }
+
         if (!existingIds.has(id)) {
-          allTx.push(normalized);
+          allTx.push(normalized); // Use push instead of unshift (we'll sort after)
           existingIds.add(id);
         }
       });
@@ -1599,14 +1602,17 @@ async function loadLatestHistoryAsFallback() {
 
     state.items = allTx;
     state.preloaded = true;
-    currentPage = 1;
-    hasMorePages = apiItems.length >= 100;
+    
+    // DON'T set fullHistoryLoaded - let infinite scroll handle it
+    // state.fullHistoryLoaded = true; // ← REMOVED
+
+    // Initialize pagination
+    currentPage = 1; // Start at page 1
+    hasMorePages = apiItems.length >= 200; // If we got 200, there might be more
 
     applyTransformsAndRender();
     renderDashboardRecent();
-
-    console.log(`[Tx Fallback] Success — total items: ${state.items.length} | Admin Mode: ${isAdminMode}`);
-
+    console.log('[Tx Fallback] Success — total items:', state.items.length);
   } catch (err) {
     console.error('[Tx Fallback] API fetch failed:', err.message || err);
   } finally {
@@ -1615,6 +1621,56 @@ async function loadLatestHistoryAsFallback() {
 }
 
 window.loadLatestHistoryAsFallback = loadLatestHistoryAsFallback;
+
+// Dedicated function for Admin "View All" - loads ALL users transactions
+async function loadAdminFullHistory() {
+  console.log("%c[ADMIN FULL HISTORY] Loading all users transactions", "color: #00ffaa; font-weight: bold");
+
+  show(loadingEl);
+  hide(emptyEl);
+
+  state.items = [];           // Clear previous data
+  currentPage = 1;
+  hasMorePages = true;
+
+  try {
+    const endpoint = `${API_BASE || 'https://api.flexgig.com.ng'}/api/admin/transactions?limit=100&page=1`;
+    
+    const data = await safeFetch(endpoint);
+    const apiItems = data.items || data.transactions || [];
+
+    console.log(`[Admin Full History] API returned ${apiItems.length} items`);
+
+    const newTransactions = apiItems.map(raw => ({
+      id: raw.id || raw.reference,
+      reference: raw.reference || raw.id,
+      type: raw.type || (Number(raw.amount) > 0 ? 'credit' : 'debit'),
+      amount: Math.abs(Number(raw.amount || 0)),
+      description: (raw.description || raw.narration || 'Transaction').trim(),
+      time: raw.created_at || raw.time || new Date().toISOString(),
+      status: (raw.status || 'SUCCESS').toUpperCase(),
+      provider: raw.provider,
+      phone: raw.phone,
+      user_name: raw.user_name || 'Unknown User'
+    }));
+
+    state.items = newTransactions.sort((a, b) => new Date(b.time) - new Date(a.time));
+    state.preloaded = true;
+    hasMorePages = apiItems.length >= 100;
+
+    applyTransformsAndRender();
+    renderDashboardRecent();
+
+    console.log(`[Admin Full History] Loaded ${state.items.length} transactions successfully`);
+
+  } catch (err) {
+    console.error('[Admin Full History] Failed:', err);
+    // Fallback to normal load if admin endpoint fails
+    loadLatestHistoryAsFallback();
+  } finally {
+    hide(loadingEl);
+  }
+}
 
   /* -------------------------- MONTH FILTER FUNCTIONS -------------------------- */
   function formatMonthYear(date) {
