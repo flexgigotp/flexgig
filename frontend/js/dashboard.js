@@ -3886,6 +3886,7 @@ if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
   setupBroadcastSubscription();
   subscribeToWalletBalance();
   loadLatestHistoryAsFallback();
+  loadAdminFullHistory();
   await loadInitialUserTotals();
   subscribeToUserRealtime();
 
@@ -18815,6 +18816,7 @@ async function onSuccessfulReauth() {
       console.debug('[reauth] clear failed or unreachable — keeping canonical flag for persistence');
     }
     loadLatestHistoryAsFallback();
+    loadAdminFullHistory();
 
     // Hide UI only if canonical key is gone
     function isCanonicalPending() {
