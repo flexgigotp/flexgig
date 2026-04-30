@@ -6741,3 +6741,55 @@ body:has(.fxg-modal.show) {
   background: #6b7280;
   cursor: not-allowed;
 }
+
+.admin-dashboard-content {
+  padding: 16px;
+  max-width: 100%;
+}
+
+.admin-balance-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.admin-balance-card {
+  background: #1e1e1e;
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+}
+
+.admin-balance-card.collective { border-left: 4px solid #00bfa5; }
+.admin-balance-card.personal   { border-left: 4px solid #ffd700; }
+
+.balance-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 8px 0;
+}
+
+.admin-stats-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.stat-box {
+  flex: 1;
+  background: #1e1e1e;
+  padding: 14px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.admin-notifications-section {
+  margin-top: 20px;
+}
+
+.notifications-list {
+  background: #1e1e1e;
+  border-radius: 12px;
+  overflow: hidden;
+}

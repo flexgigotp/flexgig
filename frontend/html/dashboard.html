@@ -1865,6 +1865,59 @@
 </div>
 
 
+<!-- ====================== ADMIN DASHBOARD ====================== -->
+<div id="adminDashboardContent" class="admin-dashboard-content hidden">
+
+  <div class="admin-header">
+    <h2>Admin Dashboard</h2>
+    <div class="admin-user-info">
+      <span id="adminUsername"></span>
+    </div>
+  </div>
+
+  <!-- Balance Cards -->
+  <div class="admin-balance-grid">
+    <!-- Collective Balance -->
+    <div class="admin-balance-card collective">
+      <div class="card-label">Collective Balance</div>
+      <div class="balance-value" id="collectiveBalance">₦0.00</div>
+      <div class="card-sub">All users combined</div>
+    </div>
+
+    <!-- Your Personal Balance -->
+    <div class="admin-balance-card personal">
+      <div class="card-label">Your Balance</div>
+      <div class="balance-value" id="personalBalance">₦0.00</div>
+      <div class="card-sub">Your personal wallet</div>
+    </div>
+  </div>
+
+  <!-- Quick Stats -->
+  <div class="admin-stats-row">
+    <div class="stat-box">
+      <div class="stat-value" id="todayFunds">₦0</div>
+      <div class="stat-label">Today's Funding</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value" id="totalUsers">0</div>
+      <div class="stat-label">Total Users</div>
+    </div>
+  </div>
+
+  <!-- Recent Notifications -->
+  <div class="admin-notifications-section">
+    <div class="section-header">
+      <h3>Recent Activity</h3>
+      <button id="viewAllNotificationsBtn" class="view-all-btn">View All</button>
+    </div>
+    <div id="adminNotificationsList" class="notifications-list">
+      <!-- Populated by JavaScript -->
+    </div>
+  </div>
+
+</div>
+
+
 </main>
 
 
@@ -1898,6 +1951,13 @@
     <a href="" style="text-decoration: none;" data-close class="nav-item" id="settingsBtn">
       <img src="/frontend/svg/settings.svg" alt="Settings Icon" class="icon svg-inject">
       <span>Settings</span>
+    </a>
+    <!-- Admin Tab - only show if user is admin -->
+    <a href="#admin" id="adminNavLink" class="nav-item admin-only" style="display: none;">
+      <svg xmlns="http://www.w3.org/2000/svg" class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14v6m-3-3h6M6 10h2a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2zm10 0h2a2 2 0 002-2v-2a2 2 0 00-2-2h-2a2 2 0 00-2 2v2a2 2 0 002 2zM6 20h2a2 2 0 002-2v-2a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2z" />
+      </svg>
+      <span>Admin</span>
     </a>
   </nav>
 
