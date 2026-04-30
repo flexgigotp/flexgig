@@ -1544,54 +1544,51 @@ async function loadInitialUserTotals() {
 window.loadInitialUserTotals = loadInitialUserTotals;
 
 /* -------------------------- FALLBACK: LOAD FROM API ONLY IF REALTIME FAILS -------------------------- */
-/* -------------------------- FALLBACK: LOAD FROM API ONLY IF REALTIME FAILS -------------------------- */
 async function loadLatestHistoryAsFallback() {
-  console.log('[Tx Fallback] Loading initial history from API (limit 200, page 1)');
+  console.log('[Tx Fallback] Loading initial history from API (limit 100, page 1)');
+
+  const isAdminMode = window.isAdminViewingHistory === true;
 
   show(loadingEl);
   hide(emptyEl);
 
-  let allTx = state.items.slice(); // Start with whatever realtime already gave us
+  let allTx = state.items.slice();
+
+  // Determine correct endpoint
+  let endpoint = CONFIG.apiEndpoint;
+  if (isAdminMode) {
+    endpoint = `${API_BASE || 'https://api.flexgig.com.ng'}/api/admin/transactions`;
+    console.log("%c[ADMIN MODE] Using admin transactions endpoint", "color: #00ffaa; font-weight: bold");
+  }
 
   try {
-    const data = await safeFetch(`${CONFIG.apiEndpoint}?limit=100&page=1`);
-    const apiItems = data.items || [];
+    const data = await safeFetch(`${endpoint}?limit=100&page=1`);
+    const apiItems = data.items || data.transactions || [];   // Support both response formats
 
-    console.log('[Tx Fallback] API returned', apiItems.length, 'items');
+    console.log(`[Tx Fallback] API returned ${apiItems.length} items | Admin Mode: ${isAdminMode}`);
 
     if (apiItems.length > 0) {
       const existingIds = new Set(allTx.map(tx => tx.id));
 
       apiItems.forEach(raw => {
         const id = raw.id || raw.reference;
-        if (!id) {
-          console.warn('[Tx Fallback] Skipping row with no ID/reference:', raw);
-          return;
-        }
+        if (!id || existingIds.has(id)) return;
 
-        let normalized = {
+        const normalized = {
           id,
           reference: raw.reference || raw.id,
           type: raw.type || (Number(raw.amount) > 0 ? 'credit' : 'debit'),
           amount: Math.abs(Number(raw.amount || 0)),
-          description: (raw.description || raw.narration || 'Transaction')
-            .replace(/\s*\(pending\)\s*/gi, '')
-            .trim(),
-          time: raw.time || raw.created_at || new Date().toISOString(),
+          description: (raw.description || raw.narration || 'Transaction').trim(),
+          time: raw.created_at || raw.time || new Date().toISOString(),
           status: (raw.status || 'SUCCESS').toUpperCase(),
           provider: raw.provider,
-          phone: raw.phone
+          phone: raw.phone,
+          user_name: raw.user_name || 'Unknown User'     // Important for admin view
         };
 
-        const statusLower = normalized.status.toLowerCase();
-
-        if (statusLower.includes('refund') || statusLower === 'refunded') {
-          normalized.type = 'credit';
-          normalized.description = 'Refund for Failed Data';
-        }
-
         if (!existingIds.has(id)) {
-          allTx.push(normalized); // Use push instead of unshift (we'll sort after)
+          allTx.push(normalized);
           existingIds.add(id);
         }
       });
@@ -1602,17 +1599,14 @@ async function loadLatestHistoryAsFallback() {
 
     state.items = allTx;
     state.preloaded = true;
-    
-    // DON'T set fullHistoryLoaded - let infinite scroll handle it
-    // state.fullHistoryLoaded = true; // ← REMOVED
-
-    // Initialize pagination
-    currentPage = 1; // Start at page 1
-    hasMorePages = apiItems.length >= 200; // If we got 200, there might be more
+    currentPage = 1;
+    hasMorePages = apiItems.length >= 100;
 
     applyTransformsAndRender();
     renderDashboardRecent();
-    console.log('[Tx Fallback] Success — total items:', state.items.length);
+
+    console.log(`[Tx Fallback] Success — total items: ${state.items.length} | Admin Mode: ${isAdminMode}`);
+
   } catch (err) {
     console.error('[Tx Fallback] API fetch failed:', err.message || err);
   } finally {
