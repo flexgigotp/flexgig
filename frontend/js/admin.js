@@ -15,8 +15,8 @@ async function checkAdminStatus() {
 
     const res = await fetch(`${API_BASE}/api/admin/test`, {
       method: 'GET',
+      credentials: 'include', // ✅ ONLY THIS
       headers: {
-        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       }
     });
@@ -46,8 +46,8 @@ async function loadAdminDashboard() {
 
     const res = await fetch(`${API_BASE}/api/admin/dashboard`, {
       method: 'GET',
+      credentials: 'include', // ✅ ONLY THIS
       headers: {
-        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       }
     });
