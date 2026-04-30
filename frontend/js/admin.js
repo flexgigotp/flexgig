@@ -1,7 +1,5 @@
 // ====================== ADMIN DASHBOARD LOGIC ======================
 
-const API_BASE = window.__SEC_API_BASE || 'https://api.flexgig.com.ng';
-
 let isAdmin = false;
 
 // Check if current user is admin
