@@ -2785,36 +2785,7 @@ async function subscribeToAdminTransactions() {
           const month = String(date.getMonth() + 1).padStart(2, '0');
           const key = `${year}-${month}`;
 
-          // Find or create the month entry in window.monthlyHistory
-          let entry = window.monthlyHistory.find(e => e.month === key);
-          if (!entry) {
-            entry = { month: key, money_in: 0, money_out: 0 };
-            window.monthlyHistory.unshift(entry);
-            // Keep sorted newest first
-            window.monthlyHistory.sort((a, b) => b.month.localeCompare(a.month));
-          }
-
-          // Update the right bucket
-          if (raw.category === 'wallet_funding') {
-            entry.money_in += amount;
-            console.log(`[Admin Realtime] +₦${amount} money_in for ${key}`);
-
-            // Notify for funding only — real money entering the platform
-            if (typeof notifyAdminNewTransaction === 'function') {
-              notifyAdminNewTransaction({ ...normalized, category: raw.category });
-            }
-
-          } else if (DATA_CATEGORIES.includes(raw.category)) {
-            entry.money_out += amount;
-            console.log(`[Admin Realtime] +₦${amount} data purchase — silent update`);
-            // No notification for data purchases — too frequent, accumulates silently
-
-          } else {
-            // wallet_transfer or unknown — ignore entirely
-            return;
-          }
-
-          // Add to state.items so it shows in the list immediately
+          // ✅ MOVE normalized UP HERE — before any reference to it
           const normalized = {
             id: raw.id || raw.reference,
             reference: raw.reference || raw.id,
@@ -2828,9 +2799,36 @@ async function subscribeToAdminTransactions() {
             user_name: raw.user_name || 'Unknown User'
           };
 
+          // Find or create the month entry
+          let entry = window.monthlyHistory.find(e => e.month === key);
+          if (!entry) {
+            entry = { month: key, money_in: 0, money_out: 0 };
+            window.monthlyHistory.unshift(entry);
+            window.monthlyHistory.sort((a, b) => b.month.localeCompare(a.month));
+          }
+
+          // Update the right bucket
+          if (raw.category === 'wallet_funding') {
+            entry.money_in += amount;
+            console.log(`[Admin Realtime] +₦${amount} money_in for ${key}`);
+
+            // ✅ normalized is now defined — safe to use
+            if (typeof notifyAdminNewTransaction === 'function') {
+              notifyAdminNewTransaction({ ...normalized, category: raw.category });
+            }
+
+          } else if (DATA_CATEGORIES.includes(raw.category)) {
+            entry.money_out += amount;
+            console.log(`[Admin Realtime] +₦${amount} data purchase — silent update`);
+
+          } else {
+            // wallet_transfer or unknown — ignore
+            return;
+          }
+
+          // Add to state and re-render if modal open
           state.items.unshift(normalized);
 
-          // Re-render if modal is open
           if (state.open) {
             applyTransformsAndRender();
             refreshMonthHeaders();
