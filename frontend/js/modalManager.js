@@ -456,6 +456,32 @@ window.setTriggerActive = window.setTriggerActive || setTriggerActive; // expose
     markRecentModification(homeLink);
     log('debug', 'setHomeActive: Set home as active');
   }
+  // Helper: check if admin dashboard is currently the active view
+function isAdminTabActive() {
+  const adminContent = document.getElementById('adminDashboardContent');
+  const adminNavLink = document.getElementById('adminNavLink');
+  return !!(
+    adminContent &&
+    !adminContent.classList.contains('hidden') &&
+    adminNavLink &&
+    adminNavLink.style.display !== 'none'
+  );
+}
+
+function setAdminActive() {
+  const adminNavLink = document.getElementById('adminNavLink');
+  if (!adminNavLink) return;
+  const navItems = document.querySelectorAll('.nav-item');
+  navItems.forEach(item => {
+    item.classList.remove('active');
+    item.removeAttribute('aria-current');
+    markRecentModification(item);
+  });
+  adminNavLink.classList.add('active');
+  adminNavLink.setAttribute('aria-current', 'true');
+  markRecentModification(adminNavLink);
+  log('debug', 'setAdminActive: Set admin nav as active');
+}
 
   // Modal configuration
   const modals = {
@@ -722,9 +748,11 @@ const allPlansModalContent = allPlansModalEl ? allPlansModalEl.querySelector('.p
     } else {
       // No more modals - determine which tab should be active
       const wasNavModal = ['historyModal'].includes(modalId);
-      
-      if (wasNavModal) {
-        // Closing a nav modal = go to home
+
+      if (wasNavModal && isAdminTabActive()) {
+        setAdminActive();
+        log('debug', 'forceCloseModal: Closed historyModal from admin context → restored admin nav');
+      } else if (wasNavModal) {
         setHomeActive();
         log('debug', 'forceCloseModal: Closed nav modal, set home active');
       } else {
@@ -992,9 +1020,12 @@ if (shouldManageActiveState(modalId)) {
     } else {
       // No more modals - determine which tab should be active based on where we came from
       const wasNavModal = ['historyModal'].includes(modalId);
-      
-      if (wasNavModal) {
-        // Closing a nav modal with no stack = go to home
+
+      if (wasNavModal && isAdminTabActive()) {
+        // Came from admin's "View All" — restore admin nav
+        setAdminActive();
+        log('debug', 'closeModal: Closed historyModal from admin context → restored admin nav');
+      } else if (wasNavModal) {
         setHomeActive();
         log('debug', 'closeModal: Closed nav modal, set home active');
       } else {
@@ -1006,46 +1037,51 @@ if (shouldManageActiveState(modalId)) {
           log('debug', 'closeModal: Keeping current active tab');
         }
       }
-        if (bottomSheetModals.includes(modalId)) {
-  lockBodyScroll(false);
-}
 
-  // ADD THIS: Remove CSS animation class
-if (classAnimatedModals.includes(modalId)) {
-  modal.classList.remove('open');
-  log('debug', `closeModal: Removed .open class for ${modalId}`);
-}
+      if (bottomSheetModals.includes(modalId)) {
+        lockBodyScroll(false);
+      }
 
-      
+      if (classAnimatedModals.includes(modalId)) {
+        modal.classList.remove('open');
+        log('debug', `closeModal: Removed .open class for ${modalId}`);
+      }
+
       const main = document.getElementById('mainContent') || document.querySelector('main') || document.body;
       try { main.focus(); } catch (e) { document.body.focus(); }
     }
     // ── Final safety net: when no modals remain → home MUST be active ────────────
 if (openModalsStack.length === 0) {
-    setTimeout(() => {
-        // Check current reality (after all classList changes have had time to apply)
-        const anyNavActive = document.querySelector(
-            '#homeNavLink.active, .nav-item.active, [aria-current="true"]'
-        );
+  setTimeout(() => {
+    const anyNavActive = document.querySelector(
+      '#homeNavLink.active, #adminNavLink.active, .nav-item.active, [aria-current="true"]'
+    );
 
-        if (!anyNavActive) {
-            log('warn', 
-                'Safety net triggered: modal stack empty but NO active nav found → forcing home active'
-            );
-            setHomeActive();
-            
-            // Optional: extra strong version that clears everything first
-            // document.querySelectorAll('.nav-item, [aria-current]').forEach(el => {
-            //     clearActiveFromElement(el);
-            // });
-            // setHomeActive();
-        } else if (!anyNavActive.id?.includes('home') && !anyNavActive.classList.contains('home')) {
-            log('debug', 
-                'Safety net: stack empty, but active state is on non-home → correcting to home'
-            );
-            setHomeActive();
-        }
-    }, 80);   // small delay — enough for DOM/classList to settle, not noticeable to user
+    if (!anyNavActive) {
+      // Nothing is active at all — check admin context first, then fall back to home
+      if (isAdminTabActive()) {
+        log('warn', 'Safety net: stack empty, admin tab visible but no active nav → forcing admin active');
+        setAdminActive();
+      } else {
+        log('warn', 'Safety net: stack empty, no active nav → forcing home active');
+        setHomeActive();
+      }
+    } else {
+      // Something is active — only correct if it's wrong
+      const adminActive = document.querySelector('#adminNavLink.active');
+      const homeActive = document.querySelector('#homeNavLink.active');
+
+      if (!adminActive && !homeActive && isAdminTabActive()) {
+        // A non-nav element is active while admin tab is showing — correct it
+        log('debug', 'Safety net: wrong element active while admin showing → correcting to admin');
+        setAdminActive();
+      } else if (!adminActive && !homeActive) {
+        log('debug', 'Safety net: non-nav element active, no special context → correcting to home');
+        setHomeActive();
+      }
+      // Otherwise: correct nav tab is already active, leave it alone
+    }
+  }, 80);
 }
   });
 
@@ -1217,8 +1253,13 @@ log('debug', 'handlePopstate: openModalsStack snapshot', { stack: openModalsStac
     log('debug', `handlePopstate: Updated stack: ${openModalsStack.map((item) => item.id).join(', ')}, depth: ${currentDepth}`);
     if (openModalsStack.length === 0) {
       history.replaceState({ isModal: false }, '', window.location.href);
-      setHomeActive();
-      log('debug', 'handlePopstate: Reset history state and set home active');
+      if (isAdminTabActive()) {
+        setAdminActive();
+        log('debug', 'handlePopstate: Stack empty, admin tab active → set admin nav active');
+      } else {
+        setHomeActive();
+        log('debug', 'handlePopstate: Stack empty → set home active');
+      }
     } else {
       history.replaceState(
         {

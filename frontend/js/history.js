@@ -2511,7 +2511,9 @@ subscribeToTransactions();
     emptyEl?.classList.add('hidden');
 
     // Take newest 10
-    const recent10 = state.items.slice(0, 10);
+    const recent10 = state.items
+  .filter(tx => !tx.user_name) // exclude admin-loaded transactions
+  .slice(0, 10);
 
     const fragment = document.createDocumentFragment();
 
