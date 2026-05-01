@@ -126,46 +126,32 @@ function generateFakeTransactions() {
     preloadingInProgress: false
   };
 
-    window.monthlyHistory = []; 
+  window.monthlyHistory = []; 
 
-  /* -------------------------- REALTIME VARIABLES (MUST BE AT THE TOP) -------------------------- */
-  let txRealtimeChannel = null;
-  let txIsSubscribing = false;
-  let txRetryTimer = null;
-  let lastTxHealthy = 0;
-  let realtimeFailedCount = 0;
-  let txIsIntentionalClose = false;
-
-  const TX_RETRY_MS = 15000;
-  const TX_HEALTHY_THRESHOLD = 5000;
-
-  let preloadWaiters = [];
-
-  /* -------------------------- MODAL OBSERVER -------------------------- */
   if (modal) {
-    const modalObserver = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-          const isHidden = modal.classList.contains('hidden');
-          if (!isHidden && !state.open) {
-            console.log('[TransactionHistory] Modal shown via observer → handling open');
-            handleModalOpened();
-          } else if (isHidden && state.open) {
-            console.log('[TransactionHistory] Modal hidden via observer → setting state.open = false');
-            state.open = false;
-          }
+  const modalObserver = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+        const isHidden = modal.classList.contains('hidden');
+        if (!isHidden && !state.open) {
+          console.log('[TransactionHistory] Modal shown via observer → handling open');
+          handleModalOpened();
+        } else if (isHidden && state.open) {
+          console.log('[TransactionHistory] Modal hidden via observer → setting state.open = false');
+          state.open = false;
         }
-      });
+      }
     });
+  });
 
-    modalObserver.observe(modal, { attributes: true, attributeFilter: ['class'] });
+  modalObserver.observe(modal, { attributes: true, attributeFilter: ['class'] });
 
-    // Initial check
-    if (!modal.classList.contains('hidden')) {
-      console.log('[TransactionHistory] Modal already open on init → handling');
-      handleModalOpened();
-    }
+  // Initial check (if modal already open on load)
+  if (!modal.classList.contains('hidden')) {
+    console.log('[TransactionHistory] Modal already open on init → handling');
+    handleModalOpened();
   }
+}
 
   /* -------------------------- MONTH FILTER STATE - DEFAULT TO CURRENT MONTH -------------------------- */
   const today = new Date();
@@ -684,7 +670,6 @@ window.resolvePreloadWaiters = resolvePreloadWaiters; // optional for debugging
     }
 }
 
-
 function showTransactionReceipt(tx) {
     let modal = document.getElementById('receiptModal');
     if (!modal) {
@@ -784,9 +769,6 @@ function showTransactionReceipt(tx) {
            </div>` 
         : '';
 
-    // ────────────────────────────────────────────────
-    // Receipt Content
-    // ────────────────────────────────────────────────
     const receiptContent = `
         <div style="width:100%; min-height:100%; display:flex; flex-direction:column; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#000;">
             <!-- Top Header Bar -->
@@ -976,9 +958,10 @@ function showTransactionReceipt(tx) {
     ModalManager.openModal('receiptModal');
 }
 
-
-
-
+function reportTransactionIssue(txId) {
+    alert('Report issue for transaction ' + txId + '\n\nThis will open support chat in production');
+    ModalManager.closeModal('receiptModal');
+}
 
 window.showTransactionReceipt = showTransactionReceipt;
 window.reportTransactionIssue = reportTransactionIssue;
@@ -2230,7 +2213,12 @@ document.addEventListener('transaction_update', (e) => {
 // REAL-TIME TRANSACTIONS SUBSCRIPTION – WALLET-STYLE (PROVEN)
 // ────────────────────────────────────────────────
 
-
+let txRealtimeChannel = null;
+let txIsSubscribing = false;
+let txRetryTimer = null;
+let lastTxHealthy = 0;
+let realtimeFailedCount = 0;
+let txIsIntentionalClose = false;
 
 const TX_RETRY_MS = 15000;
 const TX_HEALTHY_THRESHOLD = 5000;

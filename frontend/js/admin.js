@@ -128,17 +128,32 @@ document.getElementById('viewAllNotificationsBtn')?.addEventListener('click', ()
 
 // Switch to Admin Tab
 function switchToAdminTab() {
-  document.querySelectorAll('.user-profile-dashboard-content, #adminDashboardContent')
-    .forEach(el => el.classList.add('hidden'));
-
+  document.querySelector('.user-profile-dashboard-content')?.classList.add('hidden');  // ← ADD THIS
   document.getElementById('adminDashboardContent').classList.remove('hidden');
 
+  // Let ModalManager know — clear its active state then set admin
+  document.querySelectorAll('.bottom-nav .nav-item').forEach(item => {
+    item.classList.remove('active');
+    item.removeAttribute('aria-current');
+  });
+  const adminNav = document.getElementById('adminNavLink');
+  if (adminNav) {
+    adminNav.classList.add('active');
+    adminNav.setAttribute('aria-current', 'true');
+  }
+
+  // load stats only once
   const balanceEl = document.getElementById('collectiveBalance');
   if (balanceEl && !balanceEl.dataset.loaded) {
     loadAdminDashboard();
     loadAdminRecentTransactions();
     balanceEl.dataset.loaded = 'true';
   }
+}
+
+function switchToHomeTab() {
+  document.getElementById('adminDashboardContent')?.classList.add('hidden');
+  document.querySelector('.user-profile-dashboard-content')?.classList.remove('hidden');
 }
 
 // Initialize

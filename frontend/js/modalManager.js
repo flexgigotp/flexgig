@@ -1479,6 +1479,7 @@ document.addEventListener('click', (e) => {
         }
         
         setHomeActive();
+        if (typeof switchToHomeTab === 'function') switchToHomeTab();
       });
       
       log('debug', 'initialize: Bound home button to close all modals');
