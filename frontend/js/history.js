@@ -2025,6 +2025,7 @@ function createMonthPickerModal() {
   if (isAdminMode) {
     console.log("%c[ADMIN FULL HISTORY MODE] Activated", "color: #00ffaa; font-weight: bold");
     await loadAdminFullHistory();
+    refreshMonthHeaders();
   } else {
     // If previous load was an admin load, wipe it
     if (state.items.some(tx => tx.user_name)) {

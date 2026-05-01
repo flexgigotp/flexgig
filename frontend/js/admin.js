@@ -120,12 +120,29 @@ function formatAdminTime(iso) {
   });
 }
 
+async function loadAdminMonthlyHistory() {
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/monthly-history`, {
+      credentials: 'include'
+    });
+    const data = await res.json();
+
+    if (data.ok && Array.isArray(data.monthly_history)) {
+      window.monthlyHistory = data.monthly_history;
+      console.log('[Admin Monthly] Loaded:', window.monthlyHistory.length, 'months');
+    }
+  } catch (err) {
+    console.error('[Admin Monthly] Failed to load:', err);
+  }
+}
+
 // "View All" button → Open History Modal in Admin Mode
-// "View All" button → Open History Modal in Admin Mode
-document.getElementById('viewAllNotificationsBtn')?.addEventListener('click', () => {
+document.getElementById('viewAllNotificationsBtn')?.addEventListener('click', async () => {
   window.isAdminViewingHistory = true;
+  await loadAdminMonthlyHistory(); // load admin-wide monthly totals before opening
   ModalManager.openModal('historyModal');
 });
+
 
 // Switch to Admin Tab
 function switchToAdminTab() {
