@@ -2007,11 +2007,18 @@ function createMonthPickerModal() {
     }
   });
 
- async function handleModalOpened() {
+ let _adminModalHandling = false;
+
+async function handleModalOpened() {
+  if (_adminModalHandling) {
+    console.log('[TransactionHistory] handleModalOpened skipped — already handling');
+    return;
+  }
+  _adminModalHandling = true;
+
   state.open = true;
   selectedMonth = null;
 
-  // Capture and immediately clear the flag — read once, reset at once
   const isAdminMode = window.isAdminViewingHistory === true;
   window.isAdminViewingHistory = false;
 
@@ -2024,8 +2031,26 @@ function createMonthPickerModal() {
 
   if (isAdminMode) {
     console.log("%c[ADMIN FULL HISTORY MODE] Activated", "color: #00ffaa; font-weight: bold");
+    state.items = [];
     await loadAdminFullHistory();
+
+    // Wait for monthlyHistory to be populated by loadAdminMonthlyHistory
+    // (called in admin.js before openModal, but may still be in-flight due to race)
+    const waitForMonthly = () => new Promise(resolve => {
+      if (window.monthlyHistory?.length) return resolve();
+      let attempts = 0;
+      const interval = setInterval(() => {
+        attempts++;
+        if (window.monthlyHistory?.length || attempts >= 20) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 100); // check every 100ms, up to 2 seconds total
+    });
+
+    await waitForMonthly();
     refreshMonthHeaders();
+
   } else {
     // If previous load was an admin load, wipe it
     if (state.items.some(tx => tx.user_name)) {
@@ -2059,6 +2084,8 @@ function createMonthPickerModal() {
       }
     }
   }
+
+  _adminModalHandling = false;
 }
 const container = document.getElementById('historyList');
 
