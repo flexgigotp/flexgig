@@ -2011,6 +2011,11 @@ function createMonthPickerModal() {
   state.open = true;
   selectedMonth = null;
 
+    // Capture and immediately clear the flag — read once, reset at once
+  const isAdminMode = window.isAdminViewingHistory === true;
+  window.isAdminViewingHistory = false; // ← move reset HERE, before any async work
+
+
   hide(loadingEl);
   if (state.items.length === 0) {
     show(emptyEl);
@@ -2039,6 +2044,19 @@ function createMonthPickerModal() {
     setTimeout(() => {
       window.isAdminViewingHistory = false;
     }, 1000);
+  }
+
+  if (isAdminMode) {
+    state.items = []; // always start fresh for admin view
+    await loadAdminFullHistory();
+  } else {
+    // If previous load was an admin load, wipe it
+    if (state.items.some(tx => tx.user_name)) {
+      state.items = [];
+    }
+    CONFIG.apiEndpoint = 'https://api.flexgig.com.ng/api/transactions';
+    subscribeToTransactions(true);
+    applyTransformsAndRender();
   }
 
   // Load monthly_history only for normal users
