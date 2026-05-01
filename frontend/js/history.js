@@ -2745,6 +2745,10 @@ async function subscribeToUserRealtime(force = false) {
 // ────────────────────────────────────────────────
 
 let adminRealtimeChannel = null;
+Object.defineProperty(window, 'adminRealtimeChannel', {
+  get: () => adminRealtimeChannel,
+  configurable: true
+});
 let adminIsSubscribing = false;
 
 const DATA_CATEGORIES = ['AWOOF', 'CG', 'GIFTING', 'special', 'STANDARD'];
