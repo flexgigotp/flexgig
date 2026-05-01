@@ -26,26 +26,35 @@ async function checkAdminStatus() {
 
 // Load Admin Stats
 async function loadAdminDashboard() {
-  try {
-    const res = await fetch(`${API_BASE}/api/admin/dashboard`, { credentials: 'include' });
-    const data = await res.json();
+  const res = await fetch(`${API_BASE}/api/admin/dashboard`, { credentials: 'include' });
+  const data = await res.json();
 
-    if (data.ok) {
-      document.getElementById('collectiveBalance').textContent = 
-        `₦${Number(data.collectiveBalance || 0).toLocaleString('en-NG')}`;
+  if (data.ok) {
+    document.getElementById('collectiveBalance').textContent =
+      `₦${Number(data.collectiveBalance || 0).toLocaleString('en-NG')}`;
+    document.getElementById('todayFunds').textContent =
+      `₦${Number(data.stats?.todayFunds || 0).toLocaleString('en-NG')}`;
+    document.getElementById('totalUsers').textContent =
+      Number(data.stats?.totalUsers || 0).toLocaleString('en-NG');
 
-      document.getElementById('todayFunds').textContent = 
-        `₦${Number(data.stats?.todayFunds || 0).toLocaleString('en-NG')}`;
-
-      document.getElementById('totalUsers').textContent = 
-        Number(data.stats?.totalUsers || 0).toLocaleString('en-NG');
-
-      const successTxEl = document.getElementById('successTx');
-      if (successTxEl) successTxEl.textContent = Number(data.stats?.successTx || 0).toLocaleString('en-NG');
-    }
-  } catch (err) {
-    console.error("[Admin Stats] Error:", err);
+    setTrend('todayFundsTrend', data.stats?.todayFundsTrend);
+    setTrend('totalUsersTrend', data.stats?.totalUsersTrend);
   }
+}
+
+function setTrend(elementId, value) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+
+  if (value === null || value === undefined) {
+    el.textContent = '—';
+    el.className = 'stat-trend neutral';
+    return;
+  }
+
+  const num = Number(value);
+  el.textContent = `${num >= 0 ? '↑' : '↓'} ${Math.abs(num)}%`;
+  el.className = `stat-trend ${num >= 0 ? 'up' : 'down'}`;
 }
 
 // Load 10 Recent Transactions for Dashboard
