@@ -2778,67 +2778,78 @@ async function subscribeToAdminTransactions() {
           // No filter — listens to all users
         },
         (payload) => {
-          console.log('[Admin Realtime] 🔔 EVENT:', payload.eventType);
+  console.log('[Admin Realtime] 🔔 EVENT:', payload.eventType);
 
-          const raw = payload.new;
-          if (!raw || raw.status !== 'success') return;
+  const raw = payload.new;
+  if (!raw || raw.status !== 'success') return;
 
-          const amount = Math.abs(Number(raw.amount || 0)) / 100;
-          const date = new Date(raw.created_at || Date.now());
-          const year = date.getFullYear();
-          const month = String(date.getMonth() + 1).padStart(2, '0');
-          const key = `${year}-${month}`;
+  // ✅ FIX 1: Don't divide by 100 — the DB stores the real amount
+  const amount = Math.abs(Number(raw.amount || 0));
 
-          // ✅ MOVE normalized UP HERE — before any reference to it
-          const normalized = {
-            id: raw.id || raw.reference,
-            reference: raw.reference || raw.id,
-            type: raw.type,
-            amount,
-            description: (raw.description || '').trim(),
-            time: raw.created_at || new Date().toISOString(),
-            status: raw.status.toUpperCase(),
-            provider: raw.provider,
-            phone: raw.phone,
-            user_name: raw.user_name || 'Unknown User'
-          };
+  const date = new Date(raw.created_at || Date.now());
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const key = `${year}-${month}`;
 
-          // Find or create the month entry
-          let entry = window.monthlyHistory.find(e => e.month === key);
-          if (!entry) {
-            entry = { month: key, money_in: 0, money_out: 0 };
-            window.monthlyHistory.unshift(entry);
-            window.monthlyHistory.sort((a, b) => b.month.localeCompare(a.month));
-          }
+  // ✅ FIX 2: Fetch the username like the backend does
+  let userName = 'Unknown User';
+  getSharedAuthClient(false).then(authClient => {
+    if (!authClient || !raw.user_id) return;
 
-          // Update the right bucket
-          if (raw.category === 'wallet_funding') {
-            entry.money_in += amount;
-            console.log(`[Admin Realtime] +₦${amount} money_in for ${key}`);
-
-            // ✅ normalized is now defined — safe to use
-            if (typeof notifyAdminNewTransaction === 'function') {
-              notifyAdminNewTransaction({ ...normalized, category: raw.category });
-            }
-
-          } else if (DATA_CATEGORIES.includes(raw.category)) {
-            entry.money_out += amount;
-            console.log(`[Admin Realtime] +₦${amount} data purchase — silent update`);
-
-          } else {
-            // wallet_transfer or unknown — ignore
-            return;
-          }
-
-          // Add to state and re-render if modal open
-          state.items.unshift(normalized);
-
-          if (state.open) {
-            applyTransformsAndRender();
-            refreshMonthHeaders();
-            historyList.scrollTop = 0;
-          }
+    authClient
+      .from('users')
+      .select('uid, username, fullName')
+      .eq('uid', raw.user_id)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          userName = data.username || data.fullName || 'Unknown User';
         }
+
+        const normalized = {
+          id: raw.id || raw.reference,
+          reference: raw.reference || raw.id,
+          type: raw.type,
+          amount,
+          description: (raw.description || '').trim(),
+          time: raw.created_at || new Date().toISOString(),
+          status: raw.status.toUpperCase(),
+          provider: raw.provider,
+          phone: raw.phone,
+          user_name: userName
+        };
+
+        // Update monthly totals
+        let entry = window.monthlyHistory.find(e => e.month === key);
+        if (!entry) {
+          entry = { month: key, money_in: 0, money_out: 0 };
+          window.monthlyHistory.unshift(entry);
+          window.monthlyHistory.sort((a, b) => b.month.localeCompare(a.month));
+        }
+
+        if (raw.category === 'wallet_funding') {
+          entry.money_in += amount;
+          console.log(`[Admin Realtime] +₦${amount} money_in for ${key}`);
+          if (typeof notifyAdminNewTransaction === 'function') {
+            notifyAdminNewTransaction({ ...normalized, category: raw.category });
+          }
+        } else if (DATA_CATEGORIES.includes(raw.category)) {
+          entry.money_out += amount;
+          console.log(`[Admin Realtime] +₦${amount} data purchase — silent update`);
+        } else {
+          return; // wallet_transfer or unknown
+        }
+
+        state.items.unshift(normalized);
+
+        if (state.open) {
+          applyTransformsAndRender();
+          refreshMonthHeaders();
+          historyList.scrollTop = 0;
+        }
+      });
+  });
+}
       )
       .subscribe((status, err) => {
         if (err) console.error('[Admin Realtime] Error:', err?.message || err);
