@@ -143,6 +143,59 @@ document.getElementById('viewAllNotificationsBtn')?.addEventListener('click', as
   ModalManager.openModal('historyModal');
 });
 
+function notifyAdminNewTransaction(tx) {
+  const amount = Number(tx.amount);
+
+  // Anomaly detection
+  const isLarge = amount >= 50000;
+  const isRound = amount % 10000 === 0 && amount >= 20000;
+  const isOffHours = new Date().getHours() < 6 || new Date().getHours() >= 23;
+  const isSuspicious = isLarge || isRound || isOffHours;
+
+  const formattedAmount = '₦' + amount.toLocaleString('en-NG', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+
+  const user = tx.user_name || 'Unknown user';
+  const flag = isSuspicious ? '⚠️ ' : '';
+  const msg = `${flag}💰 New Funding: ${user} — ${formattedAmount}`;
+
+  // Toast
+  if (typeof Toastify === 'function') {
+    Toastify({
+      text: msg,
+      duration: isSuspicious ? 10000 : 5000,
+      gravity: 'top',
+      position: 'right',
+      style: {
+        background: isSuspicious ? '#ff6b35' : '#00d4aa',
+        borderRadius: '12px',
+        fontWeight: '600',
+        fontSize: '14px'
+      }
+    }).showToast();
+  }
+
+  // Browser notification
+  if (Notification.permission === 'granted') {
+    new Notification(isSuspicious ? '⚠️ Unusual Funding Detected' : '💰 New Funding', {
+      body: `${user} — ${formattedAmount}`,
+      icon: '/frontend/svg/logo.svg',
+      silent: false
+    });
+  }
+
+  // Refresh admin recent activity if admin tab is visible
+  const adminContent = document.getElementById('adminDashboardContent');
+  if (adminContent && !adminContent.classList.contains('hidden')) {
+    loadAdminRecentTransactions();
+    loadAdminDashboard(); // refresh stats like total funded today
+  }
+
+  console.log(`[Admin Notify] ${isSuspicious ? '⚠️ SUSPICIOUS' : '✅ Normal'} funding: ${user} — ${formattedAmount}`);
+}
+
 
 // Switch to Admin Tab
 function switchToAdminTab() {
@@ -186,6 +239,19 @@ async function initAdminFeatures() {
         document.querySelectorAll('.bottom-nav .nav-item').forEach(item => item.classList.remove('active'));
         adminNav.classList.add('active');
       });
+    }
+
+    // Request browser notification permission
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then(permission => {
+        console.log('[Admin] Notification permission:', permission);
+      });
+    }
+
+    // Start admin realtime immediately — keeps listening regardless of which tab is active
+    if (typeof subscribeToAdminTransactions === 'function') {
+      subscribeToAdminTransactions();
+      console.log('[Admin] Global realtime started');
     }
   }
 }

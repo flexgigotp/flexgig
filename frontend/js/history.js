@@ -2029,6 +2029,8 @@ async function handleModalOpened() {
 
   console.log(`[TransactionHistory] Modal opened → adminMode: ${isAdminMode}`);
 
+  
+
   if (isAdminMode) {
     console.log("%c[ADMIN FULL HISTORY MODE] Activated", "color: #00ffaa; font-weight: bold");
     state.items = [];
@@ -2050,6 +2052,12 @@ async function handleModalOpened() {
 
     await waitForMonthly();
     refreshMonthHeaders();
+    // Only start if not already running (initAdminFeatures may have started it already)
+    if (!adminRealtimeChannel) {
+      subscribeToAdminTransactions();
+    } else {
+      console.log('[Admin Realtime] Already running — skipping duplicate subscribe');
+    }
 
   } else {
     // If previous load was an admin load, wipe it
@@ -2732,6 +2740,137 @@ async function subscribeToUserRealtime(force = false) {
   }
 }
 
+// ────────────────────────────────────────────────
+// ADMIN REALTIME — listens to ALL transactions
+// ────────────────────────────────────────────────
+
+let adminRealtimeChannel = null;
+let adminIsSubscribing = false;
+
+const DATA_CATEGORIES = ['AWOOF', 'CG', 'GIFTING', 'special', 'STANDARD'];
+
+async function subscribeToAdminTransactions() {
+  if (adminIsSubscribing || adminRealtimeChannel) return;
+  adminIsSubscribing = true;
+
+  try {
+    const authClient = await getSharedAuthClient(false);
+    if (!authClient) {
+      console.error('[Admin Realtime] No authenticated client');
+      adminIsSubscribing = false;
+      return;
+    }
+
+    adminRealtimeChannel = authClient.channel('admin:transactions:all');
+
+    adminRealtimeChannel
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'transactions'
+          // No filter — listens to all users
+        },
+        (payload) => {
+          console.log('[Admin Realtime] 🔔 EVENT:', payload.eventType);
+
+          const raw = payload.new;
+          if (!raw || raw.status !== 'success') return;
+
+          const amount = Math.abs(Number(raw.amount || 0)) / 100;
+          const date = new Date(raw.created_at || Date.now());
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const key = `${year}-${month}`;
+
+          // Find or create the month entry in window.monthlyHistory
+          let entry = window.monthlyHistory.find(e => e.month === key);
+          if (!entry) {
+            entry = { month: key, money_in: 0, money_out: 0 };
+            window.monthlyHistory.unshift(entry);
+            // Keep sorted newest first
+            window.monthlyHistory.sort((a, b) => b.month.localeCompare(a.month));
+          }
+
+          // Update the right bucket
+          if (raw.category === 'wallet_funding') {
+            entry.money_in += amount;
+            console.log(`[Admin Realtime] +₦${amount} money_in for ${key}`);
+
+            // Notify for funding only — real money entering the platform
+            if (typeof notifyAdminNewTransaction === 'function') {
+              notifyAdminNewTransaction({ ...normalized, category: raw.category });
+            }
+
+          } else if (DATA_CATEGORIES.includes(raw.category)) {
+            entry.money_out += amount;
+            console.log(`[Admin Realtime] +₦${amount} data purchase — silent update`);
+            // No notification for data purchases — too frequent, accumulates silently
+
+          } else {
+            // wallet_transfer or unknown — ignore entirely
+            return;
+          }
+
+          // Add to state.items so it shows in the list immediately
+          const normalized = {
+            id: raw.id || raw.reference,
+            reference: raw.reference || raw.id,
+            type: raw.type,
+            amount,
+            description: (raw.description || '').trim(),
+            time: raw.created_at || new Date().toISOString(),
+            status: raw.status.toUpperCase(),
+            provider: raw.provider,
+            phone: raw.phone,
+            user_name: raw.user_name || 'Unknown User'
+          };
+
+          state.items.unshift(normalized);
+
+          // Re-render if modal is open
+          if (state.open) {
+            applyTransformsAndRender();
+            refreshMonthHeaders();
+            historyList.scrollTop = 0;
+          }
+        }
+      )
+      .subscribe((status, err) => {
+        if (err) console.error('[Admin Realtime] Error:', err?.message || err);
+
+        if (status === 'SUBSCRIBED') {
+          console.log('[Admin Realtime] ✅ Listening to all transactions');
+        } else if (['CLOSED', 'CHANNEL_ERROR', 'TIMED_OUT'].includes(status)) {
+          console.warn('[Admin Realtime] Channel lost:', status);
+          adminRealtimeChannel = null;
+        }
+      });
+
+  } catch (err) {
+    console.error('[Admin Realtime] CRASH:', err);
+  } finally {
+    adminIsSubscribing = false;
+  }
+}
+
+async function unsubscribeAdminTransactions() {
+  if (!adminRealtimeChannel) return;
+  try {
+    const authClient = await getSharedAuthClient(false);
+    if (authClient) await authClient.removeChannel(adminRealtimeChannel);
+    console.log('[Admin Realtime] Channel removed');
+  } catch (e) {
+    console.warn('[Admin Realtime] Remove channel error:', e?.message);
+  } finally {
+    adminRealtimeChannel = null;
+  }
+}
+
+window.subscribeToAdminTransactions = subscribeToAdminTransactions;
+window.unsubscribeAdminTransactions = unsubscribeAdminTransactions;
+
 function scheduleUserRetry() {
   if (userRetryTimer) return;
 
@@ -2743,15 +2882,7 @@ function scheduleUserRetry() {
 
 window.subscribeToUserRealtime = subscribeToUserRealtime;
 
-function scheduleUserRetry() {
-  if (userRetryTimer) return;
 
-  userRetryTimer = setTimeout(() => {
-    userRetryTimer = null;
-    subscribeToUserRealtime(true);
-  }, USER_RETRY_MS);
-}
-window.subscribeToUserRealtime = subscribeToUserRealtime;
 
 
   function updateDashboardTotals() {
