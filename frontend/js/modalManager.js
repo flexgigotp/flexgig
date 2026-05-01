@@ -710,6 +710,7 @@ const allPlansModalContent = allPlansModalEl ? allPlansModalEl.querySelector('.p
     } catch (e) {}
 
     modal.classList.add('hidden');
+    document.dispatchEvent(new CustomEvent('modalClosed', { detail: modalId }));
     modal.style.display = 'none';
     modal.setAttribute('aria-hidden', 'true');
     modal.setAttribute('inert', '');
@@ -971,6 +972,7 @@ function closeModal(modalId) {
     } catch (e) {}
 
     modal.classList.add('hidden');
+    document.dispatchEvent(new CustomEvent('modalClosed', { detail: modalId }));
     modal.style.display = 'none';
     modal.setAttribute('aria-hidden', 'true');
     modal.setAttribute('inert', '');

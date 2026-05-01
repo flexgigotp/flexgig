@@ -2024,7 +2024,6 @@ function createMonthPickerModal() {
 
   if (isAdminMode) {
     console.log("%c[ADMIN FULL HISTORY MODE] Activated", "color: #00ffaa; font-weight: bold");
-    state.items = []; // always start fresh for admin view
     await loadAdminFullHistory();
   } else {
     // If previous load was an admin load, wipe it
@@ -2778,6 +2777,22 @@ window.subscribeToUserRealtime = subscribeToUserRealtime;
       renderDashboardRecent();
     }
   });
+
+  document.addEventListener('modalClosed', (e) => {
+  if (e.detail !== 'historyModal') return;
+
+  // If this was an admin session, wipe state now so normal users
+  // get a clean slate next time they open their own history
+  const hadAdminData = state.items.some(tx => tx.user_name);
+  if (hadAdminData) {
+    state.items = [];
+    state.preloaded = false;
+    state.fullHistoryLoaded = false;
+    currentPage = 1;
+    hasMorePages = true;
+    console.log('[TransactionHistory] Admin session ended → state wiped on close');
+  }
+});
 
   // Expose for manual calls if needed
   window.renderDashboardRecent = renderDashboardRecent;
