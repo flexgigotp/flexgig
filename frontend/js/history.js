@@ -2762,6 +2762,7 @@ async function subscribeToAdminTransactions() {
     }
 
     adminRealtimeChannel = authClient.channel('admin:transactions:all');
+    window.__adminRealtimeChannel = adminRealtimeChannel;
 
     adminRealtimeChannel
       .on(
