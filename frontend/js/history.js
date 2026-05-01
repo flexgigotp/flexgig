@@ -2011,42 +2011,19 @@ function createMonthPickerModal() {
   state.open = true;
   selectedMonth = null;
 
-    // Capture and immediately clear the flag — read once, reset at once
+  // Capture and immediately clear the flag — read once, reset at once
   const isAdminMode = window.isAdminViewingHistory === true;
-  window.isAdminViewingHistory = false; // ← move reset HERE, before any async work
-
+  window.isAdminViewingHistory = false;
 
   hide(loadingEl);
   if (state.items.length === 0) {
     show(emptyEl);
   }
 
-  const isAdminMode = window.isAdminViewingHistory === true;
+  console.log(`[TransactionHistory] Modal opened → adminMode: ${isAdminMode}`);
 
   if (isAdminMode) {
     console.log("%c[ADMIN FULL HISTORY MODE] Activated", "color: #00ffaa; font-weight: bold");
-    
-    // Load all users transactions only once
-    if (state.items.length === 0) {
-      await loadAdminFullHistory();
-    }
-  } else {
-    // Normal user mode
-    CONFIG.apiEndpoint = 'https://api.flexgig.com.ng/api/transactions';
-    subscribeToTransactions(true);
-    applyTransformsAndRender();
-  }
-
-  console.log(`[TransactionHistory] Modal opened → adminMode: ${isAdminMode}, items: ${state.items.length}`);
-
-  // Reset flag after loading
-  if (isAdminMode) {
-    setTimeout(() => {
-      window.isAdminViewingHistory = false;
-    }, 1000);
-  }
-
-  if (isAdminMode) {
     state.items = []; // always start fresh for admin view
     await loadAdminFullHistory();
   } else {
@@ -2057,10 +2034,8 @@ function createMonthPickerModal() {
     CONFIG.apiEndpoint = 'https://api.flexgig.com.ng/api/transactions';
     subscribeToTransactions(true);
     applyTransformsAndRender();
-  }
 
-  // Load monthly_history only for normal users
-  if (!isAdminMode) {
+    // Load monthly_history for normal users
     const uid = window.__USER_UID || localStorage.getItem('userId') || 
                 JSON.parse(localStorage.getItem('userData') || '{}')?.uid || null;
 
