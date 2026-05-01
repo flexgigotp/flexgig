@@ -2798,7 +2798,7 @@ async function subscribeToAdminTransactions() {
 
     authClient
       .from('users')
-      .select('uid, username, fullName')
+      .select('uid, username, "fullName"')
       .eq('uid', raw.user_id)
       .single()
       .then(({ data }) => {
