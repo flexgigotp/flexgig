@@ -14742,7 +14742,7 @@ async function tryBiometricWithCachedOptions() {
     if (verifyData?.verified) {
       console.log('[reauth] Biometrics verification successful');
       try { safeCall(__sec_getCurrentUser); } catch(e){}
-      try { await onSuccessfulReauth?.(); await guardedHideReauthModal?.(); } catch(e){ console.warn('[reauth] post-verification error', e); }
+      try { onSuccessfulReauth?.(); } catch(e){ console.warn('[reauth] post-verification error', e); }
       finally { hideLoader(); }
       return;
     } else {
@@ -14787,11 +14787,7 @@ if (!reauthStatus.needsReauth) {
   try {
     // 1. Call onSuccessfulReauth to clear flags, reset timers, and handle session state (no payload needed here)
     if (typeof onSuccessfulReauth === 'function') {
-      await onSuccessfulReauth();
-    }
-    // 2. Call guardedHideReauthModal to safely hide the modal only if flags are cleared
-    if (typeof guardedHideReauthModal === 'function') {
-      await guardedHideReauthModal();
+      onSuccessfulReauth(); // no await — closes instantly, cleanup in background
     }
     console.log('[DEBUG] Reauth modal hidden (no reauth needed)');
   } catch (err) {
@@ -15178,12 +15174,7 @@ async function bioVerifyAndFinalize(assertion) {
 
           // 1. Call onSuccessfulReauth to clear flags, reset timers, and handle session state
           if (typeof onSuccessfulReauth === 'function') {
-            await onSuccessfulReauth();
-          }
-
-          // 2. Call guardedHideReauthModal to safely hide the modal only if flags are cleared
-          if (typeof guardedHideReauthModal === 'function') {
-            await guardedHideReauthModal();
+            onSuccessfulReauth(); // no await — closes instantly, cleanup in background
           }
           console.log('[DEBUG] Reauth modal hidden after successful biometrics verification in bioVerifyAndFinalize');
 
@@ -17334,7 +17325,7 @@ async function clearServerLock() {
   /**
    * Set reauth lock (persist to localStorage)
    */
-  function setReauthLock(reason = 'reauth-required') {
+  function setLocalReauthLock(reason = 'reauth-required') {
     try {
       const lock = createLock(reason);
       localStorage.setItem(LOCK_KEY, JSON.stringify(lock));
@@ -17358,11 +17349,11 @@ async function clearServerLock() {
   /**
    * Clear reauth lock
    */
-  function clearReauthLock() {
+  function clearLocalReauthLock() {
     try {
-      const oldLock = getReauthLock();
+      const oldLock = getLocalReauthLock();
       localStorage.removeItem(LOCK_KEY);
-      console.log('[REAUTH-LOCK] Lock cleared');
+      console.log('[REAUTH-LOCK] Local lock cleared');
       
       // Broadcast to other tabs
       broadcastLockChange('unlock', null);
@@ -17375,7 +17366,7 @@ async function clearServerLock() {
       
       return oldLock;
     } catch (e) {
-      console.error('[REAUTH-LOCK] Failed to clear lock:', e);
+      console.error('[REAUTH-LOCK] Failed to clear local lock:', e);
       return null;
     }
   }
@@ -17383,7 +17374,7 @@ async function clearServerLock() {
   /**
    * Get current reauth lock
    */
-  function getReauthLock() {
+  function getLocalReauthLock() {
     try {
       const raw = localStorage.getItem(LOCK_KEY);
       if (!raw) return null;
@@ -17408,7 +17399,7 @@ async function clearServerLock() {
    * Check if reauth is locked
    */
   function isReauthLocked() {
-    const lock = getReauthLock();
+    const lock = getLocalReauthLock();
     return !!(lock && lock.locked);
   }
   
@@ -17541,7 +17532,7 @@ async function clearServerLock() {
     console.log('[REAUTH-LOCK] Checking lock on page load (client + server)');
     
     // 1. Check local lock first (fast)
-    const localLock = getReauthLock();
+    const localLock = getLocalReauthLock();
     
     if (localLock && localLock.locked) {
       console.log('[REAUTH-LOCK] Found local lock, showing modal:', localLock);
@@ -17596,7 +17587,7 @@ async function clearServerLock() {
     
     console.log('[REAUTH-LOCK] Checking lock on visibility change');
     
-    const lock = getReauthLock();
+    const lock = getLocalReauthLock();
     
     if (lock && lock.locked && !isReauthModalVisible()) {
       console.log('[REAUTH-LOCK] Lock exists but modal not visible, showing:', lock);
@@ -17624,7 +17615,7 @@ async function clearServerLock() {
     let modalVisibleWithoutLockCount = 0;
     
     lockCheckInterval = setInterval(() => {
-      const lock = getReauthLock();
+      const lock = getLocalReauthLock();
       const modalVisible = isReauthModalVisible();
       
       // If lock exists but modal not visible -> show modal
@@ -17770,7 +17761,7 @@ async function clearServerLock() {
     console.log('[REAUTH-LOCK] Completing reauth unlock');
     
     // Clear lock
-    clearReauthLock();
+    clearLocalReauthLock();
     
     // Hide modal
     hideReauthModalSafe();
@@ -17824,10 +17815,9 @@ async function clearServerLock() {
   // ============================================
   
   window.__persistentReauthLock = {
-    // Core functions
-    setLock: setReauthLock,
-    clearLock: clearReauthLock,
-    getLock: getReauthLock,
+    setLock: setLocalReauthLock,
+    clearLock: clearLocalReauthLock,
+    getLock: getLocalReauthLock,
     isLocked: isReauthLocked,
     
     // High-level functions
@@ -17847,9 +17837,10 @@ async function clearServerLock() {
   };
   
   // Backward compatibility aliases
-  window.setReauthLock = setReauthLock;
-  window.clearReauthLock = clearReauthLock;
+  // Backward compatibility aliases
   window.isReauthLocked = isReauthLocked;
+  // NOTE: window.clearReauthLock and window.setReauthLock intentionally NOT set here
+  // — the real Supabase versions at the top of the file take precedence
   
   // Auto-initialize
   if (document.readyState === 'loading') {
@@ -18485,10 +18476,7 @@ async function showReauthModal(context = 'reauth') {
       console.log('showReauthModal: no reauth required - calling success handler');
       try {
         if (typeof onSuccessfulReauth === 'function') {
-          await onSuccessfulReauth();
-        }
-        if (typeof guardedHideReauthModal === 'function') {
-          await guardedHideReauthModal();
+          onSuccessfulReauth(); // no await — closes instantly, cleanup in background
         }
       } catch (err) {
         console.warn('[reauth] Post-reauth check success error', err);
