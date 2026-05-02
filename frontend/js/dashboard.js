@@ -473,27 +473,11 @@ async function requireReauthLock(reason = 'soft_idle_timeout') {
     return false;
   }
 
-  const lockData = {
+  return await forceOpenReauthModal({
   reason,
-  expiresAt,
-  ts: Date.now(),
-  token: Date.now() + '_' + Math.random().toString(36).slice(2)
-};
-
-localStorage.setItem('fg_reauth_required_v1', JSON.stringify(lockData));
-
-// ✅ NEW: SHOW MODAL IMMEDIATELY
-try {
-  if (typeof showReauthModalLocal === 'function') {
-    showReauthModalLocal({ fromStorageObj: lockData });
-  } else if (window.__reauth?.initReauthModal) {
-    window.__reauth.initReauthModal({ show: true, context: 'reauth' });
-  }
-} catch (e) {
-  console.warn('[REAUTH] Failed to trigger modal after lock', e);
-}
-
-return true;
+  source: 'requireReauthLock',
+  expiresAt
+});
 }
 
 
@@ -521,27 +505,9 @@ async function checkReauthLock() {
   if (authClient && authClient.__locked) {
   console.warn('[REAUTH] Active lock detected via backend (423)');
 
-  const lockData = {
+  await forceOpenReauthModal({
     reason: 'backend_423',
-    ts: Date.now(),
-    token: Date.now() + '_' + Math.random().toString(36).slice(2)
-  };
-
-  localStorage.setItem('fg_reauth_required_v1', JSON.stringify(lockData));
-
-  // ✅ NEW: FORCE MODAL IMMEDIATELY
-  queueMicrotask(() => {
-    try {
-      if (typeof showReauthModalLocal === 'function') {
-        showReauthModalLocal({ fromStorageObj: lockData });
-      } else if (window.__reauth?.initReauthModal) {
-        window.__reauth.initReauthModal({ show: true, context: 'reauth' });
-      } else if (typeof showReauthModal === 'function') {
-        showReauthModal('reauth');
-      }
-    } catch (e) {
-      console.warn('[REAUTH] Failed to show modal instantly', e);
-    }
+    source: 'backend_423'
   });
 
   return { required: true, reason: 'backend_423' };
@@ -625,6 +591,51 @@ async function clearReauthLock() {
 window.requireReauthLock = requireReauthLock;
 window.checkReauthLock = checkReauthLock;
 window.clearReauthLock = clearReauthLock;
+
+async function forceOpenReauthModal(lockData = {}) {
+  const payload = {
+    reauthRequired: true,
+    reason: lockData.reason || 'locked',
+    source: lockData.source || 'unknown',
+    expiresAt: lockData.expiresAt || null,
+    ts: lockData.ts || Date.now(),
+    token: lockData.token || `${Date.now()}_${Math.random().toString(36).slice(2)}`
+  };
+
+  try {
+    localStorage.setItem('fg_reauth_required_v1', JSON.stringify(payload));
+    window.__APP_LOCKED__ = true;
+  } catch (e) {}
+
+  try {
+    cacheDomRefs?.();
+  } catch (e) {}
+
+  try {
+    if (typeof initReauthModal === 'function') {
+      await initReauthModal({ show: true, context: 'reauth', ...payload });
+      return true;
+    }
+
+    if (typeof showReauthModalLocal === 'function') {
+      await showReauthModalLocal({ fromStorageObj: payload });
+      return true;
+    }
+
+    if (reauthModal) {
+      reauthModal.classList.remove('hidden');
+      reauthModal.style.display = 'flex';
+      reauthModalOpen = true;
+      return true;
+    }
+  } catch (err) {
+    console.warn('[REAUTH] forceOpenReauthModal failed', err);
+  }
+
+  return false;
+}
+
+window.forceOpenReauthModal = forceOpenReauthModal;
 
 // ────────────────────────────────────────────────
 // REAL-TIME BALANCE SUBSCRIPTION – MAX DEBUG VERSION
@@ -1777,7 +1788,10 @@ async function scheduleHardIdleCheck() {
     if (localCheck.needsReauth) {
       try { 
         console.log('🔒 [HARD IDLE] Local check: Reauth required - showing modal');
-        await showReauthModal({ context: 'reauth', reason: 'hard-idle' }); 
+        await forceOpenReauthModal({
+          reason: 'hard-idle',
+          source: 'hard-idle'
+        }); 
         // 🚨 REMOVED: Auto-trigger biometrics call
       } catch(e) { 
         console.error('[hardIdle] showReauthModal failed', e); 
@@ -1789,7 +1803,10 @@ async function scheduleHardIdleCheck() {
         const serverCheck = await checkServerReauthStatus();
         if (serverCheck && (serverCheck.needsReauth || serverCheck.reauthRequired)) {
           console.log('🔒 [HARD IDLE] Server check: Reauth required - showing modal');
-          await showReauthModal({ context: 'reauth', reason: 'hard-idle' });
+          await forceOpenReauthModal({
+            reason: 'hard-idle',
+            source: 'hard-idle'
+          });
           // 🚨 REMOVED: Auto-trigger biometrics call
         } else {
           console.log('✅ [HARD IDLE] Server check passed - no reauth needed');
