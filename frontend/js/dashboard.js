@@ -18832,6 +18832,7 @@ async function onSuccessfulReauth() {
     }
 
     // Rehydrate data
+   // Rehydrate data
     try {
       if (typeof window.__resetPlansState === 'function') {
         window.__resetPlansState();
@@ -18840,8 +18841,8 @@ async function onSuccessfulReauth() {
       }
       if (typeof fetchPlans === 'function') await fetchPlans();
       if (typeof dispatchPlansUpdateEvent === 'function') dispatchPlansUpdateEvent();
-      try { loadLatestHistoryAsFallback(); } catch (e) {}
-      try { loadAdminFullHistory(); } catch (e) {}
+      if (typeof loadLatestHistoryAsFallback === 'function') try { loadLatestHistoryAsFallback(); } catch (e) {}
+      if (typeof loadAdminFullHistory === 'function') try { loadAdminFullHistory(); } catch (e) {}
       console.log('[reauth] background data rehydration done');
     } catch (e) {
       console.warn('[reauth] background data rehydration failed:', e);
