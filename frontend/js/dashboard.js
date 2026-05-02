@@ -13306,6 +13306,7 @@ const __sec_parentHandler = async () => {
         }
       });
       if (__sec_parentSwitch) __sec_parentSwitch.__bioBound = true;
+      if (__sec_parentSwitch) __sec_parentSwitch.__eventsAttached = true;
     } else {
       __sec_log.w('no parent switch (#biometricsSwitch) found');
     }
