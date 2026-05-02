@@ -270,9 +270,38 @@ async function getSharedJWT(forceRefresh = false) {
         headers: { 'Accept': 'application/json' }
       });
 
-      if (!res.ok) {
-        throw new Error(`JWT fetch failed: ${res.status}`);
-      }
+      if (res.status === 423) {
+  console.warn('[JWT Cache] 🔒 Account locked (423) — triggering reauth modal');
+
+  // Set the canonical localStorage flag so bootstrap code picks it up
+  localStorage.setItem('fg_reauth_required_v1', JSON.stringify({
+    reason: 'backend_423',
+    ts: Date.now()
+  }));
+
+  // Show reauth modal immediately — no reload needed
+  try {
+    if (window.__reauth && typeof window.__reauth.initReauthModal === 'function') {
+      window.__reauth.initReauthModal({ show: true, context: 'reauth' });
+    } else if (typeof showReauthModalLocal === 'function') {
+      showReauthModalLocal({ fromStorageObj: { reason: 'backend_423', ts: Date.now() } });
+    } else {
+      // Fallback: dispatch storage event so any listener picks it up
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'fg_reauth_required_v1',
+        newValue: JSON.stringify({ reason: 'backend_423', ts: Date.now() })
+      }));
+    }
+  } catch (e) {
+    console.error('[JWT Cache] Failed to show reauth modal after 423:', e);
+  }
+
+  throw new Error('JWT fetch failed: 423');
+}
+
+if (!res.ok) {
+  throw new Error(`JWT fetch failed: ${res.status}`);
+}
 
       const { token } = await res.json();
 
@@ -473,11 +502,13 @@ async function requireReauthLock(reason = 'soft_idle_timeout') {
     return false;
   }
 
-  return await forceOpenReauthModal({
-  reason,
-  source: 'requireReauthLock',
-  expiresAt
-});
+  localStorage.setItem('fg_reauth_required_v1', JSON.stringify({
+    reason,
+    expiresAt,
+    ts: Date.now()
+  }));
+
+  return true;
 }
 
 
@@ -503,15 +534,15 @@ async function checkReauthLock() {
   // 🔥 THIS IS THE CRITICAL PART
   // If JWT fetch was blocked → account IS locked
   if (authClient && authClient.__locked) {
-  console.warn('[REAUTH] Active lock detected via backend (423)');
+    console.warn('[REAUTH] Active lock detected via backend (423)');
 
-  await forceOpenReauthModal({
-    reason: 'backend_423',
-    source: 'backend_423'
-  });
+    localStorage.setItem('fg_reauth_required_v1', JSON.stringify({
+      reason: 'backend_423',
+      ts: Date.now()
+    }));
 
-  return { required: true, reason: 'backend_423' };
-}
+    return { required: true, reason: 'backend_423' };
+  }
 
   // If we couldn't even get a client, DO NOT assume unlocked
   if (!authClient) {
@@ -591,51 +622,6 @@ async function clearReauthLock() {
 window.requireReauthLock = requireReauthLock;
 window.checkReauthLock = checkReauthLock;
 window.clearReauthLock = clearReauthLock;
-
-async function forceOpenReauthModal(lockData = {}) {
-  const payload = {
-    reauthRequired: true,
-    reason: lockData.reason || 'locked',
-    source: lockData.source || 'unknown',
-    expiresAt: lockData.expiresAt || null,
-    ts: lockData.ts || Date.now(),
-    token: lockData.token || `${Date.now()}_${Math.random().toString(36).slice(2)}`
-  };
-
-  try {
-    localStorage.setItem('fg_reauth_required_v1', JSON.stringify(payload));
-    window.__APP_LOCKED__ = true;
-  } catch (e) {}
-
-  try {
-    cacheDomRefs?.();
-  } catch (e) {}
-
-  try {
-    if (typeof initReauthModal === 'function') {
-      await initReauthModal({ show: true, context: 'reauth', ...payload });
-      return true;
-    }
-
-    if (typeof showReauthModalLocal === 'function') {
-      await showReauthModalLocal({ fromStorageObj: payload });
-      return true;
-    }
-
-    if (reauthModal) {
-      reauthModal.classList.remove('hidden');
-      reauthModal.style.display = 'flex';
-      reauthModalOpen = true;
-      return true;
-    }
-  } catch (err) {
-    console.warn('[REAUTH] forceOpenReauthModal failed', err);
-  }
-
-  return false;
-}
-
-window.forceOpenReauthModal = forceOpenReauthModal;
 
 // ────────────────────────────────────────────────
 // REAL-TIME BALANCE SUBSCRIPTION – MAX DEBUG VERSION
@@ -1788,10 +1774,7 @@ async function scheduleHardIdleCheck() {
     if (localCheck.needsReauth) {
       try { 
         console.log('🔒 [HARD IDLE] Local check: Reauth required - showing modal');
-        await forceOpenReauthModal({
-          reason: 'hard-idle',
-          source: 'hard-idle'
-        }); 
+        await showReauthModal({ context: 'reauth', reason: 'hard-idle' }); 
         // 🚨 REMOVED: Auto-trigger biometrics call
       } catch(e) { 
         console.error('[hardIdle] showReauthModal failed', e); 
@@ -1803,10 +1786,7 @@ async function scheduleHardIdleCheck() {
         const serverCheck = await checkServerReauthStatus();
         if (serverCheck && (serverCheck.needsReauth || serverCheck.reauthRequired)) {
           console.log('🔒 [HARD IDLE] Server check: Reauth required - showing modal');
-          await forceOpenReauthModal({
-            reason: 'hard-idle',
-            source: 'hard-idle'
-          });
+          await showReauthModal({ context: 'reauth', reason: 'hard-idle' });
           // 🚨 REMOVED: Auto-trigger biometrics call
         } else {
           console.log('✅ [HARD IDLE] Server check passed - no reauth needed');
@@ -2031,22 +2011,6 @@ async function notifyReauthComplete() {
   }
 }
 window.notifyReauthComplete = notifyReauthComplete;
-
-window.addEventListener('storage', (e) => {
-  if (e.key === 'fg_reauth_required_v1' && e.newValue) {
-    try {
-      const data = JSON.parse(e.newValue);
-
-      if (typeof showReauthModalLocal === 'function') {
-        showReauthModalLocal({ fromStorageObj: data });
-      } else if (window.__reauth?.initReauthModal) {
-        window.__reauth.initReauthModal({ show: true, context: 'reauth' });
-      }
-    } catch (err) {
-      console.warn('[REAUTH] storage listener failed', err);
-    }
-  }
-});
 
 // ===== Sticky reauth bootstrap (drop near top of dashboard.js, BEFORE initFlow boot) =====
 (function ensurePersistentReauthBootstrap(){
