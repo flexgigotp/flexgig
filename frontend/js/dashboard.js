@@ -2907,57 +2907,50 @@ async function getSession() {
     try {
       console.log('[DEBUG] getSession: Starting (loadId=' + loadId + ')');
 
-      // PHASE 1: Check for server initial data (FASTEST)
-      if (!window.__INITIAL_SESSION_FETCHED) {
-        console.log('[DEBUG] getSession: Fetching initial session data');
-        try {
-          const initialRes = await fetch(`${window.__SEC_API_BASE}/api/session/initial`, {
-            method: 'GET',
-            credentials: 'include',
-            headers: { 'Accept': 'application/json' }
-          });
-
-          if (initialRes.ok) {
-            const initialData = await initialRes.json();
-            window.__INITIAL_SESSION_FETCHED = true;
-
-            if (initialData.authenticated && initialData.user) {
-              console.log('[DEBUG] getSession: Using initial session data');
-              const user = initialData.user;
-              applySessionToDOM(user);
-              updateLocalStorageFromUser(user);
-              return { user };
-            }
-          }
-        } catch (err) {
-          console.warn('[WARN] getSession: Initial fetch failed', err);
-        }
-      }
-
-      // PHASE 2: Use cache if fresh (FAST)
+      // PHASE 1: Return cache immediately if fresh (5 min TTL)
+      // Kicks off a background refresh so next call gets updated data
       const cachedUserData = localStorage.getItem('userData');
       let cachedUser = null;
-      
+
       if (cachedUserData) {
         try {
           const parsed = JSON.parse(cachedUserData);
-          if (Date.now() - parsed.cachedAt < 60000) {
-            console.log('[DEBUG] getSession: Using fresh cache');
-            cachedUser = parsed;
-            applySessionToDOM(cachedUser);
+          if (Date.now() - parsed.cachedAt < 300000) { // 5 minutes
+            console.log('[DEBUG] getSession: Cache is fresh — returning immediately');
+            applySessionToDOM(parsed);
+
+            // Background refresh — updates cache for next load, doesn't block this return
+            setTimeout(async () => {
+              try {
+                const res = await fetch(`${window.__SEC_API_BASE}/api/session`, {
+                  credentials: 'include',
+                  headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' }
+                });
+                if (res.ok) {
+                  const payload = await res.json();
+                  if (payload?.user) {
+                    updateLocalStorageFromUser(payload.user);
+                    if (window.subscribeToTransactions) window.subscribeToTransactions(true);
+                  }
+                }
+              } catch(e) { /* non-critical */ }
+            }, 2000);
+
+            return { user: parsed };
           }
+          cachedUser = parsed; // stale but keep as fallback
         } catch (e) {
           console.warn('[WARN] getSession: Invalid cache', e);
         }
       }
 
-      // PHASE 3: Fetch from API (AUTHORITATIVE)
-      console.log('[DEBUG] getSession: Fetching from /api/session');
-      
+      // PHASE 2: Cache is stale or missing — fetch from API
+      console.log('[DEBUG] getSession: Cache stale or missing, fetching from /api/session');
+
       let res = await fetch(`${window.__SEC_API_BASE}/api/session`, {
         method: 'GET',
         credentials: 'include',
-        headers: { 
+        headers: {
           'Accept': 'application/json',
           'Cache-Control': 'no-cache'
         }
