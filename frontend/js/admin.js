@@ -262,6 +262,12 @@ async function initAdminFeatures() {
       subscribeToAdminTransactions();
       console.log('[Admin] Global realtime started');
     }
+
+    // ✅ ADD THIS
+if (typeof subscribeToAdminUsersRealtime === 'function') {
+  subscribeToAdminUsersRealtime();
+  console.log('[Admin] Users realtime started');
+}
   }
 }
 

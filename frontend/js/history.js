@@ -2869,6 +2869,56 @@ async function subscribeToAdminTransactions() {
   }
 }
 
+let adminUsersRealtimeChannel = null;
+
+async function subscribeToAdminUsersRealtime() {
+  if (adminUsersRealtimeChannel) return;
+
+  const authClient = await getSharedAuthClient(false);
+  if (!authClient) return;
+
+  adminUsersRealtimeChannel = authClient.channel('admin:users:all');
+
+  adminUsersRealtimeChannel
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'users'
+      },
+      (payload) => {
+        console.log('[Admin Users Realtime] 🔔 New user registered:', payload.new);
+
+        // Increment the displayed count
+        const totalUsersEl = document.getElementById('totalUsers');
+        if (totalUsersEl) {
+          const current = parseInt(totalUsersEl.textContent.replace(/,/g, '')) || 0;
+          totalUsersEl.textContent = (current + 1).toLocaleString('en-NG');
+        }
+
+        // Update the trend
+        setTrend('totalUsersTrend', null); // recalculate not possible without backend, show —
+      }
+    )
+    .subscribe((status, err) => {
+      if (err) console.error('[Admin Users Realtime] Error:', err?.message || err);
+
+      if (status === 'SUBSCRIBED') {
+        console.log('[Admin Users Realtime] ✅ Listening for new users');
+      } else if (['CLOSED', 'CHANNEL_ERROR', 'TIMED_OUT'].includes(status)) {
+        console.warn('[Admin Users Realtime] Channel lost:', status);
+        adminUsersRealtimeChannel = null;
+        // Retry after 15s
+        setTimeout(subscribeToAdminUsersRealtime, 15000);
+      }
+    });
+
+  window.__adminUsersRealtimeChannel = adminUsersRealtimeChannel;
+}
+
+window.subscribeToAdminUsersRealtime = subscribeToAdminUsersRealtime;
+
 async function unsubscribeAdminTransactions() {
   if (!adminRealtimeChannel) return;
   try {
