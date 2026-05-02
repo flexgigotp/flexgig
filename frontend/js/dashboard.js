@@ -1055,8 +1055,18 @@ function startModalBiometricRewarming() {
   };
 
   // Initial + every 30 seconds
-  rewarm();
-  biometricRewarmInterval = setInterval(rewarm, 30_000);
+  // Initial + every 30 seconds
+rewarm();
+
+biometricRewarmInterval = setInterval(async () => {
+  // 🔥 CRITICAL FIX: don't rewarm during active biometric auth
+  if (window.__biometricInFlight) {
+    console.log('[modal-rewarm] Skipped (biometric in flight)');
+    return;
+  }
+
+  await rewarm();
+}, 30_000);
 }
 
 function stopModalBiometricRewarming() {
