@@ -716,6 +716,21 @@ async function onPayClicked(ev) {
     }
   }
 
+  // React to storage changes (cross-tab)
+window.addEventListener('storage', (e) => {
+  if (['biometricsEnabled', 'biometricForTx', 'credentialId', 
+       'security_biom_enabled', 'security_bio_tx'].includes(e.key)) {
+    updateBiometricButton();
+  }
+});
+
+// React to same-tab toggle changes
+document.addEventListener('fg:switch-changed', (e) => {
+  if (['bioTxSwitch', 'biometricsSwitch'].includes(e.detail?.id)) {
+    updateBiometricButton();
+  }
+});
+
   function updateInputs() {
   inputs.forEach((input, i) => {
     if (currentPin[i]) {

@@ -13305,6 +13305,7 @@ const __sec_parentHandler = async () => {
           __sec_parentHandler();
         }
       });
+      if (__sec_parentSwitch) __sec_parentSwitch.__bioBound = true;
     } else {
       __sec_log.w('no parent switch (#biometricsSwitch) found');
     }
@@ -13346,6 +13347,7 @@ const __sec_parentHandler = async () => {
           __sec_bioLogin.click();
         }
       });
+      if (__sec_bioLogin) __sec_bioLogin.__bioBound = true;
     } else {
       __sec_log.w('no bioLogin switch (#bioLoginSwitch) found');
     }
@@ -13387,6 +13389,7 @@ const __sec_parentHandler = async () => {
           __sec_bioTx.click();
         }
       });
+      if (__sec_bioTx) __sec_bioTx.__bioBound = true;
     } else {
       __sec_log.w('no bioTx switch (#bioTxSwitch) found');
     }
@@ -14788,6 +14791,12 @@ async function tryBiometricWithCachedOptions() {
       try { bioBtn.style.display = isBiometricLoginEnabled() ? 'inline-flex' : 'none'; } catch(e){}
     }
   });
+  // Same-tab toggle reaction for reauth bio button
+  document.addEventListener('fg:switch-changed', (e) => {
+    if (['bioLoginSwitch', 'biometricsSwitch'].includes(e.detail?.id)) {
+      try { bioBtn.style.display = isBiometricLoginEnabled() ? 'inline-flex' : 'none'; } catch(e) {}
+    }
+  });
 })();
 
 
@@ -15882,6 +15891,7 @@ async function disableBiometrics() {
     localStorage.removeItem('credentialId');
     localStorage.removeItem('webauthn-cred-id');
     localStorage.setItem('biometricForLogin', 'false');
+    localStorage.setItem('biometricForTx', 'false');
 
     try {
       var bioBtn = document.getElementById('bioBtn') || document.querySelector('.biometric-button');
