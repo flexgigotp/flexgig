@@ -2888,6 +2888,12 @@ window.__lastSessionLoadId = 0;
 window.__INITIAL_SESSION_FETCHED = false;
 
 async function getSession() {
+  // Block retries if we recently confirmed there's no valid session
+  if (window.__sessionDeadUntil && Date.now() < window.__sessionDeadUntil) {
+    console.debug('[getSession] Cooling down — no session available');
+    return null;
+  }
+
   // Reuse in-flight request to prevent duplicate calls
   if (window.__sessionPromise) {
     console.log('[DEBUG] getSession: Reusing in-flight promise');
@@ -2976,15 +2982,12 @@ async function getSession() {
             }
           });
         } else {
-
-          // change this later
-
-          console.warn('[WARN] getSession: Refresh failed — not redirecting; dispatching session:missing');
+          console.warn('[WARN] getSession: Refresh failed — cooling down for 30s');
+          window.__sessionDeadUntil = Date.now() + 30000;
           window.dispatchEvent(new CustomEvent('session:missing', {
             detail: { reason: 'refresh_failed', timestamp: Date.now() }
           }));
           return null;
-
         }
       }
 
