@@ -630,7 +630,11 @@ fundBtn.addEventListener('click', async () => {
         : await apiFetch('/api/fund-wallet', { method: 'POST', body: { amount } });
 
       if (res.ok) showGeneratedAccount(res.data);
-      else showGeneratedError(res.error?.message || 'Failed to generate account.');
+      else if (res.status === 403 && res.error?.code === 'PROFILE_INCOMPLETE') {
+        showGeneratedError(res.error.message);
+      } else {
+        showGeneratedError(res.error?.message || 'Failed to generate account.');
+      }
     } catch (err) {
       showGeneratedError('Network error. Try again.');
     } finally {
@@ -904,6 +908,15 @@ window.getWebSocketStatus = function() {
 
     try {
       const res = await apiFetch('/api/kyc/submit', { method: 'POST', body: { type: activeType, number: value } });
+
+      if (res.status === 403 && res.error?.code === 'PROFILE_INCOMPLETE') {
+        if (_hint) {
+          _hint.classList.add('kyc-input-hint--error');
+          _hint.textContent = res.error.message;
+          setTimeout(() => _hint.classList.remove('kyc-input-hint--error'), 4000);
+        }
+        return;
+      }
 
       if (res.ok && res.data?.accounts) {
         // Normalise field names from API → what buildAccountCards expects
