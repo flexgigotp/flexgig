@@ -4079,6 +4079,9 @@ if (typeof pollStatus === 'function') pollStatus();
 // Start polling
 setInterval(() => pollStatus(), 30000);
 
+// Pre-warm the reauth JWT so it's ready if the user needs to reauth
+getSharedJWT().catch(() => {});
+
 
   // Rocket: register SW, start pollStatus, etc.
   async function registerSW() {
@@ -18294,8 +18297,7 @@ async function verifyBiometrics(uid, context = 'reauth') {
 
       // Success callbacks
       try {
-        if (typeof onSuccessfulReauth === 'function') await onSuccessfulReauth();
-        if (typeof guardedHideReauthModal === 'function') await guardedHideReauthModal();
+        if (typeof onSuccessfulReauth === 'function') onSuccessfulReauth(); // no await
         if (typeof notify === 'function') notify('Authentication successful', 'success');
 
         try {
@@ -18735,191 +18737,118 @@ async function showReauthModal(context = 'reauth') {
     await showInactivityPrompt();
   }
 
-// Robust async onSuccessfulReauth — now fully Supabase-native
 async function onSuccessfulReauth() {
-  // Clear persistent lock first (your existing cross-tab helper)
-  if (window.__persistentReauthLock) {
-    window.__persistentReauthLock.clearLock();
-    console.log('[reauth] persistent reauth lock cleared');
-  }
 
+  // ── STEP 1: Close modal INSTANTLY — no network wait ──────────────────────
+  reauthModalOpen = false;
+  try { cacheDomRefs(); } catch (e) {}
+
+  // Clear local flag immediately so modal hide check passes
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem('fg_reauth_required_v1') || 'null'); } catch (e) {}
+  const token = stored && stored.token ? String(stored.token) : null;
+  try { localStorage.removeItem('fg_reauth_required_v1'); } catch (e) {}
+  try { localStorage.removeItem('reauthPending'); } catch (e) {}
+
+  // Hide modal UI right now — before any network call
   try {
-    // mark modal closed locally (UI state)
-    reauthModalOpen = false;
+    if (reauthModal) {
+      reauthModal.classList.add('hidden');
+      try { reauthModal.removeAttribute('aria-modal'); } catch (e) {}
+      try { reauthModal.removeAttribute('role'); } catch (e) {}
+      if ('inert' in HTMLElement.prototype) {
+        try { reauthModal.inert = false; } catch (e) {}
+      } else {
+        try { reauthModal.removeAttribute('aria-hidden'); reauthModal.style.pointerEvents = ''; } catch (e) {}
+      }
+    }
+    const _pm = document.getElementById('promptModal');
+    if (_pm) {
+      try { _pm.classList.add('hidden'); _pm.removeAttribute('aria-hidden'); _pm.style.pointerEvents = ''; } catch (e) {}
+    }
+  } catch (e) { console.warn('[reauth] instant modal hide error', e); }
 
-    // Ensure DOM refs are current (defensive)
-    try { cacheDomRefs(); } catch (e) {}
+  // Reset all UI state synchronously
+  try { setReauthActive(false); } catch (e) {}
+  try { if (typeof resetReauthInputs === 'function') resetReauthInputs(); } catch (e) {}
+  try { if (typeof disableReauthInputs === 'function') disableReauthInputs(false); } catch (e) {}
+  try { if (typeof hideLoader === 'function') hideLoader(); } catch (e) {}
+  try {
+    if (window.__cachedAuthOptionsLock) {
+      window.__cachedAuthOptionsLock = false;
+      window.__cachedAuthOptionsLockSince = 0;
+    }
+  } catch (e) {}
+  try {
+    if (window.__simulatePinInterval) { clearInterval(window.__simulatePinInterval); window.__simulatePinInterval = null; }
+    if (window.__simulatePinTimeout) { clearTimeout(window.__simulatePinTimeout); window.__simulatePinTimeout = null; }
+  } catch (e) {}
+  if (window.__persistentReauthLock) {
+    try { window.__persistentReauthLock.clearLock(); } catch (e) {}
+  }
+  window.__REAUTH_LOCKED__ = false;
 
-    // Read canonical token (if any) so we can avoid races
-    let stored = null;
-    try { stored = JSON.parse(localStorage.getItem('fg_reauth_required_v1') || 'null'); } catch (e) { stored = null; }
-    const token = stored && stored.token ? String(stored.token) : null;
+  // Restart idle timer
+  if (window.__idleDetection) { try { window.__idleDetection.reset(); } catch (e) {} }
+  try { if (typeof resetIdleTimer === 'function') resetIdleTimer(); } catch (e) {}
 
-    // Attempt to clear authoritative state first
-    let serverCleared = false;
+  // Restore focus
+  try {
+    const appRoot = document.querySelector('main') || document.body;
+    if (appRoot && typeof appRoot.focus === 'function') appRoot.focus();
+  } catch (e) {}
+
+  // Dispatch success event immediately so listeners fire now
+  try {
+    window.dispatchEvent(new CustomEvent('fg:reauth-success', { detail: { method: 'reauth' } }));
+  } catch (e) {}
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const bc = new BroadcastChannel('fg-reauth');
+      bc.postMessage({ type: 'clear', payload: { token } });
+    }
+  } catch (e) {}
+  try {
+    window.dispatchEvent(new StorageEvent('storage', { key: 'fg_reauth_required_v1', newValue: null }));
+  } catch (e) {}
+
+  // ── STEP 2: Server cleanup + data rehydration in background ──────────────
+  // User is already unlocked at this point — none of this blocks the UI
+  Promise.resolve().then(async () => {
     try {
+      let serverCleared = false;
       if (window.fgReauth && typeof window.fgReauth.completeReauth === 'function') {
-        // Prefer your cross-tab helper if available
-        const p = window.fgReauth.completeReauth();
-        if (p && typeof p.then === 'function') {
-          try {
-            const r = await p.catch(() => null);
-            serverCleared = (r === true || r === undefined || r === null) ? true : Boolean(r);
-          } catch (e) { serverCleared = false; }
-        } else {
-          serverCleared = true; // assume best-effort success
-        }
+        try {
+          const r = await window.fgReauth.completeReauth().catch(() => null);
+          serverCleared = (r === true || r === undefined || r === null) ? true : Boolean(r);
+        } catch (e) { serverCleared = false; }
       } else {
-        // Fallback: direct Supabase clear (replaces /reauth/complete)
         serverCleared = await clearReauthLock();
-        if (serverCleared) {
-          console.log('[reauth] Supabase fallback clear succeeded');
-        } else {
-          console.warn('[reauth] Supabase fallback clear returned false');
-        }
       }
+      try { clearExpectedReauthAt(); } catch (e) {}
+      console.log('[reauth] background server clear:', serverCleared ? 'ok' : 'failed');
     } catch (e) {
-      serverCleared = false;
-      console.error('[reauth] Clear authoritative state failed:', e);
+      console.warn('[reauth] background server clear error:', e);
     }
 
-    // Clear the local expected reauth timestamp - always do this
-    try { clearExpectedReauthAt(); } catch (e) { /* ignore */ }
-
-    // If cleared successfully, remove canonical local marker
-    if (serverCleared) {
-      try {
-        const cur = JSON.parse(localStorage.getItem('fg_reauth_required_v1') || 'null');
-        if (!token || !cur || String(cur.token) === String(token)) {
-          try { localStorage.removeItem('fg_reauth_required_v1'); } catch (e) {}
-          try { localStorage.removeItem('reauthPending'); } catch (e) {}
-          // broadcast fallback
-          try { 
-            if (typeof BroadcastChannel !== 'undefined') { 
-              const bc = new BroadcastChannel('fg-reauth'); 
-              bc.postMessage({ type: 'clear', payload: { token } }); 
-            } 
-          } catch(e){}
-          try { window.dispatchEvent(new StorageEvent('storage', { key: 'fg_reauth_required_v1', newValue: null })); } catch(e){}
-        } else {
-          console.warn('[reauth] canonical token mismatch; skipping local clear to avoid race');
-        }
-      } catch (e) {
-        console.warn('[reauth] failed to clear local canonical flag', e);
-      }
-    } else {
-      console.debug('[reauth] clear failed or unreachable — keeping canonical flag for persistence');
-    }
-    loadLatestHistoryAsFallback();
-    loadAdminFullHistory();
-
-    // Hide UI only if canonical key is gone
-    function isCanonicalPending() {
-      try { return !!JSON.parse(localStorage.getItem('fg_reauth_required_v1') || 'null'); } catch (e) { return false; }
-    }
-
+    // Rehydrate data
     try {
-      if (!isCanonicalPending()) {
-        if (reauthModal) {
-          reauthModal.classList.add('hidden');
-          try { reauthModal.removeAttribute('aria-modal'); } catch (e) {}
-          try { reauthModal.removeAttribute('role'); } catch (e) {}
-          if ('inert' in HTMLElement.prototype) {
-            try { reauthModal.inert = false; } catch (e) {}
-          } else {
-            try { reauthModal.removeAttribute('aria-hidden'); reauthModal.style.pointerEvents = ''; } catch (e) {}
-          }
-        }
-
-        const _pm = document.getElementById('promptModal');
-        if (_pm) {
-          try {
-            _pm.classList.add('hidden');
-            _pm.removeAttribute('aria-hidden');
-            _pm.style.pointerEvents = '';
-          } catch (e) {}
-        }
-
-        reauthModalOpen = false;
-      } else {
-        console.debug('[reauth] canonical still present — not hiding modal locally');
-      }
-    } catch (e) {
-      console.warn('[reauth] UI hide error', e);
-    }
-
-    // turn off global reauth active state
-    try { setReauthActive(false); } catch (e) {}
-
-    // cleanup timers / locks
-    try {
-      if (window.__cachedAuthOptionsLock) { 
-        window.__cachedAuthOptionsLock = false; 
-        window.__cachedAuthOptionsLockSince = 0; 
-      }
-    } catch (e) {}
-    try {
-      if (window.__simulatePinInterval) { clearInterval(window.__simulatePinInterval); window.__simulatePinInterval = null; }
-      if (window.__simulatePinTimeout) { clearTimeout(window.__simulatePinTimeout); window.__simulatePinTimeout = null; }
-    } catch (e) {}
-
-    // Reset / clear PIN UI and re-enable inputs
-    try { if (typeof resetReauthInputs === 'function') resetReauthInputs(); } catch (e) {}
-    try { if (typeof disableReauthInputs === 'function') disableReauthInputs(false); } catch (e) {}
-
-    // Hide loader
-    try { if (typeof hideLoader === 'function') hideLoader(); } catch (e) {}
-
-    // Restart idle timer
-    if (window.__idleDetection) {
-      window.__idleDetection.reset();
-    }
-    try { if (typeof resetIdleTimer === 'function') resetIdleTimer(); } catch (e) {}
-
-    // restore focus
-    try {
-      const appRoot = document.querySelector('main') || document.body;
-      if (appRoot && typeof appRoot.focus === 'function') appRoot.focus();
-    } catch (e) {}
-    // ================================
-    // 🔁 POST-REAUTH DATA REHYDRATION
-    // ================================
-    try {
-      // mark system unlocked
-      window.__REAUTH_LOCKED__ = false;
-
-      // 🔥 reset poisoned plan loader state
       if (typeof window.__resetPlansState === 'function') {
         window.__resetPlansState();
       } else {
-        // fallback if function not exposed
         if (typeof __plansLoaded !== 'undefined') __plansLoaded = false;
       }
-
-      // 🔁 force fresh server fetch
-      if (typeof fetchPlans === 'function') {
-        await fetchPlans();
-      }
-
-      // 🔔 notify UI listeners
-      if (typeof dispatchPlansUpdateEvent === 'function') {
-        dispatchPlansUpdateEvent();
-      }
-
-      console.log('[reauth] plans rehydrated after unlock');
+      if (typeof fetchPlans === 'function') await fetchPlans();
+      if (typeof dispatchPlansUpdateEvent === 'function') dispatchPlansUpdateEvent();
+      try { loadLatestHistoryAsFallback(); } catch (e) {}
+      try { loadAdminFullHistory(); } catch (e) {}
+      console.log('[reauth] background data rehydration done');
     } catch (e) {
-      console.warn('[reauth] post-reauth plans refresh failed', e);
+      console.warn('[reauth] background data rehydration failed:', e);
     }
+  });
 
-
-    return true;
-  } catch (err) {
-    // fail-safe
-    try { setReauthActive(false); } catch (e) {}
-    try { if (typeof resetIdleTimer === 'function') resetIdleTimer(); } catch (e) {}
-    console.warn('[reauth] onSuccessfulReauth unexpected error', err);
-    return false;
-  }
+  return true;
 }
 
 window.__resetPlansState = function () {
