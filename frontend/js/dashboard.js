@@ -2875,6 +2875,72 @@ if (updateProfileModal && updateProfileModal.classList.contains('active')) {
 }
 
 
+// === IMMEDIATE REAUTH DETECTION AFTER OAUTH / LOGIN ===
+async function checkAndEnforceReauthOnLoad() {
+  console.log('[REAUTH-BOOT] Aggressive post-login check...');
+
+  try {
+    // 1. Check local canonical flag first (fast)
+    const localLock = (function() {
+      try { return JSON.parse(localStorage.getItem('fg_reauth_required_v1') || 'null'); } 
+      catch(e) { return null; }
+    })();
+
+    if (localLock) {
+      console.log('[REAUTH-BOOT] Local lock found → showing modal immediately');
+      await showReauthModalSafeNew({ context: 'reauth', reason: localLock.reason || 'post-oauth' });
+      return true;
+    }
+
+    // 2. Check server lock (Supabase) — this is the authoritative source
+    const serverLock = await checkReauthLock(); // your existing direct Supabase function
+
+    if (serverLock && serverLock.required) {
+      console.log('[REAUTH-BOOT] Server lock detected → showing modal');
+      
+      // Sync to localStorage for cross-tab consistency
+      const lockObj = { 
+        token: 'oauth_' + Date.now(), 
+        ts: Date.now(), 
+        reason: serverLock.reason || 'google_oauth_login' 
+      };
+      localStorage.setItem('fg_reauth_required_v1', JSON.stringify(lockObj));
+
+      await showReauthModalSafeNew({ 
+        context: 'reauth', 
+        reason: serverLock.reason || 'google_oauth_login' 
+      });
+      return true;
+    }
+
+    console.log('[REAUTH-BOOT] No lock found');
+    return false;
+
+  } catch (err) {
+    console.error('[REAUTH-BOOT] Critical error:', err);
+    return false;
+  }
+}
+
+// Safe wrapper that tries multiple modal show paths
+async function showReauthModalSafeNew(opts = {}) {
+  try {
+    if (typeof window.__reauth?.showReauthModal === 'function') {
+      return await window.__reauth.showReauthModal(opts.context || 'reauth');
+    }
+    if (typeof showReauthModal === 'function') {
+      return await showReauthModal(opts.context || 'reauth');
+    }
+    if (typeof initReauthModal === 'function') {
+      return await initReauthModal({ show: true, context: opts.context || 'reauth' });
+    }
+    console.warn('[REAUTH] No modal show function found');
+  } catch (e) {
+    console.error('[REAUTH] showReauthModalSafeNew failed:', e);
+  }
+}
+
+
 
 // --- Fetch User Data ---
 // --- Fetch User Data ---
@@ -3850,6 +3916,7 @@ async function handleBioToggle(e) {
 // After getSession succeeds
 // After getSession succeeds (now cache-first)
 async function onDashboardLoad() {
+  await checkAndEnforceReauthOnLoad();
   // Instant cache render first
   const cachedUserData = localStorage.getItem('userData');
   if (cachedUserData) {
