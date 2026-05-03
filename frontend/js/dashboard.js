@@ -13337,6 +13337,7 @@ const __sec_parentHandler = async () => {
         __sec_log.d('bioLogin: New state', { newState });
         try {
           localStorage.setItem(__sec_KEYS.bioLogin, newState ? '1' : '0');
+          localStorage.setItem('biometricForLogin', newState ? 'true' : 'false');
           __sec_log.i(`bioLogin ${newState ? 'enabled' : 'disabled'} (local only)`);
           showSlideNotification(`Login biometrics ${newState ? 'enabled' : 'disabled'}`, newState ? 'success' : 'info');
           if (!newState) __sec_maybeDisableParentIfChildrenOff();
@@ -13379,6 +13380,7 @@ const __sec_parentHandler = async () => {
         __sec_log.d('bioTx: New state', { newState });
         try {
           localStorage.setItem(__sec_KEYS.bioTx, newState ? '1' : '0');
+          localStorage.setItem('biometricForTx', newState ? 'true' : 'false');
           __sec_log.i(`bioTx ${newState ? 'enabled' : 'disabled'} (local only)`);
           showSlideNotification(`Transaction biometrics ${newState ? 'enabled' : 'disabled'}`, newState ? 'success' : 'info');
           if (!newState) __sec_maybeDisableParentIfChildrenOff();

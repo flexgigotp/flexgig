@@ -730,6 +730,11 @@ document.addEventListener('fg:switch-changed', (e) => {
     updateBiometricButton();
   }
 });
+document.addEventListener('sec:switch-change', (e) => {
+  if (['bioTxSwitch', 'biometricsSwitch'].includes(e.detail?.id)) {
+    updateBiometricButton();
+  }
+});
 
   function updateInputs() {
   inputs.forEach((input, i) => {
@@ -834,10 +839,18 @@ async function handleBiometricAuth() {
     let result = { success: false };
 
 try {
-  if (typeof verifyBiometrics === 'function') {
-    result = await verifyBiometrics();
-  } else if (typeof startAuthentication === 'function') {
-    result = await startAuthentication();
+  // Use startAuthentication directly — avoids reauth side effects
+  if (typeof startAuthentication === 'function') {
+    const session = await (typeof getSession === 'function' 
+      ? getSession().catch(() => null) 
+      : Promise.resolve(null));
+    const uid = session?.user?.uid || session?.user?.id ||
+      (() => { try { return JSON.parse(localStorage.getItem('userData') || '{}').uid; } catch(e){ return null; } })();
+    result = await startAuthentication(uid);
+    // startAuthentication returns verifyData directly — wrap it
+    if (result?.verified) {
+      result = { success: true, data: result };
+    }
   }
 } catch (e) {
   console.warn('[checkout-pin] Biometric failed:', e);
@@ -850,7 +863,7 @@ try {
   hideCheckoutPinModal();
   window._checkoutPinResolve?.({
   success: true,
-  biometricToken: result.token // issued by backend
+  biometricToken: result.data?.token
 });
 
   return;
