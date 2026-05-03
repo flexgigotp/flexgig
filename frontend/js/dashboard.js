@@ -12966,21 +12966,35 @@ async function startAuthentication(userId) {
 
     __sec_log.d('startAuthentication: Converting challenge');
     function safeToUint8(val) {
-      if (typeof val === 'string') return new Uint8Array(base64urlToArrayBuffer(val));
-      if (val instanceof Uint8Array) return val;
-      if (val instanceof ArrayBuffer) return new Uint8Array(val);
-      if (ArrayBuffer.isView(val)) return new Uint8Array(val.buffer, val.byteOffset, val.byteLength);
-      if (val && typeof val === 'object') {
-        const keys = Object.keys(val);
-        if (keys.length > 0 && !isNaN(Number(keys[0]))) {
-          const max = Math.max(...keys.map(Number));
-          const arr = new Uint8Array(max + 1);
-          for (const k of keys) arr[Number(k)] = val[k];
-          return arr;
-        }
-      }
-      return new Uint8Array(base64urlToArrayBuffer(String(val)));
+  if (typeof val === 'string') return new Uint8Array(base64urlToArrayBuffer(val));
+  if (val instanceof Uint8Array) return val;
+  if (val instanceof ArrayBuffer) return new Uint8Array(val);
+  if (ArrayBuffer.isView(val)) return new Uint8Array(val.buffer, val.byteOffset, val.byteLength);
+  if (val && typeof val === 'object') {
+    const keys = Object.keys(val);
+    if (keys.length > 0 && !isNaN(Number(keys[0]))) {
+      // Numeric-keyed object — reconstruct as Uint8Array
+      const max = Math.max(...keys.map(Number));
+      const arr = new Uint8Array(max + 1);
+      for (const k of keys) arr[Number(k)] = val[k];
+      return arr;
     }
+    // ✅ Non-numeric object (e.g. a parsed JSON object passed by mistake)
+    // Attempting String(val) would produce '[object Object]' and break atob.
+    // Clear the corrupt cache and throw so the caller falls back to PIN.
+    console.warn('[safeToUint8] Received non-decodable object, clearing biometric cache:', val);
+    try {
+      localStorage.removeItem('__cachedAuthOptions');
+      window.__cachedAuthOptions = null;
+      window.__cachedAuthOptionsFetchedAt = null;
+    } catch (e) {}
+    throw new Error(`Failed to decode base64url: expected string but got object (${JSON.stringify(val)?.slice(0, 80)})`);
+  }
+  // ✅ Last resort: only call String(val) if val is a primitive (number, boolean)
+  // Never on objects — already handled above
+  if (val == null) throw new Error('Failed to decode base64url: value is null/undefined');
+  return new Uint8Array(base64urlToArrayBuffer(String(val)));
+}
     options.challenge = safeToUint8(options.challenge);
     __sec_log.d('startAuthentication: Challenge converted', { challengeLength: options.challenge.length });
     
