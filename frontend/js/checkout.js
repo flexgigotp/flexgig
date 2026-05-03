@@ -829,7 +829,6 @@ function showCheckoutPinModal() {
     inputs.forEach(i => i.style.opacity = '0.3');
     if (biometricBtn) {
       biometricBtn.style.opacity = '0.5';
-      biometricBtn.textContent = 'Verifying…';
     }
   } else {
     inputs[0]?.focus();
@@ -843,7 +842,6 @@ async function handleBiometricAuth() {
   inputs.forEach(i => i.style.opacity = '1');
   if (biometricBtn) {
     biometricBtn.style.opacity = '1';
-    biometricBtn.textContent = ''; // restore your original icon/text
   }
 
   try {
