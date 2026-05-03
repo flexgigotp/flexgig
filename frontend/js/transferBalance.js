@@ -353,7 +353,7 @@ if (sendBtn) {
 
     
     // Small delay to let confirm modal close animation finish
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     // 2. Start fetching session JWT in the background (parallel)
     const sessionPromise = fxgTransfer_getSharedJWT();
@@ -397,7 +397,7 @@ if (sendBtn) {
     fxgTransfer_showProcessingReceipt(payload);
     
     // Small delay to ensure processing state is visible
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     // 6. Make the transfer API call
     const res = await fetch(`${API_BASE}/api/wallet/transfer`, {

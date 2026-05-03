@@ -825,12 +825,26 @@ function showCheckoutPinModal() {
 
   // Always show PIN keypad first
   // User must tap biometric button manually
-  inputs[0]?.focus();
+  if (isBiometricEnabledForTx()) {
+    inputs.forEach(i => i.style.opacity = '0.3');
+    if (biometricBtn) {
+      biometricBtn.style.opacity = '0.5';
+      biometricBtn.textContent = 'Verifying…';
+    }
+  } else {
+    inputs[0]?.focus();
+  }
 
 }
 
 // === SHARED BIOMETRIC AUTH FUNCTION ===
 async function handleBiometricAuth() {
+
+  inputs.forEach(i => i.style.opacity = '1');
+  if (biometricBtn) {
+    biometricBtn.style.opacity = '1';
+    biometricBtn.textContent = ''; // restore your original icon/text
+  }
 
   try {
     biometricBtn.disabled = true;
