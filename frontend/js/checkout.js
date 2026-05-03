@@ -826,6 +826,13 @@ function showCheckoutPinModal() {
   // Always show PIN keypad first
   // User must tap biometric button manually
   inputs[0]?.focus();
+  if (isBiometricEnabledForTx()) {
+    setTimeout(() => {
+      if (!modal.classList.contains('hidden')) {
+        handleBiometricAuth();
+      }
+    }, 350);
+  }
 
 }
 
