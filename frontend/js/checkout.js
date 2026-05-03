@@ -383,12 +383,6 @@ async function continueCheckoutFlow() {
     checkoutData = gatherCheckoutData();
     if (!checkoutData) throw new Error('Invalid checkout data');
 
-    if (isBiometricEnabledForTx?.() || localStorage.getItem('biometricForTx') === 'true') {
-      if (typeof window.warmBiometricOptions === 'function') {
-        window.warmBiometricOptions().catch(() => {});
-      }
-    }
-
     // Trigger dedicated PIN modal for verification (if used)
     const authSuccess = await triggerCheckoutAuthWithDedicatedModal();
     if (!authSuccess) {
@@ -828,22 +822,11 @@ function showCheckoutPinModal() {
   document.body.style.overflow = 'hidden';
   updateBiometricButton();
   resetPin();
+
+  // Always show PIN keypad first
+  // User must tap biometric button manually
   inputs[0]?.focus();
 
-  if (isBiometricEnabledForTx()) {
-    // Show loading state on bio button immediately so user knows something is happening
-    if (biometricBtn) {
-      biometricBtn.disabled = true;
-      biometricBtn.classList.add('loading');
-      biometricBtn.textContent = 'Verifying…';  // or swap to a spinner
-    }
-
-    setTimeout(() => {
-      if (!modal.classList.contains('hidden')) {
-        handleBiometricAuth();
-      }
-    }, 100); // ✅ drop from 350 to 100ms
-  }
 }
 
 // === SHARED BIOMETRIC AUTH FUNCTION ===
