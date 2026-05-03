@@ -832,6 +832,8 @@ function showCheckoutPinModal() {
     }
   } else {
     inputs[0]?.focus();
+
+    history.pushState({ checkoutPinModal: true }, '', window.location.href);
   }
 
 
@@ -1097,6 +1099,13 @@ async function verifyPin(pin) {
     }
   });
 }
+
+  window.addEventListener('popstate', (e) => {
+    if (modal.classList.contains('hidden')) return;
+    hideCheckoutPinModal();
+    if (window._checkoutPinResolve) window._checkoutPinResolve(false);
+    e.stopImmediatePropagation();
+  });
 
 
 
@@ -1503,6 +1512,8 @@ async function pollForFinalStatus(reference) {
     }
   }
 }
+
+
 // Close & Buy Again handlers (unchanged)
 document.getElementById('receipt-done')?.addEventListener('click', () => {
   const backdrop = document.getElementById('smart-receipt-backdrop');
