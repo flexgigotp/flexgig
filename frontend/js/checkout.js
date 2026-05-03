@@ -386,8 +386,8 @@ async function continueCheckoutFlow() {
     // Trigger dedicated PIN modal for verification (if used)
     const authSuccess = await triggerCheckoutAuthWithDedicatedModal();
     if (!authSuccess) {
-      // User cancelled PIN entry
-      showToast('Payment cancelled', 'info');
+      payBtn.disabled = false;
+      payBtn.textContent = originalText;
       return;
     }
 
@@ -756,12 +756,8 @@ document.addEventListener('sec:switch-change', (e) => {
 
 
   function hideCheckoutPinModal() {
-  if (window.ModalManager && typeof window.ModalManager.forceCloseModal === 'function') {
-    window.ModalManager.forceCloseModal('checkout-pin-modal');
-  } else {
-    modal.classList.add('hidden');
-    document.body.style.overflow = '';
-  }
+  modal.classList.add('hidden');
+  document.body.style.overflow = '';
   resetPin();
 }
 
@@ -838,10 +834,7 @@ function showCheckoutPinModal() {
     inputs[0]?.focus();
   }
 
-  if (window.ModalManager && typeof window.ModalManager.openModal === 'function') {
-    // Only push to stack — don't re-open via MM since we already showed it above
-    window.ModalManager.openModal('checkout-pin-modal');
-  }
+
 
 
 }

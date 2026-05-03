@@ -514,7 +514,6 @@ function setAdminActive() {
     hasPullHandle: false 
   },
   kycVerifyModal: { id: 'kycVerifyModal', element: null, hasPullHandle: false },
-  'checkout-pin-modal': { id: 'checkout-pin-modal', element: null, hasPullHandle: false },
   };
 
   // ─────────────────────────────────────────────────────────────
@@ -529,7 +528,6 @@ const bottomSheetModals = [
   'fxgReceiptModal',
   'receiptModal',
   'kycVerifyModal',
-  'checkout-pin-modal'
 ];
 
 function lockBodyScroll(lock = true) {
