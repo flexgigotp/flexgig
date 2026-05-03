@@ -350,11 +350,7 @@ if (sendBtn) {
     // 1. Close confirm modal FIRST (before any async operations)
     fxgTransfer_closeConfirmModal();
 
-    if (isBiometricEnabledForTx?.() || localStorage.getItem('biometricForTx') === 'true') {
-      if (typeof window.warmBiometricOptions === 'function') {
-        window.warmBiometricOptions().catch(() => {}); // fire and forget
-      }
-    }
+
     
     // Small delay to let confirm modal close animation finish
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -907,12 +903,20 @@ function fxgTransfer_bindReceiptModalEvents() {
     }
 
     // ✅ Pre-warm biometric the moment user taps Continue
-    if (localStorage.getItem('biometricForTx') === 'true' ||
-        localStorage.getItem('biometricsEnabled') === 'true') {
-      if (typeof window.warmBiometricOptions === 'function') {
-        window.warmBiometricOptions().catch(() => {});
-      }
+if (localStorage.getItem('biometricForTx') === 'true' ||
+    localStorage.getItem('biometricsEnabled') === 'true') {
+  if (typeof window.warmBiometricOptions === 'function') {
+    // Resolve uid the same way dashboard.js does
+    const uid =
+      window.currentUser?.uid ||
+      window.__SERVER_USER_DATA__?.uid ||
+      (() => { try { return JSON.parse(localStorage.getItem('userData') || '{}').uid; } catch(e) { return null; } })();
+
+    if (uid) {
+      window.warmBiometricOptions(uid, 'reauth').catch(() => {});
     }
+  }
+}
 
     fxgTransfer_openConfirmModal(payload);
   });
