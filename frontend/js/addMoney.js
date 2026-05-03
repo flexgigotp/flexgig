@@ -429,17 +429,21 @@ async function openAddMoneyModalContent() {
 
   const kycState = getKYCState();
   if (kycState && kycState.verified) {
-    if (window.ModalManager) {
+  if (window.ModalManager) {
+    setTimeout(() => {
+      window.ModalManager.closeModal('addMoneyModal');
       setTimeout(() => {
-        window.ModalManager.closeModal('addMoneyModal');
-        setTimeout(() => {
-          renderPermAccountsInKYCBody(false);
-          window.ModalManager.openModal('kycVerifyModal');
-        }, 120);
-      }, 60);
-    }
-    return;
+        renderPermAccountsInKYCBody(false);
+        window.ModalManager.openModal('kycVerifyModal');
+        // ✅ Force scroll lock since the close/open gap may have unlocked it
+        document.body.style.overflow = 'hidden';
+        document.body.style.position = 'fixed';
+        document.body.style.width = '100%';
+      }, 120);
+    }, 60);
   }
+  return;
+}
 
   // Not KYC verified — render normal deposit form
   const contentContainer = addMoneyModal.querySelector('.addMoney-modal-content');
@@ -485,6 +489,14 @@ async function openAddMoneyModalContent() {
   assignAddMoneyEvents();
 }
 window.openAddMoneyModalContent = window.openAddMoneyModalContent || openAddMoneyModalContent;
+
+document.addEventListener('modalClosed', (e) => {
+  if (e.detail === 'kycVerifyModal') {
+    document.body.style.overflow = '';
+    document.body.style.position = '';
+    document.body.style.width = '';
+  }
+});
 
 (function patchBalanceUpdateClear() {
   const origHandle = window.__handleBalanceUpdate;
