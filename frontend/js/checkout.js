@@ -383,24 +383,25 @@ async function continueCheckoutFlow() {
     checkoutData = gatherCheckoutData();
     if (!checkoutData) throw new Error('Invalid checkout data');
 
-    // Trigger dedicated PIN modal for verification (if used)
-    const authSuccess = await triggerCheckoutAuthWithDedicatedModal();
-    if (!authSuccess) {
+    // authResult holds { success, pinToken } or { success, biometricToken }
+    const authResult = await triggerCheckoutAuthWithDedicatedModal();
+
+    if (!authResult?.success) {
       payBtn.disabled = false;
       payBtn.textContent = originalText;
       return;
     }
 
-    // Force-save price again (extra safety)
-if (checkoutData && checkoutData.price && !isNaN(checkoutData.price)) {
-  localStorage.setItem('lastCheckoutPrice', checkoutData.price.toString());
-  console.log('[PRICE LOCK] Re-saved price before receipt:', checkoutData.price);
-}
+    // Force-save price before receipt
+    if (checkoutData?.price && !isNaN(checkoutData.price)) {
+      localStorage.setItem('lastCheckoutPrice', checkoutData.price.toString());
+    }
+
     showProcessingReceipt(checkoutData);
 
-    const result = await processPayment();
+    // ✅ Pass authResult so processPayment can attach the token
+    const result = await processPayment(authResult);
 
-    // Keep Processing spinner — poll will handle switching
     pollForFinalStatus(result.reference);
 
   } catch (err) {
@@ -415,7 +416,6 @@ if (checkoutData && checkoutData.price && !isNaN(checkoutData.price)) {
     }
     closeCheckoutModal();
   } finally {
-    // restore UI
     const payBtnFinal = document.getElementById('payBtn');
     if (payBtnFinal) {
       payBtnFinal.disabled = false;
@@ -636,18 +636,29 @@ async function triggerCheckoutAuthWithDedicatedModal() {
 
 // ==================== REAL PAYMENT PROCESSING (WITH LOADER) ====================
 // ==================== REAL PAYMENT PROCESSING (NO LOADER OVERLAY) ====================
-async function processPayment() {
+async function processPayment(authResult) {
   if (!checkoutData) throw new Error('No checkout data');
 
+  // authResult comes from triggerCheckoutAuthWithDedicatedModal()
+  // it contains either pinToken (from PIN verify) or biometricToken (from WebAuthn)
+  const pinToken = authResult?.pinToken || authResult?.biometricToken || null;
+
+  if (!pinToken) {
+    throw new Error('PIN verification token missing. Please verify your PIN again.');
+  }
+
   const payload = {
-    plan_id: checkoutData.planId,
-    phone: checkoutData.rawNumber || checkoutData.number.replace(/\s/g, ''),
-    provider: checkoutData.provider.toLowerCase(),
+    plan_id:  checkoutData.planId,
+    phone:    checkoutData.rawNumber || checkoutData.number.replace(/\s/g, ''),
+    provider: checkoutData.provider.toUpperCase(), // backend expects uppercase
   };
 
-  const response = await fetch('https://api.flexgig.com.ng/api/purchase-data', {
+  const response = await fetch('https://api.flexgig.com.ng/api/transactions/buy-data', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-PIN-TOKEN': pinToken,           // ✅ required by backend
+    },
     body: JSON.stringify(payload),
     credentials: 'include',
   });
@@ -655,17 +666,26 @@ async function processPayment() {
   const result = await response.json();
 
   if (!response.ok) {
-    if (result.error === 'insufficient_balance') {
-      throw new Error(`Insufficient balance: ₦${result.current_balance?.toLocaleString() || '0'}`);
+    // Map backend error codes to user-friendly messages
+    switch (result.code) {
+      case 'PIN_TOKEN_REQUIRED':
+      case 'PIN_TOKEN_INVALID':
+      case 'PIN_TOKEN_MISMATCH':
+      case 'PIN_TOKEN_WRONG_ACTION':
+      case 'PIN_TOKEN_ALREADY_USED':
+        throw new Error('PIN session expired. Please verify your PIN again.');
+      default:
+        if (result.error === 'insufficient_balance' || result.current_balance !== undefined) {
+          throw new Error(`Insufficient balance: ₦${result.current_balance?.toLocaleString() || '0'}`);
+        }
+        throw new Error(result.message || 'Purchase failed');
     }
-    throw new Error(result.message || 'Purchase failed');
   }
 
-  // Save for later use
-  checkoutData.reference = result.reference;
+  checkoutData.reference  = result.reference;
   checkoutData.new_balance = result.new_balance;
 
-  return result;  // Contains status: 'success', 'pending', or 'failed'
+  return result;
 }
 
 

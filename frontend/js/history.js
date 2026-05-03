@@ -2432,8 +2432,9 @@ async function subscribeToTransactions(force = false) {
           console.log('[Tx Realtime] ✅ SUBSCRIBED & LISTENING');
           lastTxHealthy = Date.now();
           realtimeFailedCount = 0;
+          _txRetryCount = 0; // ✅ reset backoff counter on success
           if (txRetryTimer) clearTimeout(txRetryTimer);
-        } 
+        }
         else if (['CLOSED', 'CHANNEL_ERROR', 'TIMED_OUT'].includes(status)) {
           if (txIsIntentionalClose) {
             console.log('[Tx Realtime] CLOSED due to intentional removal — ignoring');
@@ -2461,12 +2462,27 @@ async function subscribeToTransactions(force = false) {
   }
 }
 
+let _txRetryCount = 0;
+const TX_MAX_RETRIES = 5;
+
 function scheduleTxRetry() {
   if (txRetryTimer) return;
+
+  if (_txRetryCount >= TX_MAX_RETRIES) {
+    console.warn('[Tx Realtime] Max retries reached — pausing. Will resume on next page focus or modal open.');
+    _txRetryCount = 0; // reset so visibility change can restart it
+    return;
+  }
+
+  // Exponential backoff: 5s → 10s → 20s → 40s → 60s
+  const delay = Math.min(5000 * Math.pow(2, _txRetryCount), 60000);
+  _txRetryCount++;
+  console.log(`[Tx Realtime] Retry ${_txRetryCount}/${TX_MAX_RETRIES} in ${Math.round(delay/1000)}s`);
+
   txRetryTimer = setTimeout(() => {
     txRetryTimer = null;
     subscribeToTransactions(true);
-  }, TX_RETRY_MS);
+  }, delay);
 }
 
 // Expose globally
@@ -2716,6 +2732,7 @@ async function subscribeToUserRealtime(force = false) {
           console.log('[User Realtime] ✅ SUBSCRIBED & LISTENING');
           lastUserHealthy = Date.now();
           userRealtimeFailedCount = 0;
+          _userRetryCount = 0; // ✅ reset backoff counter on success
           if (userRetryTimer) clearTimeout(userRetryTimer);
         } else if (['CLOSED', 'CHANNEL_ERROR', 'TIMED_OUT'].includes(status)) {
           userRealtimeFailedCount++;
@@ -2935,13 +2952,26 @@ async function unsubscribeAdminTransactions() {
 window.subscribeToAdminTransactions = subscribeToAdminTransactions;
 window.unsubscribeAdminTransactions = unsubscribeAdminTransactions;
 
+let _userRetryCount = 0;
+const USER_MAX_RETRIES = 5;
+
 function scheduleUserRetry() {
   if (userRetryTimer) return;
+
+  if (_userRetryCount >= USER_MAX_RETRIES) {
+    console.warn('[User Realtime] Max retries reached — pausing.');
+    _userRetryCount = 0;
+    return;
+  }
+
+  const delay = Math.min(5000 * Math.pow(2, _userRetryCount), 60000);
+  _userRetryCount++;
+  console.log(`[User Realtime] Retry ${_userRetryCount}/${USER_MAX_RETRIES} in ${Math.round(delay/1000)}s`);
 
   userRetryTimer = setTimeout(() => {
     userRetryTimer = null;
     subscribeToUserRealtime(true);
-  }, USER_RETRY_MS);
+  }, delay);
 }
 
 window.subscribeToUserRealtime = subscribeToUserRealtime;

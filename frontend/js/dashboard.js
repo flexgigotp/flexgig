@@ -244,24 +244,25 @@ const JWT_CACHE = {
  * @param {boolean} forceRefresh - Force new token even if cached
  * @returns {Promise<string|null>} JWT token or null
  */
+// Track refresh attempts to avoid infinite loops
+let _jwtRefreshAttempts = 0;
+const JWT_MAX_REFRESH_ATTEMPTS = 2;
+
 async function getSharedJWT(forceRefresh = false) {
   const now = Date.now();
 
-  // 1. If we have a valid cached token, return it immediately
   if (!forceRefresh && JWT_CACHE.token && now < JWT_CACHE.expiry - JWT_CACHE.BUFFER_MS) {
     console.log('[JWT Cache] Using cached token (expires in', Math.round((JWT_CACHE.expiry - now) / 1000), 'seconds)');
     return JWT_CACHE.token;
   }
 
-  // 2. If there's already a request in flight, wait for it
   if (JWT_CACHE.pendingRequest) {
     console.log('[JWT Cache] Waiting for pending request...');
     return JWT_CACHE.pendingRequest;
   }
 
-  // 3. Make new request and cache the promise
   console.log('[JWT Cache] Fetching new JWT...');
-  
+
   JWT_CACHE.pendingRequest = (async () => {
     try {
       const res = await fetch('https://api.flexgig.com.ng/api/supabase/token', {
@@ -270,58 +271,111 @@ async function getSharedJWT(forceRefresh = false) {
         headers: { 'Accept': 'application/json' }
       });
 
+      // ── Reauth lock ──
       if (res.status === 423) {
-  console.warn('[JWT Cache] 🔒 Account locked (423) — triggering reauth modal');
+        console.warn('[JWT Cache] 🔒 Account locked (423) — triggering reauth modal');
+        localStorage.setItem('fg_reauth_required_v1', JSON.stringify({
+          reason: 'backend_423', ts: Date.now()
+        }));
+        try {
+          if (window.__reauth && typeof window.__reauth.initReauthModal === 'function') {
+            window.__reauth.initReauthModal({ show: true, context: 'reauth' });
+          } else if (typeof showReauthModalLocal === 'function') {
+            showReauthModalLocal({ fromStorageObj: { reason: 'backend_423', ts: Date.now() } });
+          } else {
+            window.dispatchEvent(new StorageEvent('storage', {
+              key: 'fg_reauth_required_v1',
+              newValue: JSON.stringify({ reason: 'backend_423', ts: Date.now() })
+            }));
+          }
+        } catch (e) {
+          console.error('[JWT Cache] Failed to show reauth modal after 423:', e);
+        }
+        throw new Error('JWT fetch failed: 423');
+      }
 
-  // Set the canonical localStorage flag so bootstrap code picks it up
-  localStorage.setItem('fg_reauth_required_v1', JSON.stringify({
-    reason: 'backend_423',
-    ts: Date.now()
-  }));
+      // ── Access token expired — try to refresh it once ──
+      if (res.status === 401) {
+        const body = await res.json().catch(() => ({}));
+        const code = body?.error?.code || '';
 
-  // Show reauth modal immediately — no reload needed
-  try {
-    if (window.__reauth && typeof window.__reauth.initReauthModal === 'function') {
-      window.__reauth.initReauthModal({ show: true, context: 'reauth' });
-    } else if (typeof showReauthModalLocal === 'function') {
-      showReauthModalLocal({ fromStorageObj: { reason: 'backend_423', ts: Date.now() } });
-    } else {
-      // Fallback: dispatch storage event so any listener picks it up
-      window.dispatchEvent(new StorageEvent('storage', {
-        key: 'fg_reauth_required_v1',
-        newValue: JSON.stringify({ reason: 'backend_423', ts: Date.now() })
-      }));
-    }
-  } catch (e) {
-    console.error('[JWT Cache] Failed to show reauth modal after 423:', e);
-  }
+        // Only attempt refresh for TOKEN_EXPIRED, not INVALID_TOKEN or other auth failures
+        if ((code === 'TOKEN_EXPIRED' || code === 'SESSION_EXPIRED') && _jwtRefreshAttempts < JWT_MAX_REFRESH_ATTEMPTS) {
+          _jwtRefreshAttempts++;
+          console.log(`[JWT Cache] Access token expired — attempting refresh (attempt ${_jwtRefreshAttempts})`);
 
-  throw new Error('JWT fetch failed: 423');
-}
+          const refreshRes = await fetch('https://api.flexgig.com.ng/auth/refresh', {
+            method: 'POST',
+            credentials: 'include' // sends the rt cookie
+          });
 
-if (!res.ok) {
-  throw new Error(`JWT fetch failed: ${res.status}`);
-}
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json().catch(() => ({}));
+            const newAccessToken = refreshData.token;
 
+            if (newAccessToken) {
+              // Store new token so middleware can pick it up via cookie on next request
+              // The server already set the cookie — we just need to retry
+              console.log('[JWT Cache] ✅ Refresh succeeded — retrying supabase/token');
+              _jwtRefreshAttempts = 0; // reset for next natural expiry
+
+              // Retry the original supabase/token call with fresh cookie
+              const retryRes = await fetch('https://api.flexgig.com.ng/api/supabase/token', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Accept': 'application/json' }
+              });
+
+              if (retryRes.ok) {
+                const { token } = await retryRes.json();
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                const expiry = payload.exp * 1000;
+                JWT_CACHE.token = token;
+                JWT_CACHE.expiry = expiry;
+                console.log('[JWT Cache] ✅ Token cached after refresh (expires:', new Date(expiry).toISOString(), ')');
+                return token;
+              }
+            }
+          }
+
+          // Refresh failed — session is truly dead
+          console.warn('[JWT Cache] Refresh failed — session expired, dispatching logout event');
+          _jwtRefreshAttempts = 0;
+          
+          // Clear cached token so we don't serve a stale one
+          JWT_CACHE.token = null;
+          JWT_CACHE.expiry = 0;
+
+          // Dispatch event so the app can respond (show login prompt, etc.)
+          window.dispatchEvent(new CustomEvent('fg:session-expired'));
+          return null;
+        }
+
+        // For other 401s or if we've already tried refreshing, give up cleanly
+        console.warn('[JWT Cache] 401 without TOKEN_EXPIRED code (or max retries reached) — giving up');
+        return null;
+      }
+
+      if (!res.ok) {
+        throw new Error(`JWT fetch failed: ${res.status}`);
+      }
+
+      // ── Success ──
+      _jwtRefreshAttempts = 0;
       const { token } = await res.json();
-
-      // Decode to get expiry
       const payload = JSON.parse(atob(token.split('.')[1]));
-      const expiry = payload.exp * 1000; // Convert to milliseconds
+      const expiry = payload.exp * 1000;
 
-      // Cache the token
       JWT_CACHE.token = token;
       JWT_CACHE.expiry = expiry;
 
       console.log('[JWT Cache] ✅ New token cached (expires:', new Date(expiry).toISOString(), ')');
-
       return token;
 
     } catch (err) {
       console.error('[JWT Cache] ❌ Fetch failed:', err);
       return null;
     } finally {
-      // Clear pending request
       JWT_CACHE.pendingRequest = null;
     }
   })();
@@ -340,8 +394,34 @@ function clearJWTCache() {
 }
 
 // Expose globally
+// Expose globally
 window.getSharedJWT = getSharedJWT;
 window.clearJWTCache = clearJWTCache;
+
+// ── Handle fully-expired sessions (refresh token also dead) ──
+window.addEventListener('fg:session-expired', () => {
+  console.warn('[Session] Session fully expired — stopping retries and prompting login');
+
+  // Stop all realtime retry loops by poisoning the healthy timestamps
+  // (the retry functions check these before re-subscribing)
+  if (typeof lastTxHealthy !== 'undefined') lastTxHealthy = Date.now();
+  if (typeof lastUserHealthy !== 'undefined') lastUserHealthy = Date.now();
+
+  // Clear any pending retry timers defined in history.js scope
+  // (those are in a closure so we can't clear them directly —
+  //  but poisoning the healthy timestamp means they'll skip on next fire)
+
+  // Show a non-blocking toast rather than a hard redirect
+  // so the user can finish reading whatever they're on
+  if (typeof showToast === 'function') {
+    showToast('Your session has expired. Please log in again.', 'error');
+  }
+
+  // Redirect after a short delay so the toast is visible
+  setTimeout(() => {
+    window.location.href = '/login.html';
+  }, 3000);
+}, { once: true }); // once: true prevents duplicate handlers on hot reload
 
 // ────────────────────────────────────────────────
 // SHARED AUTHENTICATED SUPABASE CLIENT (singleton)
