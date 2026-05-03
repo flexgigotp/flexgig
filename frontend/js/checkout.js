@@ -1224,6 +1224,9 @@ function showProcessingReceipt(data) {
   const backdrop = document.getElementById('smart-receipt-backdrop');
   if (!backdrop) return console.error('[checkout] Receipt modal not found');
 
+  // ✅ Capture current balance from DOM before anything changes
+  data.balanceAtPurchase = getAvailableBalance();
+
   backdrop.classList.remove('hidden');
     backdrop.setAttribute('aria-hidden', 'false');
 
@@ -1282,7 +1285,7 @@ async function updateReceiptToSuccess(result) {
   document.getElementById('receipt-plan').textContent = data.dataAmount ? `${data.dataAmount} / ${data.validity || '—'}` : 'Data Bundle';
   document.getElementById('receipt-amount').textContent = `₦${displayAmount.toLocaleString('en-NG')}`;
   document.getElementById('receipt-transaction-id').textContent = transactionRef;
-  document.getElementById('receipt-balance').textContent = `₦${Number(result?.new_balance ?? data?.new_balance ?? 0).toLocaleString('en-NG')}`;
+  document.getElementById('receipt-balance').textContent = `₦${Number(result?.new_balance ?? data?.new_balance ?? data?.balanceAtPurchase ?? 0).toLocaleString('en-NG')}`;
   document.getElementById('receipt-time').textContent = new Date().toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' });
   document.getElementById('receipt-details').style.display = 'block';
   document.getElementById('receipt-actions').style.display = 'flex';
@@ -1441,7 +1444,7 @@ function updateReceiptToPending(tx = null) {
 
   
   const displayAmount = tx?.amount ?? data?.price ?? 0;
-  const displayBalance = tx?.new_balance ?? data?.new_balance ?? 0;
+  const displayBalance = tx?.new_balance ?? data?.new_balance ?? data?.balanceAtPurchase ?? 0;
   const transactionRef = tx?.reference ?? data?.reference ?? 'N/A';
 
 
