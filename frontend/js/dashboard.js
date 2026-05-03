@@ -12965,16 +12965,30 @@ async function startAuthentication(userId) {
     __sec_log.d('startAuthentication: Parsed options', options);
 
     __sec_log.d('startAuthentication: Converting challenge');
-    options.challenge = new Uint8Array(base64urlToArrayBuffer(options.challenge));
+    function safeToUint8(val) {
+      if (typeof val === 'string') return new Uint8Array(base64urlToArrayBuffer(val));
+      if (val instanceof Uint8Array) return val;
+      if (val instanceof ArrayBuffer) return new Uint8Array(val);
+      if (ArrayBuffer.isView(val)) return new Uint8Array(val.buffer, val.byteOffset, val.byteLength);
+      if (val && typeof val === 'object') {
+        const keys = Object.keys(val);
+        if (keys.length > 0 && !isNaN(Number(keys[0]))) {
+          const max = Math.max(...keys.map(Number));
+          const arr = new Uint8Array(max + 1);
+          for (const k of keys) arr[Number(k)] = val[k];
+          return arr;
+        }
+      }
+      return new Uint8Array(base64urlToArrayBuffer(String(val)));
+    }
+    options.challenge = safeToUint8(options.challenge);
     __sec_log.d('startAuthentication: Challenge converted', { challengeLength: options.challenge.length });
+    
 
     if (options.allowCredentials) {
       __sec_log.d('startAuthentication: Converting allowCredentials', { count: options.allowCredentials.length });
       options.allowCredentials = options.allowCredentials.map(c => {
-        const converted = {
-          ...c,
-          id: new Uint8Array(base64urlToArrayBuffer(c.id))
-        };
+        const converted = { ...c, id: safeToUint8(c.id) };
         __sec_log.d('startAuthentication: Converted allowCredential', { idLength: converted.id.length });
         return converted;
       });
