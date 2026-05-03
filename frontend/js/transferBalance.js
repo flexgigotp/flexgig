@@ -350,11 +350,7 @@ if (sendBtn) {
     // 1. Close confirm modal FIRST (before any async operations)
     fxgTransfer_closeConfirmModal();
 
-    if (isBiometricEnabledForTx?.() || localStorage.getItem('biometricForTx') === 'true') {
-      if (typeof window.warmBiometricOptions === 'function') {
-        window.warmBiometricOptions().catch(() => {}); // fire and forget
-      }
-    }
+
     
     // Small delay to let confirm modal close animation finish
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -904,6 +900,14 @@ function fxgTransfer_bindReceiptModalEvents() {
       }
       setTimeout(() => window.ModalManager?.openModal?.('pinModal'), 300);
       return;
+    }
+
+    // ✅ Pre-warm biometric the moment user taps Continue
+    if (localStorage.getItem('biometricForTx') === 'true' ||
+        localStorage.getItem('biometricsEnabled') === 'true') {
+      if (typeof window.warmBiometricOptions === 'function') {
+        window.warmBiometricOptions().catch(() => {});
+      }
     }
 
     fxgTransfer_openConfirmModal(payload);
