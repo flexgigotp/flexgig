@@ -198,7 +198,7 @@
 <!-- FIXED: No more flash on reload — masked & real never overlap -->
 <p style="color: white; font-weight: 700; position: relative; display: inline-block;">
   <span class="balance-masked" aria-hidden="true">• • • • • •</span>
-  <span class="balance-real" data-balance aria-hidden="true">₦0.00</span>
+  <span class="balance-real" data-balance aria-hidden="true"></span>
 </p>
 </div>
 
@@ -208,14 +208,21 @@
     try {
       const ud = JSON.parse(localStorage.getItem('userData') || '{}');
       const bal = ud.wallet_balance;
-      if (typeof bal === 'number' && !isNaN(bal)) {
-        const el = document.querySelector('.balance-real'); // adjust selector if needed
-        if (el) el.textContent = '₦' + bal.toLocaleString('en-NG', {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2
-        });
+      const el = document.querySelector('.balance-real');
+      if (el) {
+        if (typeof bal === 'number' && !isNaN(bal)) {
+          el.textContent = '₦' + bal.toLocaleString('en-NG', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+          });
+        } else {
+          el.textContent = '₦0.00';
+        }
       }
-    } catch(e) {}
+    } catch(e) {
+      const el = document.querySelector('.balance-real');
+      if (el) el.textContent = '₦0.00';
+    }
   })();
 </script>
 
