@@ -350,7 +350,11 @@ if (sendBtn) {
     // 1. Close confirm modal FIRST (before any async operations)
     fxgTransfer_closeConfirmModal();
 
-
+    if (isBiometricEnabledForTx?.() || localStorage.getItem('biometricForTx') === 'true') {
+      if (typeof window.warmBiometricOptions === 'function') {
+        window.warmBiometricOptions().catch(() => {}); // fire and forget
+      }
+    }
     
     // Small delay to let confirm modal close animation finish
     await new Promise(resolve => setTimeout(resolve, 100));
