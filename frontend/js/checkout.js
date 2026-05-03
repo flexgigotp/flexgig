@@ -634,6 +634,19 @@ async function triggerCheckoutAuthWithDedicatedModal() {
   });
 }
 
+function formatPhoneForAPI(phone) {
+  const cleaned = phone.replace(/\s/g, '');
+  // Convert 08012345678 → +2348012345678
+  if (cleaned.startsWith('0')) {
+    return '+234' + cleaned.slice(1);
+  }
+  // Already has country code without +
+  if (cleaned.startsWith('234') && !cleaned.startsWith('+')) {
+    return '+' + cleaned;
+  }
+  return cleaned;
+}
+
 // ==================== REAL PAYMENT PROCESSING (WITH LOADER) ====================
 // ==================== REAL PAYMENT PROCESSING (NO LOADER OVERLAY) ====================
 async function processPayment(authResult) {
@@ -649,7 +662,7 @@ async function processPayment(authResult) {
 
   const payload = {
     plan_id:  checkoutData.planId,
-    phone:    checkoutData.rawNumber || checkoutData.number.replace(/\s/g, ''),
+      phone:    formatPhoneForAPI(checkoutData.rawNumber || checkoutData.number),
     provider: checkoutData.provider.toUpperCase(), // backend expects uppercase
   };
 
