@@ -636,14 +636,14 @@ async function triggerCheckoutAuthWithDedicatedModal() {
 
 function formatPhoneForAPI(phone) {
   const cleaned = phone.replace(/\s/g, '');
-  // Convert 08012345678 → +2348012345678
-  if (cleaned.startsWith('0')) {
-    return '+234' + cleaned.slice(1);
+  // Strip +234 or 234 prefix → convert back to 0XXXXXXXXXX
+  if (cleaned.startsWith('+234')) {
+    return '0' + cleaned.slice(4);
   }
-  // Already has country code without +
-  if (cleaned.startsWith('234') && !cleaned.startsWith('+')) {
-    return '+' + cleaned;
+  if (cleaned.startsWith('234') && cleaned.length === 13) {
+    return '0' + cleaned.slice(3);
   }
+  // Already in 080... format
   return cleaned;
 }
 
