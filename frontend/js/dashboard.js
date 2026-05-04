@@ -3168,9 +3168,14 @@ if (window.subscribeToTransactions) {
       if (cachedUserData) {
         try {
           const cached = JSON.parse(cachedUserData);
-          console.log('[DEBUG] getSession: Using cache as fallback');
-          applySessionToDOM(cached);
-          return { user: cached };
+console.log('[DEBUG] getSession: Using cache as fallback');
+applySessionToDOM(cached);
+// ✅ If cache has a balance, force-apply it even if balanceInitialized is already true
+if (cached.wallet_balance != null && !isNaN(Number(cached.wallet_balance))) {
+  window.balanceInitialized = false; // reset so updateAllBalances doesn't skip
+  window.updateAllBalances(Number(cached.wallet_balance), true);
+}
+return { user: cached };
         } catch (e) {
           console.warn('[WARN] getSession: Cache parse failed', e);
         }
@@ -3548,7 +3553,10 @@ function applySessionToDOM(user) {
   // ADD THIS: Set initial balance without animation
 // ADD THIS: Set initial balance without animation
 if (user.wallet_balance !== undefined) {
-  const newBalance = Number(user.wallet_balance) || 0;
+  // Only update balance if the server actually sent one — never default to 0
+if (user.wallet_balance === undefined || user.wallet_balance === null) return;
+const newBalance = Number(user.wallet_balance);
+if (isNaN(newBalance)) return; // malformed — don't overwrite good data
 // ✅ Force proper initialization using the global updater
 window.updateAllBalances(newBalance, true);  // skip animation on first load
   
@@ -3715,9 +3723,10 @@ function updateLocalStorageFromUser(user) {
       allTimeIn: user.allTimeIn || 0,
       allTimeOut: user.allTimeOut || 0,
       totalDataTxCount: user.totalDataTxCount || 0,
-
+      // ✅ Always persist the real balance so the page-load inline script can read it
+      wallet_balance: user.wallet_balance ?? null,
       cachedAt: Date.now()
-    };
+  };
 
     localStorage.setItem('userData', JSON.stringify(userData));
     localStorage.setItem('userEmail', user.email || '');
@@ -14554,15 +14563,22 @@ try {
       }
       const session = await safeCall(__sec_getCurrentUser) || {};
       const sUser = session.user || {};
-      const userObj = {
-        username: sUser.username || sUser.email || '',
-        fullName: sUser.fullName || '',
-        profilePicture: sUser.profilePicture || '',
-        id: sUser.uid || sUser.id || '',
-        hasPin: !!(sUser.hasPin || sUser.pin || (localStorage.getItem('hasPin') || '').toLowerCase() === 'true'),
-        cachedAt: Date.now()
-      };
-      try { localStorage.setItem('userData', JSON.stringify(userObj)); } catch(e){ console.warn('Could not cache userData', e); }
+      // Preserve any existing wallet_balance before overwriting userData
+const existingUserData = (() => {
+  try { return JSON.parse(localStorage.getItem('userData') || '{}'); } catch(e) { return {}; }
+})();
+
+const userObj = {
+  username: sUser.username || sUser.email || '',
+  fullName: sUser.fullName || '',
+  profilePicture: sUser.profilePicture || '',
+  id: sUser.uid || sUser.id || '',
+  hasPin: !!(sUser.hasPin || sUser.pin || (localStorage.getItem('hasPin') || '').toLowerCase() === 'true'),
+  // ✅ Carry over wallet_balance — never let buildUser() wipe it
+  wallet_balance: sUser.wallet_balance ?? existingUserData.wallet_balance ?? null,
+  cachedAt: Date.now()
+};
+try { localStorage.setItem('userData', JSON.stringify(userObj)); } catch(e){ console.warn('Could not cache userData', e); }
       return userObj;
     } catch (err) {
       console.error('buildUser failed', err);
