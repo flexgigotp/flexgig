@@ -333,6 +333,17 @@ async function getSharedJWT(forceRefresh = false) {
                 JWT_CACHE.token = token;
                 JWT_CACHE.expiry = expiry;
                 console.log('[JWT Cache] ✅ Token cached after refresh (expires:', new Date(expiry).toISOString(), ')');
+
+                // Schedule proactive refresh
+                const refreshIn = expiry - Date.now() - 60_000;
+                if (refreshIn > 0) {
+                  clearTimeout(window.__jwtProactiveRefreshTimer);
+                  window.__jwtProactiveRefreshTimer = setTimeout(() => {
+                    console.log('[JWT Cache] ⏰ Proactive refresh triggered (post-retry)');
+                    getSharedJWT(true);
+                  }, refreshIn);
+                }
+
                 return token;
               }
             }
@@ -370,6 +381,17 @@ async function getSharedJWT(forceRefresh = false) {
       JWT_CACHE.expiry = expiry;
 
       console.log('[JWT Cache] ✅ New token cached (expires:', new Date(expiry).toISOString(), ')');
+
+      // ── Proactive refresh: schedule a refresh 60s before expiry ──
+      const refreshIn = expiry - Date.now() - 60_000;
+      if (refreshIn > 0) {
+        clearTimeout(window.__jwtProactiveRefreshTimer);
+        window.__jwtProactiveRefreshTimer = setTimeout(() => {
+          console.log('[JWT Cache] ⏰ Proactive refresh triggered');
+          getSharedJWT(true);
+        }, refreshIn);
+      }
+
       return token;
 
     } catch (err) {
@@ -17719,7 +17741,7 @@ async function clearServerLock() {
         console.log('[REAUTH-LOCK] Server lock found, syncing to client:', serverLock);
         
         // Sync server lock to client
-        const lock = setReauthLock(serverLock.reason || 'server-lock');
+        const lock = setLocalReauthLock(serverLock.reason || 'server-lock');
         
         // Show modal
         try {
@@ -17897,7 +17919,7 @@ async function clearServerLock() {
     console.log('[REAUTH-LOCK] Triggering reauth lock, reason:', reason);
     
     // Set lock
-    const lock = setReauthLock(reason);
+    const lock = setLocalReauthLock(reason);
     
     // Show modal
     showReauthModalSafe({ context: 'reauth', reason });

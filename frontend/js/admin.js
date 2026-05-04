@@ -5,21 +5,42 @@ let isAdmin = false;
 
 // Check if current user is admin
 async function checkAdminStatus() {
+  // Always start by ensuring tab is hidden — no matter what happens below
+  const adminTab = document.getElementById('adminNavLink');
+  if (adminTab) {
+    adminTab.style.setProperty('display', 'none', 'important');
+    adminTab.setAttribute('aria-hidden', 'true');
+  }
+
   try {
     const res = await fetch(`${API_BASE}/api/admin/test`, {
       method: 'GET',
       credentials: 'include'
     });
 
-    if (res.ok) {
+    // Only grant access on an explicit 200 OK — nothing else
+    if (res.status === 200) {
       isAdmin = true;
-      const adminTab = document.getElementById('adminNavLink');
-      if (adminTab) adminTab.style.display = 'flex';
+      if (adminTab) {
+        adminTab.style.setProperty('display', 'flex', 'important');
+        adminTab.removeAttribute('aria-hidden');
+      }
       console.log("%c✅ Admin access confirmed", "color: #00ffaa; font-weight: bold");
       return true;
     }
+
+    // Any other response (403, 500, etc.) — explicitly keep hidden
+    console.log(`[Admin Check] Non-200 response (${res.status}) — hiding admin tab`);
   } catch (err) {
-    console.error("[Admin Check] Error:", err);
+    // Network failure, server crash, timeout — stay hidden
+    console.warn("[Admin Check] Fetch failed — keeping admin tab hidden:", err.message);
+  }
+
+  // Explicit cleanup on any failure path
+  isAdmin = false;
+  if (adminTab) {
+    adminTab.style.setProperty('display', 'none', 'important');
+    adminTab.setAttribute('aria-hidden', 'true');
   }
   return false;
 }
@@ -208,6 +229,10 @@ function notifyAdminNewTransaction(tx) {
 
 // Switch to Admin Tab
 function switchToAdminTab() {
+  if (!isAdmin) {
+    console.warn('[Admin] switchToAdminTab called without admin rights — blocked');
+    return;
+  }
   document.querySelector('.user-profile-dashboard-content')?.classList.add('hidden');  // ← ADD THIS
   document.getElementById('adminDashboardContent').classList.remove('hidden');
 
