@@ -1485,70 +1485,136 @@ function updateReceiptToPending(tx = null) {
   });
 }
 async function pollForFinalStatus(reference) {
-  let attempts = 0;
-  const maxAttempts = 60;
   let showedPending = false;
   let showedFailed = false;
+  let settled = false;
 
-  while (attempts < maxAttempts) {
+  // ── 1. Realtime listener — fires the instant DB row updates ──
+  const realtimeHandler = (e) => {
+    const tx = e?.detail;
+    if (!tx || (tx.reference !== reference && tx.id !== reference)) return;
+
+    const status = (tx.status || '').toLowerCase();
+    console.log('[checkout] ⚡ Realtime status update:', status, 'for', reference);
+
+    if (status === 'success' && !settled) {
+      settled = true;
+      window.removeEventListener('transaction_update', realtimeHandler);
+      updateReceiptToSuccess(tx);
+      resetCheckoutUI();
+      closeCheckoutModal();
+    } else if ((status === 'failed' || status === 'refund') && !settled && !showedFailed) {
+      settled = true;
+      showedFailed = true;
+      window.removeEventListener('transaction_update', realtimeHandler);
+      if (showedPending) {
+        updateReceiptToFailed('Data delivery failed. Amount has been refunded instantly.');
+      } else {
+        updateReceiptToPending();
+        document.getElementById('receipt-status').textContent = 'Delivery Failed';
+        document.getElementById('receipt-message').textContent = 'Data delivery failed. Amount has been refunded instantly.';
+      }
+      closeCheckoutModal();
+    }
+  };
+
+  window.addEventListener('transaction_update', realtimeHandler);
+
+  // ── 2. Fast first check — hits the API immediately (catches races) ──
+  try {
+    const res = await fetch('https://api.flexgig.com.ng/api/transactions?limit=10', { credentials: 'include' });
+    if (res.ok) {
+      const json = await res.json();
+      const tx = json.items.find(t => t.reference === reference);
+      if (tx && !settled) {
+        const status = tx.status.toLowerCase();
+        if (status === 'success') {
+          settled = true;
+          window.removeEventListener('transaction_update', realtimeHandler);
+          await updateReceiptToSuccess(tx);
+          resetCheckoutUI();
+          closeCheckoutModal();
+          return;
+        }
+        if (status === 'failed' || status === 'refund') {
+          settled = true;
+          showedFailed = true;
+          window.removeEventListener('transaction_update', realtimeHandler);
+          updateReceiptToFailed('Data delivery failed. Amount has been refunded instantly.');
+          closeCheckoutModal();
+          return;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[checkout] Fast-check error:', e);
+  }
+
+  // ── 3. Slow fallback poll — only kicks in if realtime hasn't fired ──
+  // Show pending after 8s of no response
+  const pendingTimer = setTimeout(() => {
+    if (!settled && !showedPending) {
+      showedPending = true;
+      updateReceiptToPending(null);
+    }
+  }, 8000);
+
+  // Poll every 8s (was 15s) for up to 2 minutes as a safety net
+  let attempts = 0;
+  const maxAttempts = 15;
+
+  const intervalId = setInterval(async () => {
+    if (settled) {
+      clearInterval(intervalId);
+      clearTimeout(pendingTimer);
+      return;
+    }
+
+    attempts++;
+    if (attempts >= maxAttempts) {
+      clearInterval(intervalId);
+      clearTimeout(pendingTimer);
+      window.removeEventListener('transaction_update', realtimeHandler);
+      if (!showedFailed) {
+        if (!showedPending) updateReceiptToPending(null);
+        document.getElementById('receipt-message').textContent =
+          'Delivery taking longer than expected. Check history for updates.';
+      }
+      return;
+    }
+
     try {
       const res = await fetch('https://api.flexgig.com.ng/api/transactions?limit=10', { credentials: 'include' });
-      if (res.ok) {
-        const json = await res.json();
-        const tx = json.items.find(t => t.reference === reference);
+      if (!res.ok || settled) return;
+      const json = await res.json();
+      const tx = json.items.find(t => t.reference === reference);
+      if (!tx || settled) return;
 
-        if (tx) {
-          const status = tx.status.toLowerCase();
+      const status = tx.status.toLowerCase();
 
-          // Immediate success
-          if (status === 'success') {
-            await updateReceiptToSuccess(tx);
-            resetCheckoutUI();
-            closeCheckoutModal();
-            return;
-          }
-
-          // Final failure — show only once
-          if ((status === 'failed' || status === 'refund') && !showedFailed) {
-            showedFailed = true;
-
-            if (showedPending) {
-              updateReceiptToFailed('Data delivery failed. Amount has been refunded instantly.');
-            } else {
-              // First attempt failed and no retries succeeded — show Pending with fail message
-              updateReceiptToPending();
-              document.getElementById('receipt-status').textContent = 'Delivery Failed';
-              document.getElementById('receipt-message').textContent = 'Data delivery failed. Amount has been refunded instantly.';
-            }
-            closeCheckoutModal();
-            return;
-          }
-
-          // Still pending — after ~30s (2 polls) → first attempt failed → show Pending once
-          if (!showedPending && attempts >= 2) {
-            showedPending = true;
-            updateReceiptToPending(tx);
-          }
+      if (status === 'success') {
+        settled = true;
+        clearInterval(intervalId);
+        clearTimeout(pendingTimer);
+        window.removeEventListener('transaction_update', realtimeHandler);
+        await updateReceiptToSuccess(tx);
+        resetCheckoutUI();
+        closeCheckoutModal();
+      } else if (status === 'failed' || status === 'refund') {
+        if (!showedFailed) {
+          settled = true;
+          showedFailed = true;
+          clearInterval(intervalId);
+          clearTimeout(pendingTimer);
+          window.removeEventListener('transaction_update', realtimeHandler);
+          updateReceiptToFailed('Data delivery failed. Amount has been refunded instantly.');
+          closeCheckoutModal();
         }
       }
     } catch (e) {
       console.warn('[checkout] Poll error:', e);
     }
-
-    attempts++;
-    await new Promise(r => setTimeout(r, 15000));
-  }
-
-  // Timeout
-  if (!showedFailed) {
-    showedFailed = true;
-    if (showedPending) {
-      document.getElementById('receipt-message').textContent = 'Taking longer than expected. Check history later.';
-    } else {
-      updateReceiptToPending(null);
-      document.getElementById('receipt-message').textContent = 'Delivery taking longer than expected. Check history.';
-    }
-  }
+  }, 8000);
 }
 
 
