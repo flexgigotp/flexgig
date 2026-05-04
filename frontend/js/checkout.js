@@ -666,6 +666,8 @@ async function processPayment(authResult) {
     provider: checkoutData.provider.toUpperCase(), // backend expects uppercase
   };
 
+  console.log('[PAYLOAD]', payload);
+
   const response = await fetch('https://api.flexgig.com.ng/api/transactions/buy-data', {
     method: 'POST',
     headers: {
