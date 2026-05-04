@@ -84,6 +84,37 @@ function gatherCheckoutData() {
       return null;
     }
 
+    // ── Network/provider mismatch check ──────────────────────────────────
+    const PROVIDER_PREFIXES = {
+      mtn:       ['0703','0706','0803','0806','0810','0813','0814','0816','0903','0906','0913','0916','0702','0704'],
+      glo:       ['0705','0805','0807','0811','0815','0905','0915'],
+      airtel:    ['0701','0708','0802','0808','0812','0901','0902','0904','0907','0912','0911'],
+      '9mobile': ['0809','0817','0818','0908','0909'],
+    };
+
+    // Normalize number to 080... for prefix check
+    const normalizedForCheck = (() => {
+      const c = number.replace(/\s/g, '');
+      if (c.startsWith('+234')) return '0' + c.slice(4);
+      if (c.startsWith('234') && c.length === 13) return '0' + c.slice(3);
+      return c;
+    })();
+
+    const providerKey = provider === '9mobile' ? '9mobile' : provider.toLowerCase();
+    const expectedPrefixes = PROVIDER_PREFIXES[providerKey];
+    const phonePrefix = normalizedForCheck.slice(0, 4);
+
+    if (expectedPrefixes && !expectedPrefixes.includes(phonePrefix)) {
+      const actualNetwork = Object.entries(PROVIDER_PREFIXES)
+        .find(([, prefixes]) => prefixes.includes(phonePrefix))?.[0]?.toUpperCase() || 'unknown network';
+
+      showToast(
+        `This looks like a ${actualNetwork} number, not ${provider.toUpperCase()}. Please check and try again.`,
+        'error'
+      );
+      return null;
+    }
+
     // Plan — use real data-plan-id
     let selectedPlan = state.selectedPlan;
 
