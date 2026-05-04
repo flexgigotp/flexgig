@@ -299,10 +299,11 @@ async function getSharedJWT(forceRefresh = false) {
         const body = await res.json().catch(() => ({}));
         const code = body?.error?.code || '';
 
-        // Only attempt refresh for TOKEN_EXPIRED, not INVALID_TOKEN or other auth failures
-        if ((code === 'TOKEN_EXPIRED' || code === 'SESSION_EXPIRED') && _jwtRefreshAttempts < JWT_MAX_REFRESH_ATTEMPTS) {
+        // Attempt refresh on any 401 — server doesn't always send TOKEN_EXPIRED
+        const isHardFailure = code === 'INVALID_TOKEN' || code === 'BANNED' || code === 'NO_TOKEN';
+        if (!isHardFailure && _jwtRefreshAttempts < JWT_MAX_REFRESH_ATTEMPTS) {
           _jwtRefreshAttempts++;
-          console.log(`[JWT Cache] Access token expired — attempting refresh (attempt ${_jwtRefreshAttempts})`);
+          console.log(`[JWT Cache] 401 (code: "${code}") — attempting session refresh (attempt ${_jwtRefreshAttempts})`);
 
           const refreshRes = await fetch('https://api.flexgig.com.ng/auth/refresh', {
             method: 'POST',
@@ -363,7 +364,7 @@ async function getSharedJWT(forceRefresh = false) {
         }
 
         // For other 401s or if we've already tried refreshing, give up cleanly
-        console.warn('[JWT Cache] 401 without TOKEN_EXPIRED code (or max retries reached) — giving up');
+        console.warn('[JWT Cache] 401 with hard auth failure or max retries reached — giving up. code:', code);
         return null;
       }
 
