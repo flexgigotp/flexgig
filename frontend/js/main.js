@@ -394,14 +394,22 @@ async function logoutFlow() {
   // Initialization
   // -----------------------------
   async function boot() {
-    cacheUI();
-    bindEvents();
-    setupRouter();
-    // On homepage, check session immediately for auto-redirect
-    if (window.location.pathname === '/' || window.location.pathname === '') {
-      await ensureSignedInFromSession();
-    }
+  cacheUI();
+  bindEvents();
+
+  // Handle redirect from 404.html
+  const params = new URLSearchParams(window.location.search);
+  const redirectPath = params.get('path');
+  if (redirectPath) {
+    // Clean up the URL and route to the correct page
+    window.history.replaceState(null, '', redirectPath);
   }
+
+  setupRouter();
+  if (window.location.pathname === '/' || window.location.pathname === '') {
+    await ensureSignedInFromSession();
+  }
+}
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);
