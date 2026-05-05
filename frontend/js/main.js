@@ -146,7 +146,7 @@ const BACKEND_URL = 'https://api.flexgig.com.ng';
           const user = await getSession();
           if (user) {
             console.log('[DEBUG] main.js: User signed in on homepage, redirecting to dashboard');
-            window.location.href = '/dashboard';
+            window.location.href = '/redirecting';
             return;
           }
           // Otherwise, show homepage as-is (unauthenticated UI will be set if needed)
@@ -155,19 +155,10 @@ const BACKEND_URL = 'https://api.flexgig.com.ng';
         '/auth/email': () => {
           console.log('[DEBUG] main.js: Routing to /auth/email');
           window.location.href = '/login';
+          return
         },
         '/dashboard': async () => {
           console.log('[DEBUG] main.js: Routing to /dashboard');
-          // Load dashboard.html content if needed, or let browser handle
-          if (!window.location.pathname.includes('dashboard.html')) {
-            await loadContent('/dashboard');
-          }
-          // Ensure session is checked after content loads
-          await ensureSignedInFromSession();
-        },
-        '/dashboard': async () => {
-          console.log('[DEBUG] main.js: Routing to /dashboard');
-          // Dashboard is already loaded by browser, just check session
           await ensureSignedInFromSession();
         }
       })
