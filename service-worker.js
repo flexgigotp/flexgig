@@ -14,7 +14,7 @@ const urlsToCache = [
   'frontend/pwa/logo-512x512.png',
   'frontend/pwa/favicon.ico',
   'frontend/pwa/logo.svg',
-  `frontend/html/dashboard.html?v=${APP_VERSION}`,
+  `dashboard/?v=${APP_VERSION}`,
   // Add dashboard.js/CSS if needed: `dashboard.js?v=${APP_VERSION}`
 ];
 
