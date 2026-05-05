@@ -300,7 +300,9 @@ async function getSharedJWT(forceRefresh = false) {
         const code = body?.error?.code || '';
 
         // Attempt refresh on any 401 — server doesn't always send TOKEN_EXPIRED
-        const isHardFailure = code === 'INVALID_TOKEN' || code === 'BANNED' || code === 'NO_TOKEN';
+        // NO_TOKEN = access cookie expired (refresh cookie may still be valid — always retry)
+        // INVALID_TOKEN / BANNED = hard failures, never retry
+        const isHardFailure = code === 'INVALID_TOKEN' || code === 'BANNED';
         if (!isHardFailure && _jwtRefreshAttempts < JWT_MAX_REFRESH_ATTEMPTS) {
           _jwtRefreshAttempts++;
           console.log(`[JWT Cache] 401 (code: "${code}") — attempting session refresh (attempt ${_jwtRefreshAttempts})`);
