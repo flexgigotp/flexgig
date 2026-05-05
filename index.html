@@ -87,6 +87,22 @@
 </head>
 
 <body>
+<style>#__next { visibility: hidden; }</style>
+<script>
+  // Check session INSTANTLY before any UI renders
+  fetch('https://api.flexgig.com.ng/api/session', { credentials: 'include' })
+    .then(res => res.ok ? res.json() : null)
+    .then(data => {
+      if (data && data.user) {
+        window.location.replace('/dashboard');
+      } else {
+        document.getElementById('__next').style.visibility = 'visible';
+      }
+    })
+    .catch(() => {
+      document.getElementById('__next').style.visibility = 'visible';
+    });
+</script>
   <div id="__next">
     <!-- Theme Toggle Script -->
     <script>
