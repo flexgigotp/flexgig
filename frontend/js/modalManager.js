@@ -875,8 +875,8 @@ applyTransition(modal, true, () => {
   }
 
   if (!skipHistory) {
-    history.pushState({ modalId }, '', `#${modalId}`);
-  }
+  history.pushState({ modalId }, '', window.location.pathname);
+}
 
 
 
