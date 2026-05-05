@@ -1,7 +1,7 @@
 console.log('service-worker.js: Loaded');
 
-const CACHE_NAME = 'flexgig-v1'; // 🚀 BUMP THIS ON EACH DEPLOY (e.g., v2, v3)
-const APP_VERSION = '1.0.0'; // Match in dashboard.js
+const APP_VERSION = '1.0.5'; // only bump this on each deploy
+const CACHE_NAME = `flexgig-${APP_VERSION}`;
 
 const urlsToCache = [
   '/',
@@ -75,21 +75,20 @@ self.addEventListener('install', (event) => {
 
 
 self.addEventListener('activate', (event) => {
-  console.log('service-worker.js: Activate event');
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
+    caches.keys()
+      .then((cacheNames) => Promise.all(
         cacheNames
           .filter((name) => name !== CACHE_NAME)
-          .map((name) => {
-            console.log('service-worker.js: Deleting old cache', name); // 🚀 Logs cache bust
-            return caches.delete(name);
-          })
-      );
-    }).then(() => {
-      console.log('service-worker.js: Old caches deleted - ready for new version');
-      return self.clients.claim();
-    })
+          .map((name) => caches.delete(name))
+      ))
+      .then(() => self.clients.claim()) // claim immediately
+      .then(() => {
+        // Tell all open tabs to reload so they pick up the new SW right away
+        return self.clients.matchAll({ type: 'window' }).then((clients) => {
+          clients.forEach((client) => client.navigate(client.url));
+        });
+      })
   );
 });
 
@@ -103,29 +102,21 @@ self.addEventListener('fetch', (event) => {
   }
   console.log('service-worker.js: Fetch event:', url);
   event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        if (response) {
-          console.log(`service-worker.js: Serving from cache: ${url}`);
-          return response;
-        }
-        return fetch(event.request)
-          .then((networkResponse) => {
-            if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-              return networkResponse;
-            }
-            const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseToCache); // 🚀 Cache new version in bg
-            });
-            return networkResponse;
-          })
-          .catch((err) => {
-            console.error('service-worker.js: Fetch error:', err);
-            return caches.match('/index.html'); // Fallback to index.html for offline
-          })
-      })
-  );
+  fetch(event.request)
+    .then((networkResponse) => {
+      if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+        return networkResponse;
+      }
+      // Update the cache with the fresh response
+      const responseToCache = networkResponse.clone();
+      caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
+      return networkResponse;
+    })
+    .catch(() => {
+      // Only fall back to cache when truly offline
+      return caches.match(event.request).then((cached) => cached || caches.match('/index.html'));
+    })
+);
 });
 
 self.addEventListener('message', (ev) => {

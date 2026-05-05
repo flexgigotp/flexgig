@@ -25,14 +25,12 @@
   <link rel="canonical" href="https://www.flexgig.com.ng">
 
   <!-- Styles -->
-  <link rel="stylesheet" href="/frontend/styles/main.css">
+  <link rel="stylesheet" href="frontend/styles/main.css">
 
   <!-- Favicon and PWA -->
-  <link rel="icon" href="/frontend/pwa/favicon.ico" sizes="48x48">
-  <link rel="icon" href="/frontend/pwa/logo.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/frontend/pwa/apple-touch-icon-180x180.png">
-  <link rel="manifest" href="/frontend/pwa/manifest.json?v=1">
-  <link rel="preload" href="/frontend/pwa/manifest.json?v=1" as="fetch" crossorigin="anonymous">
+  <link rel="icon" href="frontend/pwa/favicon.ico" sizes="48x48">
+  <link rel="icon" href="frontend/pwa/logo.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="frontend/pwa/apple-touch-icon-180x180.png">
   <meta name="theme-color" content="#080808">
 
   <!-- Tailwind CSS -->
@@ -92,27 +90,13 @@
   <div id="__next">
     <!-- Theme Toggle Script -->
     <script>
-      (function() {
-        try {
-          var d = document.documentElement, c = d.classList;
-          c.remove('light', 'dark');
-          var e = localStorage.getItem('theme');
-          if ('system' === e || (!e && true)) {
-            var t = '(prefers-color-scheme: dark)', m = window.matchMedia(t);
-            if (m.media !== t || m.matches) {
-              d.style.colorScheme = 'dark';
-              c.add('dark');
-            } else {
-              d.style.colorScheme = 'light';
-              c.add('light');
-            }
-          } else if (e) {
-            c.add(e || '');
-          }
-          if (e === 'light' || e === 'dark') d.style.colorScheme = e;
-        } catch(e) {}
-      })();
-    </script>
+  (function() {
+    var d = document.documentElement;
+    d.classList.remove('light');
+    d.classList.add('dark');
+    d.style.colorScheme = 'dark';
+  })();
+</script>
 
     <!-- Header -->
     <header class="flex items-center justify-between p-4 w-full fixed top-0 z-50 backdrop-blur-sm bg-n05 dark:bg-n8/80">
@@ -174,21 +158,9 @@
         </svg>
         <span class="text-xl sm:text-2xl font-bold text-blue-600 tracking-wide">FlexGig</span>
       </div>
-      <button class="install-app-button h-10 sm:h-12 shadow-sm rounded-full bg-s3 text-n0 font-semibold font-poppins tracking-wider flex items-center gap-2 px-4 text-sm sm:text-base">
-        <!-- SVG Placeholder: Install Icon -->
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-        </svg>
-        Install App
-      </button>
     </header>
 
-    <!-- WhatsApp Floating Button -->
-    <a id="whatsapp-chat-btn" href="https://wa.me/2349038492701" target="_blank" rel="noopener" aria-label="Chat on WhatsApp" class="fixed z-[9000] bottom-5 right-5 bg-green-500 hover:bg-green-600 rounded-full shadow-lg w-12 h-10 flex items-center justify-center transition-all duration-200" style="box-shadow: 0 2px 8px 0 rgba(0,0,0,0.22);">
-      <!-- SVG Placeholder: WhatsApp Icon -->
 
-      <svg width="147px" height="147px" viewBox="-2.73 0 1225.016 1225.016" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" fill="#000000"><g id="SVGRepo_bgCarrier" stroke-width="0"></g><g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g><g id="SVGRepo_iconCarrier"><path fill="#E0E0E0" d="M1041.858 178.02C927.206 63.289 774.753.07 612.325 0 277.617 0 5.232 272.298 5.098 606.991c-.039 106.986 27.915 211.42 81.048 303.476L0 1225.016l321.898-84.406c88.689 48.368 188.547 73.855 290.166 73.896h.258.003c334.654 0 607.08-272.346 607.222-607.023.056-162.208-63.052-314.724-177.689-429.463zm-429.533 933.963h-.197c-90.578-.048-179.402-24.366-256.878-70.339l-18.438-10.93-191.021 50.083 51-186.176-12.013-19.087c-50.525-80.336-77.198-173.175-77.16-268.504.111-278.186 226.507-504.503 504.898-504.503 134.812.056 261.519 52.604 356.814 147.965 95.289 95.36 147.728 222.128 147.688 356.948-.118 278.195-226.522 504.543-504.693 504.543z"></path><linearGradient id="a" gradientUnits="userSpaceOnUse" x1="609.77" y1="1190.114" x2="609.77" y2="21.084"><stop offset="0" stop-color="#20b038"></stop><stop offset="1" stop-color="#60d66a"></stop></linearGradient><path fill="url(#a)" d="M27.875 1190.114l82.211-300.18c-50.719-87.852-77.391-187.523-77.359-289.602.133-319.398 260.078-579.25 579.469-579.25 155.016.07 300.508 60.398 409.898 169.891 109.414 109.492 169.633 255.031 169.57 409.812-.133 319.406-260.094 579.281-579.445 579.281-.023 0 .016 0 0 0h-.258c-96.977-.031-192.266-24.375-276.898-70.5l-307.188 80.548z"></path><image overflow="visible" opacity=".08" width="682" height="639" xlink:href="FCC0802E2AF8A915.png" transform="translate(270.984 291.372)"></image><path fill-rule="evenodd" clip-rule="evenodd" fill="#FFF" d="M462.273 349.294c-11.234-24.977-23.062-25.477-33.75-25.914-8.742-.375-18.75-.352-28.742-.352-10 0-26.25 3.758-39.992 18.766-13.75 15.008-52.5 51.289-52.5 125.078 0 73.797 53.75 145.102 61.242 155.117 7.5 10 103.758 166.266 256.203 226.383 126.695 49.961 152.477 40.023 179.977 37.523s88.734-36.273 101.234-71.297c12.5-35.016 12.5-65.031 8.75-71.305-3.75-6.25-13.75-10-28.75-17.5s-88.734-43.789-102.484-48.789-23.75-7.5-33.75 7.516c-10 15-38.727 48.773-47.477 58.773-8.75 10.023-17.5 11.273-32.5 3.773-15-7.523-63.305-23.344-120.609-74.438-44.586-39.75-74.688-88.844-83.438-103.859-8.75-15-.938-23.125 6.586-30.602 6.734-6.719 15-17.508 22.5-26.266 7.484-8.758 9.984-15.008 14.984-25.008 5-10.016 2.5-18.773-1.25-26.273s-32.898-81.67-46.234-111.326z"></path><path fill="#FFF" d="M1036.898 176.091C923.562 62.677 772.859.185 612.297.114 281.43.114 12.172 269.286 12.039 600.137 12 705.896 39.633 809.13 92.156 900.13L7 1211.067l318.203-83.438c87.672 47.812 186.383 73.008 286.836 73.047h.255.003c330.812 0 600.109-269.219 600.25-600.055.055-160.343-62.328-311.108-175.649-424.53zm-424.601 923.242h-.195c-89.539-.047-177.344-24.086-253.93-69.531l-18.227-10.805-188.828 49.508 50.414-184.039-11.875-18.867c-49.945-79.414-76.312-171.188-76.273-265.422.109-274.992 223.906-498.711 499.102-498.711 133.266.055 258.516 52 352.719 146.266 94.195 94.266 146.031 219.578 145.992 352.852-.118 274.999-223.923 498.749-498.899 498.749z"></path></g></svg>
-    </a>
 
     <!-- Main Content -->
     <main class="flex p-4 flex-col pt-[6rem] space-y-10 mx-auto min-h-screen relative">
@@ -411,155 +383,7 @@
     <div id="backdrop-root"></div>
   </div>
 
-  <!-- Install App Modal (Flexgig) -->
-  <div id="install-modal" class="fixed inset-0 z-[99999] flex items-end md:items-center justify-center bg-black/40 hidden">
-    <!-- Mobile Modal (Bottom Sheet) -->
-    <div id="install-modal-mobile" class="w-full max-w-[98vw] h-[75vh] bg-white dark:bg-zinc-900 rounded-t-2xl shadow-lg flex flex-col transition-all duration-300 ease-out p-0 overflow-hidden md:hidden" style="touch-action: none;">
-      <!-- Drag handle -->
-      <div id="modal-drag-handle" class="w-12 h-1.5 bg-gray-300 dark:bg-zinc-500 rounded-full mx-auto mt-3 mb-4 cursor-grab active:cursor-grabbing"></div>
-      <div id="install-modal-box" class="flex-1 flex flex-col">
-        <!-- Popcon -->
-        <div class="flex items-center justify-between px-6 pt-0 pb-4">
-          <div class="flex items-center space-x-4">
-            <!-- SVG Placeholder: Modal Logo -->
-             <svg height="30px" width="30px" version="1.1" id="_x32_" xmlns="http://www.w3.org/2000/svg"
-     xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512" xml:space="preserve">
-              <style type="text/css">
-                .blue { fill: #007BFF; } /* Bright blue */
-                .yellow { fill: #FFD700; } /* Vivid yellow */
-              </style>
-              <g>
-                <path class="blue" d="M168.203,192.082c4.093,0.046,7.798-2.039,10.634-5.216c2.822-3.202,4.79-7.504,5.41-12.379
-                  c2.806-16.72,8.294-32.85,16.154-47.608c7.875-14.766,18.091-28.16,30.074-39.554c11.983-11.394,25.718-20.78,
-                  40.477-27.717c14.758-6.945,30.524-11.434,46.491-13.278c7.085-1.132,13.316-4.147,18.122-8.433
-                  c4.775-4.279,8.123-9.874,8.232-16.169c0.124-6.27-3.255-12.084-9.348-16.006c-6.061-3.923-14.836-5.844-24.137-4.356
-                  C289.71,5.287,269.836,12.58,251.76,22.758c-18.091,10.177-34.431,23.222-48.228,38.414c-13.828,15.176-25.129,32.516-33.361,
-                  51.112c-8.248,18.587-13.394,38.437-15.27,58.467c-0.744,5.813,0.527,11.254,3.023,15.115
-                  C160.42,189.742,164.11,192.028,168.203,192.082z"/>
-                  
-                <path class="blue" d="M343.797,319.922c-4.092-0.054-7.797,2.039-10.634,5.217c-2.838,3.201-4.791,7.495-5.426,12.378
-                  c-2.791,16.72-8.294,32.842-16.154,47.608c-7.86,14.758-18.076,28.16-30.059,39.546c-11.984,11.402-25.734,20.788-40.476,
-                  27.726c-14.758,6.945-30.524,11.425-46.491,13.277c-7.085,1.124-13.317,4.139-18.138,8.426c-4.759,4.287-8.108,9.882-8.216,
-                  16.177c-0.124,6.263,3.255,12.076,9.348,15.998c6.046,3.922,14.836,5.845,24.137,4.364c20.602-3.922,40.461-11.215,
-                  58.552-21.4c18.092-10.178,34.431-23.215,48.227-38.415c13.828-15.177,25.114-32.508,33.362-51.104
-                  c8.247-18.594,13.394-38.437,15.27-58.467c0.744-5.813-0.527-11.262-3.023-15.115
-                  C351.564,322.255,347.875,319.977,343.797,319.922z"/>
-                
-                <path class="yellow" d="M88.63,258.464c11.968,16.44,26.586,30.834,42.988,42.461c4.65,3.557,10.014,5.177,14.603,4.937
-                  c4.604-0.225,8.433-2.279,10.511-5.782c2.093-3.518,2.155-7.774,0.806-11.813c-1.348-4.062-4.092-7.906-7.999-10.89
-                  c-13.084-10.782-24.308-23.603-33.159-37.794c-8.852-14.2-15.348-29.741-19.223-45.817c-3.876-16.076-5.132-32.663-3.767-48.918
-                  c1.364-16.238,5.364-32.136,11.75-46.902c2.574-6.704,3.07-13.596,1.752-19.905c-1.318-6.27-4.496-11.968-9.875-15.216
-                  c-5.379-3.24-12.092-3.216-18.541,0.101c-6.418,3.279-12.48,9.922-15.843,18.711c-6.899,19.812-10.526,40.663-10.743,61.42
-                  c-0.232,20.758,2.899,41.422,9.146,60.971C67.267,223.583,76.631,242.038,88.63,258.464z"/>
-                
-                <path class="yellow" d="M423.371,253.534c-11.968-16.432-26.586-30.826-42.988-42.454c-4.666-3.558-10.03-5.185-14.604-4.945
-                  c-4.619,0.224-8.433,2.287-10.525,5.79c-2.093,3.512-2.14,7.775-0.791,11.813c1.349,4.053,4.092,7.906,7.999,10.89
-                  c13.084,10.775,24.308,23.603,33.159,37.795c8.852,14.192,15.347,29.733,19.207,45.817c3.892,16.068,5.147,32.663,
-                  3.767,48.91c-1.364,16.247-5.348,32.136-11.735,46.903c-2.573,6.704-3.069,13.603-1.767,19.913
-                  c1.333,6.263,4.496,11.96,9.89,15.216c5.363,3.232,12.092,3.217,18.525-0.109c6.434-3.271,12.495-9.914,15.859-18.711
-                  c6.898-19.804,10.51-40.663,10.743-61.412c0.233-20.758-2.898-41.423-9.146-60.978
-                  C444.733,288.414,435.354,269.966,423.371,253.534z"/>
-                
-                <path class="yellow" d="M232.724,386.179c5.395-2.256,9.487-6.085,11.58-10.185c2.108-4.1,2.232-8.433,0.232-11.991
-                  c-1.999-3.574-5.658-5.744-9.828-6.604c-4.186-0.852-8.884-0.411-13.425,1.488c-15.89,5.938-32.602,9.247-49.313,9.813
-                  c-16.728,0.574-33.424-1.573-49.282-6.262c-15.86-4.674-30.866-11.883-44.244-21.192c-13.394-9.309-25.161-20.71-34.756-33.624
-                  c-4.528-5.573-10.248-9.456-16.356-11.48c-6.092-1.984-12.618-2.085-18.122,0.961c-5.488,3.031-8.836,8.86-9.177,
-                  16.099c-0.372,7.193,2.341,15.766,8.278,23.076c13.704,15.882,29.951,29.439,47.825,40.02
-                  c17.859,10.58,37.314,18.207,57.374,22.563c20.045,4.38,40.709,5.488,60.924,3.326C194.665,400.03,214.431,394.566,232.724,386.179z"/>
-                
-                <path class="yellow" d="M503.688,175.72c-13.704-15.882-29.966-29.439-47.825-40.012c-17.858-10.587-37.313-18.207-57.374-22.563
-                  c-20.06-4.38-40.709-5.496-60.94-3.326c-20.215,2.155-39.996,7.612-58.273,16.006c-5.395,2.256-9.487,6.076-11.58,
-                  10.178c-2.108,4.1-2.232,8.44-0.248,11.999c1.999,3.573,5.674,5.743,9.844,6.596c4.185,0.853,8.882,0.411,
-                  13.425-1.488c15.874-5.937,32.602-9.239,49.313-9.813c16.712-0.574,33.423,1.581,49.282,6.27
-                  c15.874,4.674,30.865,11.875,44.244,21.184c13.394,9.309,25.16,20.711,34.756,33.632c4.512,5.565,10.232,9.448,
-                  16.355,11.472c6.092,1.984,12.619,2.093,18.122-0.954c5.488-3.038,8.836-8.859,9.177-16.099
-                  C512.339,191.601,509.61,183.036,503.688,175.72z"/>
-              </g>
-            </svg>
-            <span>
-              <div class="font-bold text-base text-blue-700 dark:text-blue-400">Flexgig – Your Plug for Fast, Cheap Data</div>
-              <div class="text-xs text-gray-500 dark:text-gray-400">app.flexgig.com.ng</div>
-            </span>
-          </div>
-          <button id="install-app-confirm-mobile" class="ml-3 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-full font-semibold shadow transition text-sm">Install</button>
-        </div>
-        <div class="border-t border-gray-200 dark:border-zinc-700 px-7 py-4">
-          <div class="text-xs text-gray-800 dark:text-gray-200 text-left leading-snug">
-            Flexgig is your plug for affordable data and airtime top-ups with instant delivery, secure payments, and 24/7 availability—so you're always online and in control.
-          </div>
-        </div>
-        <div class="flex-1 flex flex-row gap-6 px-7 pb-8 mt-4">
-          <div class="w-[55%] bg-gray-100 dark:bg-zinc-800 rounded-xl flex items-center justify-center overflow-hidden min-h-[90px]">
-            <img src="/img/your-image1.png" alt="Flexgig App Screenshot 1" class="w-full h-auto object-cover">
-          </div>
-          <div class="w-[55%] bg-gray-100 dark:bg-zinc-800 rounded-xl flex items-center justify-center overflow-hidden min-h-[90px]">
-            <img src="/img/your-image2.png" alt="Flexgig App Screenshot 2" class="w-full h-auto object-cover">
-          </div>
-        </div>
-      </div>
-    </div>
-    <div id="install-progress" class="hidden flex items-center gap-2 text-blue-700 dark:text-blue-400 py-4">
-      <!-- SVG Placeholder: Loading Spinner -->
-       <svg class="animate-spin h-6 w-6 text-blue-700" fill="none" viewBox="0 0 24 24">
-      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-    </svg>
-      <span>Installing Flexgig app…</span>
-    </div>
-    <div id="install-success" class="hidden text-green-600 dark:text-green-400 py-4 font-semibold">
-      Flexgig is now installed! You’ll find it in your apps or home screen.
-    </div>
-    <!-- Desktop Install Modal (Flexgig) -->
-    <div id="install-modal-desktop" class="fixed z-[99999] inset-0 flex items-center justify-center bg-black/30 pointer-events-none opacity-0 scale-95 transition-all duration-300 ease-[cubic-bezier(.4,0,.2,1)]">
-      <div class="relative bg-white dark:bg-zinc-900 w-[520px] max-w-[95vw] min-h-[420px] rounded-2xl shadow-2xl flex flex-row overflow-hidden pointer-events-auto">
-        <!-- App Image (left) -->
-        <div class="flex-shrink-0 w-[170px] bg-gradient-to-br from-blue-50 to-blue-100 dark:from-zinc-800 dark:to-zinc-900 flex items-center justify-center p-6">
-          <img src="/img/your-image1.png" alt="Flexgig App" class="w-full h-auto max-h-40 rounded-xl shadow-md object-cover">
-        </div>
-        <!-- Content (right) -->
-        <div class="flex flex-col justify-between flex-1 p-7">
-          <div>
-            <!-- Logo and Title -->
-            <div class="flex items-center gap-4 mb-2">
-              <!-- SVG Placeholder: Desktop Modal Logo -->
-               <svg class="w-17 h-14" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" fill="none">
-              <style>
-                .st-blue1 { stroke: #b54cd1; transition: stroke 0.3s ease; }
-                .st-yellow { stroke: #FFC107; transition: stroke 0.3s ease; }
-                .base {
-                  fill: none;
-                  stroke-width: 2;
-                  stroke-linecap: round;
-                  stroke-linejoin: round;
-                  stroke-miterlimit: 10;
-                }
-              </style>
-              <path class="base st-yellow" d="M15,3v1.3C15,5.2,14.2,6,13.3,6h-2.6C9.8,6,9,5.2,9,4.3V3"/>
-              <path class="base st-blue1" d="M19,7V5c0-1.1-0.9-2-2-2H7C5.9,3,5,3.9,5,5v22c0,1.1,0.9,2,2,2h10c1.1,0,2-0.9,2-2v-2"/>
-              <polygon class="base st-yellow" points="16,10 16,19 16,22 22,19 27,19 27,10"/>
-              <line class="base st-blue1" x1="19" y1="13" x2="24" y2="13"/>
-              <line class="base st-blue1" x1="19" y1="16" x2="21" y2="16"/>
-              <line class="base st-yellow" x1="9" y1="25" x2="15" y2="25"/>
-            </svg>
-              <span class="flex-shrink-0"></span>
-              <div>
-                <div class="font-bold text-lg text-blue-700 dark:text-blue-400">Flexgig – Your Plug for Fast, Cheap Data</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">app.flexgig.com.ng</div>
-              </div>
-            </div>
-            <div class="border-t border-gray-100 dark:border-zinc-700 my-4"></div>
-            <div class="text-sm text-gray-800 dark:text-gray-200 leading-relaxed">
-              Flexgig is your plug for affordable data and airtime top-ups with instant delivery, secure payments, and 24/7 availability—so you're always online and in control.
-            </div>
-          </div>
-          <div class="flex justify-end gap-3 mt-8">
-            <button id="install-app-cancel-desktop" class="bg-gray-200 dark:bg-zinc-800 text-gray-800 dark:text-gray-100 px-5 py-2 rounded-full font-semibold shadow hover:bg-gray-300 dark:hover:bg-zinc-700 transition">Cancel</button>
-            <button id="install-app-confirm-desktop" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-full font-semibold shadow transition">Install</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-  <script src="/frontend/js/main.js" defer></script>
+  
+  <script src="frontend/js/main.js" defer></script>
 </body>
 </html>
