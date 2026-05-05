@@ -3,7 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <script>
-    const path = window.location.pathname;
+    let path = window.location.pathname;
+    
+    // ADD THIS: ensure trailing slash so GitHub Pages finds index.html
+    if (!path.endsWith('/')) path = path + '/';
+    
     window.location.replace('/?path=' + encodeURIComponent(path));
   </script>
 </head>

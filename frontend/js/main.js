@@ -400,10 +400,11 @@ async function logoutFlow() {
   // Handle redirect from 404.html
   const params = new URLSearchParams(window.location.search);
   const redirectPath = params.get('path');
-  if (redirectPath) {
-    // Clean up the URL and route to the correct page
-    window.history.replaceState(null, '', redirectPath);
-  }
+if (redirectPath) {
+  // Strip trailing slash for clean display in address bar
+  const cleanPath = redirectPath.replace(/\/$/, '');
+  window.history.replaceState(null, '', cleanPath);
+}
 
   setupRouter();
   if (window.location.pathname === '/' || window.location.pathname === '') {
