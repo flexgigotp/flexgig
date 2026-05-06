@@ -247,9 +247,15 @@ const JWT_CACHE = {
 // Track refresh attempts to avoid infinite loops
 let _jwtRefreshAttempts = 0;
 const JWT_MAX_REFRESH_ATTEMPTS = 2;
+let _jwtBlockedByLock = false; // ✅ stops retry hammering when 423 locked
 
 async function getSharedJWT(forceRefresh = false) {
   const now = Date.now();
+
+  // ✅ If locked and not a forced reauth retry, bail immediately
+  if (_jwtBlockedByLock && !forceRefresh) {
+    throw new Error('JWT blocked — awaiting reauth');
+  }
 
   if (!forceRefresh && JWT_CACHE.token && now < JWT_CACHE.expiry - JWT_CACHE.BUFFER_MS) {
     console.log('[JWT Cache] Using cached token (expires in', Math.round((JWT_CACHE.expiry - now) / 1000), 'seconds)');
@@ -273,6 +279,7 @@ async function getSharedJWT(forceRefresh = false) {
 
       // ── Reauth lock ──
       if (res.status === 423) {
+        _jwtBlockedByLock = true; // ✅ block all further JWT fetches until reauth clears
         console.warn('[JWT Cache] 🔒 Account locked (423) — triggering reauth modal');
         localStorage.setItem('fg_reauth_required_v1', JSON.stringify({
           reason: 'backend_423', ts: Date.now()
@@ -487,7 +494,7 @@ async function getSharedAuthClient(forceRefresh = false) {
   // Set/refresh session on the existing client
   const { error } = await sharedAuthClient.auth.setSession({
     access_token: token,
-    refresh_token: token
+    refresh_token: 'rt-cookie-managed' // ✅ real refresh handled by rt cookie on backend
   });
 
   if (error) {
@@ -715,6 +722,7 @@ async function clearReauthLock() {
     }
 
     localStorage.removeItem('fg_reauth_required_v1');
+    _jwtBlockedByLock = false; // ✅ re-enable JWT fetching after successful reauth
     console.log('[REAUTH] Lock cleared for uid:', uid);
     return true;
   } catch (err) {
@@ -854,16 +862,22 @@ async function subscribeToWalletBalance(force = false) {
             const oldBalance = Number(payload.old?.balance) || window.currentDisplayedBalance || 0;
             
             if (!isNaN(newBalance)) {
-              console.log('[Wallet Realtime] VALID BALANCE UPDATE:', newBalance);
-              console.log('[Wallet Realtime] Old balance:', oldBalance);
-              console.log('[Wallet Realtime] New balance:', newBalance);
-              
               const amount = newBalance - oldBalance;
-              console.log('[Wallet Realtime] Calculated amount change:', amount);
-              
+              console.log(`[Wallet Realtime] Balance change: ${oldBalance} → ${newBalance} (${amount >= 0 ? '+' : ''}${amount})`);
+
+              // ✅ FIX 3 — Always update UI for both increases AND decreases
+              if (typeof window.updateAllBalances === 'function') {
+                window.updateAllBalances(newBalance);
+              }
+
+              if (typeof window.handleNewBalance === 'function') {
+                window.handleNewBalance(newBalance, 'supabase-postgres');
+              }
+
+              // Only dispatch balance_update event for top-ups (add money animation etc)
               if (amount > 0) {
                 console.log('[Wallet Realtime] ✅ BALANCE INCREASED by', amount);
-                
+
                 const updateData = {
                   type: 'balance_update',
                   balance: newBalance,
@@ -871,7 +885,7 @@ async function subscribeToWalletBalance(force = false) {
                   source: 'postgres_changes',
                   timestamp: Date.now()
                 };
-                
+
                 if (typeof window.__handleBalanceUpdate === 'function') {
                   try {
                     window.__handleBalanceUpdate(updateData);
@@ -880,22 +894,16 @@ async function subscribeToWalletBalance(force = false) {
                     console.error('[Wallet Realtime] ❌ Error calling __handleBalanceUpdate:', err);
                   }
                 }
-                
+
                 window.dispatchEvent(new CustomEvent('balance_update', { detail: updateData }));
                 console.log('[Wallet Realtime] ✅ Event dispatched');
+
               } else if (amount < 0) {
-                console.log('[Wallet Realtime] ℹ️ BALANCE DECREASED by', Math.abs(amount));
+                console.log('[Wallet Realtime] ✅ BALANCE DECREASED by', Math.abs(amount));
               } else {
                 console.log('[Wallet Realtime] ℹ️ Balance unchanged');
               }
-              
-              if (typeof window.updateAllBalances === 'function') {
-                window.updateAllBalances(newBalance);
-              }
-              
-              if (typeof window.handleNewBalance === 'function') {
-                window.handleNewBalance(newBalance, 'supabase-postgres');
-              }
+
             } else {
               console.warn('[Wallet Realtime] Invalid balance value');
             }
@@ -3424,6 +3432,24 @@ window.updateAllBalances = function(newBalance, skipAnimation = false) {
 };
 
 window.applyBalanceVisibility = applyBalanceVisibility;
+
+window.__handleBalanceUpdate = function(data) {
+  if (!data || isNaN(Number(data.balance))) return;
+  console.log('[Balance] __handleBalanceUpdate called:', data.balance);
+  
+  window.updateAllBalances(Number(data.balance));
+
+  // Also persist to localStorage so cache stays warm
+  try {
+    const raw = localStorage.getItem('userState');
+    if (raw) {
+      const state = JSON.parse(raw);
+      state.balance = Number(data.balance);
+      state.wallet_balance = Number(data.balance);
+      localStorage.setItem('userState', JSON.stringify(state));
+    }
+  } catch(e) {}
+};
 
 
 // Run observer only on dashboard
@@ -18717,7 +18743,7 @@ async function showReauthModal(context = 'reauth') {
 (function () {
   const LOCAL_KEY = 'fg_reauth_required_v1';       // storage key
   const BC_NAME = 'fg-reauth';                     // BroadcastChannel name
-  const CHECK_STATUS_INTERVAL_MS = 5000;           // optional background poll (now Supabase)
+  const CHECK_STATUS_INTERVAL_MS = 30000;           // optional background poll (now Supabase)
   const STALE_MS = 1000 * 60 * 10;                 // consider stale after 10min
 
   // try BroadcastChannel if available
@@ -18884,8 +18910,12 @@ async function showReauthModal(context = 'reauth') {
     }
 
     // Optional: periodic Supabase check to detect cleared locks (replaces /reauth/status poll)
+    // Optional: periodic Supabase check to detect cleared locks (replaces /reauth/status poll)
     setInterval(async () => {
       try {
+        // ✅ Skip entirely if modal is not visible — no point hitting server
+        if (!isReauthModalVisible()) return;
+
         const storedNow = readLocal();
         if (!storedNow) return; // nothing to check
 

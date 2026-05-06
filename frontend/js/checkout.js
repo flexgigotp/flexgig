@@ -1323,6 +1323,23 @@ async function updateReceiptToSuccess(result) {
   document.getElementById('receipt-details').style.display = 'block';
   document.getElementById('receipt-actions').style.display = 'flex';
 
+  // ✅ FIX 1 — Force balance update immediately from API result
+  const newBal = result?.new_balance ?? result?.balance ?? null;
+  if (newBal !== null && !isNaN(Number(newBal))) {
+    if (typeof window.updateAllBalances === 'function') {
+      window.updateAllBalances(Number(newBal));
+    }
+    try {
+      const raw = localStorage.getItem('userState');
+      if (raw) {
+        const state = JSON.parse(raw);
+        state.balance = Number(newBal);
+        state.wallet_balance = Number(newBal);
+        localStorage.setItem('userState', JSON.stringify(state));
+      }
+    } catch(e) {}
+  }
+
   // === ONLY LOCAL TRANSACTIONS UPDATE ===
   if (typeof window.renderRecentTransactions === 'function') {
     try {
