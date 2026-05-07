@@ -4000,7 +4000,25 @@ if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
 
   setupBroadcastSubscription();
   subscribeToWalletBalance();
+  if (typeof loadLatestHistoryAsFallback === 'function') {
   loadLatestHistoryAsFallback();
+} else {
+  // history.js not ready yet — wait for it
+  const maxWait = 5000;
+  const interval = 100;
+  let waited = 0;
+  const waitForHistory = setInterval(() => {
+    waited += interval;
+    if (typeof loadLatestHistoryAsFallback === 'function') {
+      clearInterval(waitForHistory);
+      console.log(`[onDashboardLoad] loadLatestHistoryAsFallback ready after ${waited}ms`);
+      loadLatestHistoryAsFallback();
+    } else if (waited >= maxWait) {
+      clearInterval(waitForHistory);
+      console.warn('[onDashboardLoad] loadLatestHistoryAsFallback never became available');
+    }
+  }, interval);
+}
   await loadInitialUserTotals();
   subscribeToUserRealtime();
 
@@ -9359,39 +9377,7 @@ async function updateStoredPin(uid, newPin) {
     }
   }
 
-  // // Initialize checkout PIN verification
-  // function initCheckoutPin() {
-  //   if (payBtn) {
-  //     payBtn.addEventListener('click', async () => {
-  //       const info = await getUid();
-  //       if (!info || !info.uid) {
-  //         notify('You must be signed in to proceed with payment', 'error');
-  //         return;
-  //       }
-  //       await window.checkPinExists((hasPin) => {
-  //         if (hasPin) {
-  //           window.ModalManager.openModal('pinVerifyModal');
-  //         }
-  //       }, 'checkout');
-  //     });
-  //   }
-  // }
 
-  // Initialize inactivity handling
-  // function initInactivity() {
-  //   const events = ['click', 'keypress', 'scroll', 'mousemove', 'touchstart'];
-  //   events.forEach(event => {
-  //     document.addEventListener(event, resetInactivityTimer, { passive: true });
-  //   });
-  //   resetInactivityTimer();
-  //   if (inactivityConfirmBtn) {
-  //     inactivityConfirmBtn.addEventListener('click', () => {
-  //       window.ModalManager.closeModal('inactivityModal');
-  //       clearTimeout(inactivityPopupTimer);
-  //       resetInactivityTimer();
-  //     });
-  //   }
-  // }
 
   // Initialize on page load
   function boot() {
@@ -9399,7 +9385,6 @@ async function updateStoredPin(uid, newPin) {
   initPinModal();
   initPinVerifyModal();
   initSecurityPinModal();
-  initCheckoutPin();
   if (window.__reauth && typeof window.__reauth.setupInactivity === 'function') {
     window.__reauth.setupInactivity();
   }
@@ -19000,40 +18985,19 @@ async function onSuccessfulReauth() {
    // Rehydrate data
     // AFTER:
 try {
-  if (typeof window.__resetPlansState === 'function') {
-    window.__resetPlansState();
-  } else {
-    if (typeof __plansLoaded !== 'undefined') __plansLoaded = false;
-  }
-  if (typeof fetchPlans === 'function') await fetchPlans();
-  if (typeof dispatchPlansUpdateEvent === 'function') dispatchPlansUpdateEvent();
-  if (typeof loadLatestHistoryAsFallback === 'function') try { loadLatestHistoryAsFallback(); } catch (e) {}
-  if (typeof loadAdminFullHistory === 'function') try { loadAdminFullHistory(); } catch (e) {}
-
-  // ✅ Re-run everything onDashboardLoad missed during reauth lock
-  try {
-    const session = await getSession();
-    if (session?.user) {
-      // Re-set UID so realtimes find it
-      window.__USER_UID = session.user.uid;
-
-      // Re-run all the things that may have been skipped
-      if (typeof subscribeToWalletBalance === 'function') subscribeToWalletBalance(true);
-      if (typeof subscribeToUserRealtime === 'function') subscribeToUserRealtime(true);
-      if (typeof loadInitialUserTotals === 'function') await loadInitialUserTotals();
-      if (typeof renderDashboardCardsFromState === 'function') await renderDashboardCardsFromState({ preferServer: true });
-      if (typeof setupBroadcastSubscription === 'function') setupBroadcastSubscription();
-      if (typeof renderDashboardRecent === 'function') renderDashboardRecent();
-      console.log('[reauth] ✅ Post-reauth dashboard functions re-run successfully');
+      if (typeof window.__resetPlansState === 'function') {
+        window.__resetPlansState();
+      } else {
+        if (typeof __plansLoaded !== 'undefined') __plansLoaded = false;
+      }
+      if (typeof fetchPlans === 'function') await fetchPlans();
+      if (typeof dispatchPlansUpdateEvent === 'function') dispatchPlansUpdateEvent();
+      if (typeof loadLatestHistoryAsFallback === 'function') try { loadLatestHistoryAsFallback(); } catch (e) {}
+      if (typeof loadAdminFullHistory === 'function') try { loadAdminFullHistory(); } catch (e) {}
+      console.log('[reauth] background data rehydration done');
+    } catch (e) {
+      console.warn('[reauth] background data rehydration failed:', e);
     }
-  } catch (e) {
-    console.warn('[reauth] post-reauth dashboard re-run failed:', e);
-  }
-
-  console.log('[reauth] background data rehydration done');
-} catch (e) {
-  console.warn('[reauth] background data rehydration failed:', e);
-}
   });
 
   return true;
@@ -19084,7 +19048,6 @@ Object.assign(window.__reauth, {
   registerBiometrics,
   disableBiometrics, // New!
   verifyBiometrics,
-  triggerCheckoutReauth,
   shouldReauth
 });
 
