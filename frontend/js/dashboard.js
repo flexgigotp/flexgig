@@ -3969,6 +3969,8 @@ async function handleBioToggle(e) {
 // After getSession succeeds
 // After getSession succeeds (now cache-first)
 async function onDashboardLoad() {
+  console.log('[onDashboardLoad] fired');
+  console.log('[onDashboardLoad] loadLatestHistoryAsFallback available?', typeof loadLatestHistoryAsFallback);
   // Instant cache render first
   const cachedUserData = localStorage.getItem('userData');
   if (cachedUserData) {
