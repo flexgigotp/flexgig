@@ -7874,17 +7874,20 @@ if (!dataAmount) dataAmount = 'Data Bundle';
         const data = await res.json();
         const serverTxs = (data.items || []).filter(tx => tx && tx.phone && tx.phone.trim() !== '');
 
-        serverTxs.forEach(serverTx => {
-          const exists = recentTransactions.some(localTx =>
-            (localTx.id && serverTx.id && localTx.id === serverTx.id) ||
-            (normalizePhone(localTx.phone) === normalizePhone(serverTx.phone) && 
-             localTx.amount === serverTx.amount)
-          );
+        // Server data always wins — replace any matching local entry with fresh server one
+serverTxs.forEach(serverTx => {
+  const existingIndex = recentTransactions.findIndex(localTx =>
+    (localTx.id && serverTx.id && localTx.id === serverTx.id) ||
+    (normalizePhone(localTx.phone) === normalizePhone(serverTx.phone) &&
+     localTx.amount === serverTx.amount)
+  );
 
-          if (!exists) {
-            recentTransactions.push(serverTx);
-          }
-        });
+  if (existingIndex !== -1) {
+    recentTransactions[existingIndex] = serverTx; // overwrite stale local with fresh server
+  } else {
+    recentTransactions.push(serverTx);
+  }
+});
       } else {
         console.warn('[recent-tx] Server fetch not OK:', res.status);
       }
