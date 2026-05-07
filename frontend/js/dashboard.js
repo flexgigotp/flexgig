@@ -3393,7 +3393,7 @@ window.__handleBalanceUpdate = function(data) {
 
 
 // Run observer only on dashboard
-if (window.location.pathname.includes('dashboard.html')) {
+if (window.location.pathname.includes('dashboard')) {
   window.addEventListener('load', () => { // Or 'DOMContentLoaded' if preferred
     console.log('[DEBUG] window.load: Starting MutationObserver');
     observeForElements();
