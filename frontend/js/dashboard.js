@@ -7750,6 +7750,14 @@ if (window.__recentTxInitialized) {
       return phone?.replace(/\s+/g, '').replace(/^0/, '+234') || '';
     }
 
+    function toLocalPhone(phone) {
+  if (!phone) return '';
+  phone = phone.replace(/\s+/g, '');
+  if (phone.startsWith('+234')) return '0' + phone.slice(4);
+  if (phone.startsWith('234') && phone.length === 13) return '0' + phone.slice(3);
+  return phone;
+}
+
     // --- PERMANENT RENDER FUNCTION ---
     function renderRecentTransactions(transactions = []) {
       recentTransactionsList.innerHTML = '';
@@ -7761,13 +7769,13 @@ if (window.__recentTxInitialized) {
 
       // Filter to data purchases + successes only
       const dataSuccessTxs = transactions.filter(tx => {
-  const provider = (tx.provider || '').toLowerCase();
+  const type = (tx.type || '').toLowerCase();
   const status = (tx.status || '').toLowerCase();
   const hasPhone = !!(tx.phone?.trim());
-  return ['mtn', 'airtel', 'glo', '9mobile'].includes(provider) 
-         && status === 'success' 
-         && hasPhone;
-});
+  return type === 'data'
+      && status === 'success'
+      && hasPhone;
+}).slice(0, 5);
 
       if (!dataSuccessTxs.length) {
         recentTransactionsSection.classList.remove('active');
@@ -7787,26 +7795,20 @@ if (window.__recentTxInitialized) {
             : 'Unknown';
 
         // Priority 1: Use clean column from transactions table
-        let dataAmount = tx.data_amount || '';
+        let dataAmount = tx.data_amount || tx.dataAmount || '';
 
-        // Priority 2: Fallback regex (catches GB and MB reliably)
-        if (!dataAmount && tx.description) {
-          const match = tx.description.match(/(\d+\.?\d*)\s*(GB|MB|TB|gb|mb|tb)/i);
-          if (match) {
-            dataAmount = match[0].toUpperCase(); // e.g. "5GB", "200MB", "1.5 GB"
-          } else if (tx.description.toLowerCase().includes('data')) {
-            dataAmount = 'Data Bundle';
-          }
-        }
+if (!dataAmount && tx.description) {
+  const match = tx.description.match(/(\d+\.?\d*)\s*(GB|MB|TB)/i);
+  if (match) dataAmount = match[0].toUpperCase();
+}
 
-        // Ultimate fallback
-        if (!dataAmount) dataAmount = 'Data Purchase';
+if (!dataAmount) dataAmount = 'Data Bundle';
 
         const providerKey = tx.provider?.toLowerCase() === '9mobile' ? 'ninemobile' : tx.provider?.toLowerCase();
         const svg = window.svgShapes[providerKey] || '';
 
         txDiv.innerHTML = `
-          <span class="tx-desc">${tx.phone} - ${dataAmount}</span>
+          <span class="tx-desc">${toLocalPhone(tx.phone)} - ${dataAmount}</span>
           <span class="tx-provider">${svg} ${displayName}</span>
         `;
 
