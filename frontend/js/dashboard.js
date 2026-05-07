@@ -17906,6 +17906,8 @@ async function clearServerLock() {
     
     return false;
   }
+
+  window.isReauthModalVisible = isReauthModalVisible; // expose globally if needed
   
   /**
    * Show reauth modal (safe wrapper)
