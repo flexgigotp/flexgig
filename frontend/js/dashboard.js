@@ -647,13 +647,7 @@ async function subscribeToWalletBalance(force = false) {
   }
 }
 
-function scheduleRetry() {
-  if (activeRetryTimer) return;
-  activeRetryTimer = setTimeout(() => {
-    activeRetryTimer = null;
-    subscribeToWalletBalance(true);
-  }, SUBSCRIPTION_RETRY_MS);
-}
+
 
 window.subscribeToWalletBalance = subscribeToWalletBalance;
 
@@ -880,16 +874,21 @@ async function clearReauthLock() {
 
 
 
-// Centralized retry scheduler — only one at a time
 function scheduleRetry() {
   if (activeRetryTimer) {
     console.debug('[Wallet Realtime] Retry already scheduled — skipping duplicate');
     return;
   }
 
+  console.log(
+    `[Wallet Realtime] Scheduling retry in ${SUBSCRIPTION_RETRY_MS}ms`
+  );
+
   activeRetryTimer = setTimeout(() => {
     activeRetryTimer = null;
+
     console.log('[Wallet Realtime] Executing scheduled retry');
+
     subscribeToWalletBalance(true);
   }, SUBSCRIPTION_RETRY_MS);
 }
