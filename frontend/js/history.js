@@ -594,8 +594,21 @@ window.resolvePreloadWaiters = resolvePreloadWaiters; // optional for debugging
         const isCredit = tx.type === 'credit';
         const icon = getTxIcon(tx);
 
-        const rawDesc = tx.description || tx.narration || tx.type || 'Transaction';
-        const truncatedDesc = safeTruncate(rawDesc);
+        // Build a clean user-facing description instead of showing raw webhook description
+const rawDesc = (() => {
+  const provider = (tx.provider || '').toUpperCase();
+  const dataAmt = tx.data_amount || '';
+  const phone = tx.phone ? toLocalPhone(tx.phone) : '';
+  if (tx.type === 'credit' && (tx.status || '').toLowerCase().includes('refund')) {
+    return 'Refund';
+  }
+  if (tx.type === 'credit') return 'Wallet Funding';
+  if (dataAmt && phone) return `${provider} ${dataAmt} — ${phone}`;
+  if (dataAmt) return `${provider} ${dataAmt} Data`;
+  if (phone) return `${provider} Data — ${phone}`;
+  return `${provider} Data Purchase`;
+})();
+const truncatedDesc = safeTruncate(rawDesc);
         const amountObj = formatAmountDisplay(tx.amount);
         const formattedDateTime = fmtDateTime(tx.time || tx.created_at);
 
@@ -731,10 +744,8 @@ function showTransactionReceipt(tx) {
 
     const fullDesc = tx.description || tx.narration || '';
 
-    const phoneMatch = fullDesc.match(/\b0\d{10}\b|\b[7-9]\d{9}\b/);
     const recipientPhone = phoneMatch ? phoneMatch[0] : (tx.phone || null);
 
-    const dataMatch = fullDesc.match(/(\d+\.?\d*)\s*(GB|MB)|(\d+\.?\d*)\s*(Days?|Hrs?)/gi);
     const dataBundle = dataMatch ? dataMatch.join(', ') : null;
 
     const accountNumberMatch = fullDesc.match(/\b\d{10}\b/);
@@ -880,12 +891,8 @@ function showTransactionReceipt(tx) {
                         <strong>${formattedDate} · ${formattedTime}</strong>
                     </div>
 
-                    ${fullDesc ? `
-                        <div class="detail-row" style="flex-direction:column;align-items:flex-start;gap:6px;">
-                            <span>Description</span>
-                            <strong style="color:#ccc;font-weight:400;font-size:13px;line-height:1.5;">${fullDesc}</strong>
-                        </div>
-                    ` : ''}
+                    const recipientPhone = tx.phone ? toLocalPhone(tx.phone) : null;
+                    const dataBundle = tx.data_amount || null;
                 </div>
 
                 <!-- Action Buttons -->
