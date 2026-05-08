@@ -744,8 +744,10 @@ function showTransactionReceipt(tx) {
 
     const fullDesc = tx.description || tx.narration || '';
 
+    const phoneMatch = fullDesc.match(/\b0\d{10}\b|\b[7-9]\d{9}\b/);
     const recipientPhone = phoneMatch ? phoneMatch[0] : (tx.phone || null);
 
+    const dataMatch = fullDesc.match(/(\d+\.?\d*)\s*(GB|MB)|(\d+\.?\d*)\s*(Days?|Hrs?)/gi);
     const dataBundle = dataMatch ? dataMatch.join(', ') : null;
 
     const accountNumberMatch = fullDesc.match(/\b\d{10}\b/);
