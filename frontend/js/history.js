@@ -725,30 +725,26 @@ function showTransactionReceipt(tx) {
                         document.getElementById('adminNavLink').style.display !== 'none');
 
     const networkInfo = (() => {
-        const desc = (tx.description || '').toLowerCase();
-        const provider = (tx.provider || '').toLowerCase();
-        if (desc.includes('mtn') || provider.includes('mtn')) return { name: 'MTN', color: '#FFC107' };
-        if (desc.includes('airtel') || provider.includes('airtel')) return { name: 'Airtel', color: '#E4002B' };
-        if (desc.includes('glo') || provider.includes('glo')) return { name: 'GLO', color: '#6FBF48' };
-        if (desc.includes('9mobile') || desc.includes('etisalat') || provider.includes('9mobile')) 
-            return { name: '9Mobile', color: '#00A650' };
-        if (desc.includes('opay')) return { name: 'Opay', color: '#1E3225' };
-        if (desc.includes('refund')) return { name: 'Refund', color: '#fb923c' };
-        return { name: 'Transaction', color: '#6c757d' };
-    })();
+    const provider = (tx.provider || '').toLowerCase();
+    const statusLow = (tx.status || '').toLowerCase();
+    if (provider.includes('mtn')) return { name: 'MTN', color: '#FFC107' };
+    if (provider.includes('airtel')) return { name: 'Airtel', color: '#E4002B' };
+    if (provider.includes('glo')) return { name: 'GLO', color: '#6FBF48' };
+    if (provider.includes('9mobile')) return { name: '9Mobile', color: '#00A650' };
+    if (tx.type === 'credit' && statusLow.includes('refund')) return { name: 'Refund', color: '#fb923c' };
+    if (tx.type === 'credit') return { name: 'Wallet Funding', color: '#1E3225' };
+    return { name: 'Transaction', color: '#6c757d' };
+})();
 
     const amount = formatCurrency(Math.abs(Number(tx.amount || 0)));
     const date = new Date(tx.time || tx.created_at);
     const formattedDate = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     const formattedTime = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
 
-    const fullDesc = tx.description || tx.narration || '';
+   const fullDesc = tx.description || tx.narration || '';
 
-    const phoneMatch = fullDesc.match(/\b0\d{10}\b|\b[7-9]\d{9}\b/);
-    const recipientPhone = phoneMatch ? phoneMatch[0] : (tx.phone || null);
-
-    const dataMatch = fullDesc.match(/(\d+\.?\d*)\s*(GB|MB)|(\d+\.?\d*)\s*(Days?|Hrs?)/gi);
-    const dataBundle = dataMatch ? dataMatch.join(', ') : null;
+const recipientPhone = tx.phone ? toLocalPhone(tx.phone) : null;
+const dataBundle = tx.data_amount || null;
 
     const accountNumberMatch = fullDesc.match(/\b\d{10}\b/);
     const accountNumber = accountNumberMatch ? accountNumberMatch[0] : null;
@@ -770,9 +766,9 @@ function showTransactionReceipt(tx) {
         statusKey.includes('pending') ? 'pending' : 'success'
     ];
 
-    const isDataPurchase     = fullDesc.toLowerCase().includes('data') || dataBundle;
-    const isAirtimePurchase  = fullDesc.toLowerCase().includes('airtime');
-    const isCreditTransaction = tx.type === 'credit';
+    const isDataPurchase     = tx.type === 'data' || !!dataBundle || !!recipientPhone;
+const isAirtimePurchase  = false; // not supported yet
+const isCreditTransaction = tx.type === 'credit';
 
     // Dynamic username row - only visible to admin
     const userDisplay = (isAdminMode && tx.user_name) 
@@ -893,8 +889,7 @@ function showTransactionReceipt(tx) {
                         <strong>${formattedDate} · ${formattedTime}</strong>
                     </div>
 
-                    const recipientPhone = tx.phone ? toLocalPhone(tx.phone) : null;
-                    const dataBundle = tx.data_amount || null;
+                    
                 </div>
 
                 <!-- Action Buttons -->
