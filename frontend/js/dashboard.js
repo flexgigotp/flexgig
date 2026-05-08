@@ -7758,6 +7758,8 @@ if (window.__recentTxInitialized) {
   return phone;
 }
 
+window.toLocalPhone = toLocalPhone; // Expose globally if needed
+
     // --- PERMANENT RENDER FUNCTION ---
     function renderRecentTransactions(transactions = []) {
       recentTransactionsList.innerHTML = '';
