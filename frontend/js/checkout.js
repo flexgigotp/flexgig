@@ -416,7 +416,7 @@ async function continueCheckoutFlow() {
     } else {
       updateReceiptToFailed(err.message || 'Purchase failed. Please try again.');
     }
-    closeCheckoutModal();
+    
   } finally {
     const payBtnFinal = document.getElementById('payBtn');
     if (payBtnFinal) {
@@ -1352,6 +1352,13 @@ async function updateReceiptToSuccess(result) {
 
 
 function updateReceiptToFailed(errorMessage) {
+  // Ensure processing state is fully cleared first
+  const backdrop = document.getElementById('smart-receipt-backdrop');
+  if (backdrop) {
+    backdrop.classList.remove('hidden');
+    backdrop.setAttribute('aria-hidden', 'false');
+  }
+
   const icon = document.getElementById('receipt-icon');
   icon.className = 'receipt-icon failed';
   icon.innerHTML = `
@@ -1523,21 +1530,14 @@ async function pollForFinalStatus(reference) {
       resetCheckoutUI();
       closeCheckoutModal();
     } else if ((status === 'failed' || status === 'refund') && !settled && !showedFailed) {
-      settled = true;
-      showedFailed = true;
-      window.removeEventListener('transaction_update', realtimeHandler);
-      if (showedPending) {
-        const failMsg = tx.description && tx.description.length < 200 
-  ? tx.description 
-  : 'Data delivery failed. Amount has been refunded instantly.';
-updateReceiptToFailed(failMsg);
-      } else {
-        updateReceiptToPending();
-        document.getElementById('receipt-status').textContent = 'Delivery Failed';
-        document.getElementById('receipt-message').textContent = 'Data delivery failed. Amount has been refunded instantly.';
-      }
-      closeCheckoutModal();
-    }
+  settled = true;
+  showedFailed = true;
+  window.removeEventListener('transaction_update', realtimeHandler);
+  const failMsg = tx.description && tx.description.length < 200
+    ? tx.description
+    : 'Data delivery failed. Amount has been refunded instantly.';
+  updateReceiptToFailed(failMsg);
+}
   };
 
   window.addEventListener('transaction_update', realtimeHandler);
@@ -1566,7 +1566,7 @@ updateReceiptToFailed(failMsg);
   ? tx.description 
   : 'Data delivery failed. Amount has been refunded instantly.';
 updateReceiptToFailed(failMsg);
-          closeCheckoutModal();
+          
           return;
         }
       }
@@ -1636,7 +1636,7 @@ updateReceiptToFailed(failMsg);
   ? tx.description 
   : 'Data delivery failed. Amount has been refunded instantly.';
 updateReceiptToFailed(failMsg);
-          closeCheckoutModal();
+          
         }
       }
     } catch (e) {
