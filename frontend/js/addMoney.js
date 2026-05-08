@@ -311,6 +311,18 @@ function renderPermAccountsInKYCBody(showVerifiedBadge = false, accounts = null)
   function handleBalanceUpdate(data) {
     if (!data || data.type !== 'balance_update') return;
     try { removePendingTxFromStorage(); } catch (e) {}
+
+      if (data.amount <= 0) return;
+
+  if (window.ModalManager?.getOpenModals?.().includes(MODAL_ID)) {
+    window.ModalManager.closeModal(MODAL_ID);
+    showSuccessToast(`₦${Number(data.amount).toLocaleString()} received!`, `Wallet updated to ₦${Number(data.balance).toLocaleString()}`);
+    if (typeof window.playSuccessSound === 'function') window.playSuccessSound();
+    setTimeout(() => openAddMoneyModalContent(), 500);
+  } else {
+    showSuccessToast(`₦${Number(data.amount).toLocaleString()} received!`, `Wallet updated to ₦${Number(data.balance).toLocaleString()}`);
+    if (typeof window.playSuccessSound === 'function') window.playSuccessSound();
+  }
     
     // Only close the modal if it's actually open
     if (window.ModalManager?.getOpenModals?.().includes(MODAL_ID)) {
