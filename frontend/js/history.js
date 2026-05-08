@@ -738,6 +738,8 @@ function showTransactionReceipt(tx) {
     const networkInfo = (() => {
     const provider = (tx.provider || '').toLowerCase();
     const statusLow = (tx.status || '').toLowerCase();
+    const descLow = (tx.description || '').toLowerCase();
+    if (descLow.startsWith('wallet transfer')) return { name: 'Transfer', color: '#6366f1' };
     if (provider.includes('mtn')) return { name: 'MTN', color: '#FFC107' };
     if (provider.includes('airtel')) return { name: 'Airtel', color: '#E4002B' };
     if (provider.includes('glo')) return { name: 'GLO', color: '#6FBF48' };
@@ -758,11 +760,13 @@ const recipientPhone = tx.phone ? toLocalPhone(tx.phone) : null;
 // For refunds, data_amount may be null but phone is usually present
 const dataBundle = tx.data_amount || null;
 
-// Build a human-readable summary line for the receipt
-const summaryLine = (() => {
-  if (recipientPhone && dataBundle) return `${networkInfo.name} ${dataBundle} to ${recipientPhone}`;
-  if (dataBundle) return `${networkInfo.name} ${dataBundle} data`;
-  if (recipientPhone) return `Data to ${recipientPhone}`;
+// Build description line for the receipt
+const descriptionLine = (() => {
+  const statusLow = (tx.status || '').toLowerCase();
+  if (isTransfer) return tx.description;
+  if (statusLow.includes('refund')) return 'Refund for failed data purchase';
+  if (statusLow.includes('fail')) return recipientPhone ? `Data purchase to ${recipientPhone} failed` : 'Data purchase failed';
+  if (recipientPhone) return `Data purchase to ${recipientPhone} is successful`;
   return null;
 })();
 
@@ -786,7 +790,8 @@ const summaryLine = (() => {
         statusKey.includes('pending') ? 'pending' : 'success'
     ];
 
-    const isDataPurchase     = tx.type === 'data' || !!dataBundle || !!recipientPhone;
+    const isTransfer         = (tx.description || '').toLowerCase().startsWith('wallet transfer');
+const isDataPurchase     = !isTransfer && (tx.type === 'data' || !!dataBundle || !!recipientPhone);
 const isAirtimePurchase  = false; // not supported yet
 const isCreditTransaction = tx.type === 'credit';
 
@@ -839,12 +844,7 @@ const isCreditTransaction = tx.type === 'credit';
                     
                     ${userDisplay}
 
-                    ${summaryLine ? `
-  <div class="detail-row">
-    <span>Summary</span>
-    <strong>${summaryLine}</strong>
-  </div>
-` : ''}
+
 
                     ${isDataPurchase && recipientPhone ? `
                         <div class="detail-row">
@@ -916,14 +916,12 @@ const isCreditTransaction = tx.type === 'credit';
                         <strong>${formattedDate} · ${formattedTime}</strong>
                     </div>
 
-                    ${(recipientPhone || dataBundle || networkInfo.name !== 'Transaction') ? '' : `
-  <div class="detail-row" style="flex-direction:column;align-items:flex-start;gap:6px;">
-    <span>Note</span>
-    <strong style="color:#ccc;font-weight:400;font-size:13px;line-height:1.5;">
-      ${isCreditTransaction ? 'Wallet top-up received' : 'Data purchase'}
-    </strong>
+                    ${descriptionLine ? `
+  <div class="detail-row" style="flex-direction:column;align-items:flex-start;gap:6px;margin-top:4px;">
+    <span>Description</span>
+    <strong style="color:#ccc;font-weight:500;font-size:13px;line-height:1.5;">${descriptionLine}</strong>
   </div>
-`}
+` : ''}
 
                     
                 </div>
