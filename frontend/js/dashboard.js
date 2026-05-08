@@ -7822,8 +7822,9 @@ if (!dataAmount) dataAmount = 'Data Bundle';
             return;
           }
 
-          const result = window.formatNigeriaNumber(tx.phone);
-          phoneInput.value = result.value;
+          const localPhone = toLocalPhone(tx.phone);
+phoneInput.value = localPhone;
+phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
 
           const normalizedPhone = tx.phone.replace(/^\+234/, '0');
           const provider = detectProvider(normalizedPhone);
