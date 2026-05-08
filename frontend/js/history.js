@@ -609,17 +609,11 @@ const rawDesc = (() => {
   return 'Data Refund';
 }
   if (tx.type === 'credit') return 'Wallet Funding';
-  const descLower = (tx.description || '').toLowerCase();
-  if (
-    tx.category === 'wallet_transfer' ||
-    descLower.includes('transfer') ||
-    descLower.includes('sent to') ||
-    descLower.includes('received from')
-  ) {
-    const recipient = tx.recipient || tx.phone ? toLocalPhone(tx.phone) : null;
-    return recipient ? `Transfer to ${recipient}` : 'Wallet Transfer';
-  }
 
+  // ✅ Wallet transfer
+  if ((tx.description || '').toLowerCase().startsWith('wallet transfer')) {
+    return tx.description; // Already clean: "Wallet transfer to fun"
+  }
   if (dataAmt && phone) return `${provider} ${dataAmt} — ${phone}`;
   if (dataAmt) return `${provider} ${dataAmt} Data`;
   if (phone) return `${provider} Data — ${phone}`;
