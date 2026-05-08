@@ -14527,7 +14527,13 @@ try {
     try {
       const cached = localStorage.getItem('userData');
       if (cached) {
-        try { return JSON.parse(cached); } catch (e) { console.warn('userData parse failed', e); }
+        try {
+          const parsed = JSON.parse(cached);
+          if (!parsed.profilePicture) {
+            parsed.profilePicture = localStorage.getItem('profilePicture') || '';
+          }
+          return parsed;
+        } catch (e) { console.warn('userData parse failed', e); }
       }
       const session = await safeCall(__sec_getCurrentUser) || {};
       const sUser = session.user || {};
@@ -14550,7 +14556,7 @@ try { localStorage.setItem('userData', JSON.stringify(userObj)); } catch(e){ con
       return userObj;
     } catch (err) {
       console.error('buildUser failed', err);
-      return { username: 'User', fullName: '', profilePicture: '', id: '', hasPin: false };
+      return { username: 'User', fullName: '', profilePicture: localStorage.getItem('profilePicture') || '', id: '', hasPin: false };
     }
   }
 
