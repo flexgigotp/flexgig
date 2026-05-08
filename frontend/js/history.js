@@ -760,6 +760,11 @@ const recipientPhone = tx.phone ? toLocalPhone(tx.phone) : null;
 // For refunds, data_amount may be null but phone is usually present
 const dataBundle = tx.data_amount || null;
 
+    const isTransfer         = (tx.description || '').toLowerCase().startsWith('wallet transfer');
+const isDataPurchase     = !isTransfer && (tx.type === 'data' || !!dataBundle || !!recipientPhone);
+const isAirtimePurchase  = false; // not supported yet
+const isCreditTransaction = tx.type === 'credit';
+
 // Build description line for the receipt
 const descriptionLine = (() => {
   const statusLow = (tx.status || '').toLowerCase();
@@ -790,10 +795,7 @@ const descriptionLine = (() => {
         statusKey.includes('pending') ? 'pending' : 'success'
     ];
 
-    const isTransfer         = (tx.description || '').toLowerCase().startsWith('wallet transfer');
-const isDataPurchase     = !isTransfer && (tx.type === 'data' || !!dataBundle || !!recipientPhone);
-const isAirtimePurchase  = false; // not supported yet
-const isCreditTransaction = tx.type === 'credit';
+
 
     // Dynamic username row - only visible to admin
     const userDisplay = (isAdminMode && tx.user_name) 
