@@ -1527,7 +1527,10 @@ async function pollForFinalStatus(reference) {
       showedFailed = true;
       window.removeEventListener('transaction_update', realtimeHandler);
       if (showedPending) {
-        updateReceiptToFailed('Data delivery failed. Amount has been refunded instantly.');
+        const failMsg = tx.description && tx.description.length < 200 
+  ? tx.description 
+  : 'Data delivery failed. Amount has been refunded instantly.';
+updateReceiptToFailed(failMsg);
       } else {
         updateReceiptToPending();
         document.getElementById('receipt-status').textContent = 'Delivery Failed';
@@ -1559,7 +1562,10 @@ async function pollForFinalStatus(reference) {
           settled = true;
           showedFailed = true;
           window.removeEventListener('transaction_update', realtimeHandler);
-          updateReceiptToFailed('Data delivery failed. Amount has been refunded instantly.');
+          const failMsg = tx.description && tx.description.length < 200 
+  ? tx.description 
+  : 'Data delivery failed. Amount has been refunded instantly.';
+updateReceiptToFailed(failMsg);
           closeCheckoutModal();
           return;
         }
@@ -1626,7 +1632,10 @@ async function pollForFinalStatus(reference) {
           clearInterval(intervalId);
           clearTimeout(pendingTimer);
           window.removeEventListener('transaction_update', realtimeHandler);
-          updateReceiptToFailed('Data delivery failed. Amount has been refunded instantly.');
+          const failMsg = tx.description && tx.description.length < 200 
+  ? tx.description 
+  : 'Data delivery failed. Amount has been refunded instantly.';
+updateReceiptToFailed(failMsg);
           closeCheckoutModal();
         }
       }
