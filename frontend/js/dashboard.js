@@ -446,12 +446,12 @@ window.addEventListener('fg:session-expired', () => {
   // Show a non-blocking toast rather than a hard redirect
   // so the user can finish reading whatever they're on
   if (typeof showToast === 'function') {
-    showToast('Your session has expired. Please log in again.', 'error');
+    showToast('Your session has expired. Reloading...', 'error');
   }
 
   // Redirect after a short delay so the toast is visible
   setTimeout(() => {
-    window.location.href = '/login.html';
+    window.location.href = '/login';
   }, 3000);
 }, { once: true }); // once: true prevents duplicate handlers on hot reload
 

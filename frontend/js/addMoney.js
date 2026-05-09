@@ -284,13 +284,7 @@ function renderPermAccountsInKYCBody(showVerifiedBadge = false, accounts = null)
       </svg>
       <div style="font-size:11px;color:rgba(255,255,255,0.7);line-height:1.6;">
         These accounts are <strong style="color:#fff;">permanently assigned</strong> to you.
-        Transfers reflect in your wallet instantly.<br><br>
-        <strong style="color:#f59e0b;">Processing fee:</strong>
-        <strong style="color:#fff;">1.5% per deposit (maximum ₦50).</strong><br>
-        <span style="color:rgba(255,255,255,0.5);">
-          We charge 1.5% on small amounts, but the fee never exceeds ₦50 — no matter how much you send.<br>
-          Example: ₦1,000 → ₦15 fee · ₦5,000 → ₦50 fee · ₦10,000 → ₦50 fee
-        </span>
+        Transfers reflect in your wallet <strong style="color:#fff;">instantly</strong> with no processing fees.
       </div>
     </div>
   `;
@@ -541,14 +535,12 @@ function assignAddMoneyEvents() {
 
   let isFundingInProgress = false;
   // Fee constants (match your backend)
-const FEE_PERCENT = 0.015;
-const FEE_CAP = 50;
+
 
 fundBtn.addEventListener('click', async () => {
   if (isFundingInProgress) return;
   const amount = parseInt(amountInput.value.replace(/[^0-9]/g, ''), 10);
 
-  // ✅ Fix: use showLocalNotify as fallback so toast always shows
   if (!amount || amount <= 0) {
     showLocalNotify('Please enter a valid amount.', 'error');
     return;
@@ -558,117 +550,44 @@ fundBtn.addEventListener('click', async () => {
     return;
   }
 
-  // ✅ Calculate fee and show preview before proceeding
-  const fee = Math.min(Math.ceil(amount * FEE_PERCENT), FEE_CAP);
-  const creditAmount = amount - fee;
+  isFundingInProgress = true;
+  fundBtn.disabled = true;
+  fundBtn.textContent = 'Processing...';
 
-  // Show fee confirmation UI
-  const contentContainer = addMoneyModal.querySelector('.addMoney-modal-content');
-  contentContainer.innerHTML = `
-    <div style="padding:20px;color:#fff;">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
-        <button id="feePreviewBack" style="background:none;border:none;color:#aaa;cursor:pointer;padding:4px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-            stroke-linecap="round" stroke-linejoin="round">
-            <path d="M19 12H5M12 19l-7-7 7-7"/>
-          </svg>
-        </button>
-        <h3 style="margin:0;font-size:17px;font-weight:700;">Confirm Deposit</h3>
-      </div>
-
-      <!-- Summary card -->
-      <div style="background:#1c1c1e;border-radius:14px;padding:16px;margin-bottom:16px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <span style="color:#999;font-size:13px;">You send</span>
-          <span style="color:#fff;font-size:16px;font-weight:700;">₦${amount.toLocaleString()}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <span style="color:#999;font-size:13px;">Processing fee (1.5%)</span>
-          <span style="color:#f59e0b;font-size:14px;font-weight:600;">- ₦${fee.toLocaleString()}</span>
-        </div>
-        <div style="height:1px;background:rgba(255,255,255,0.08);margin-bottom:12px;"></div>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="color:#fff;font-size:14px;font-weight:600;">You receive</span>
-          <span style="color:#10b981;font-size:18px;font-weight:800;">₦${creditAmount.toLocaleString()}</span>
-        </div>
-      </div>
-
-      <!-- Info note -->
-      <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);
-        border-radius:11px;padding:10px 13px;margin-bottom:20px;
-        display:flex;align-items:flex-start;gap:8px;">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;">
-          <circle cx="12" cy="12" r="10" stroke="#f59e0b" stroke-width="2"/>
-          <path d="M12 8v4m0 4h.01" stroke="#f59e0b" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        <div style="font-size:11px;color:rgba(255,255,255,0.6);line-height:1.5;">
-          A <strong style="color:#f59e0b;">1.5% processing fee</strong> applies to each deposit (capped at ₦50).<br>
-          <span style="color:rgba(255,255,255,0.6);">
-            You’ll never be charged more than ₦50, regardless of the amount.<br>
-          </span>
-        </div>
-      </div>
-
-      <!-- Confirm button -->
-      <button id="feePreviewConfirm" style="width:100%;background:linear-gradient(90deg,#00d4aa,#00bfa5);
-        color:#fff;border:none;border-radius:50px;padding:15px;font-size:16px;
-        font-weight:700;cursor:pointer;">
-        Confirm — Pay ₦${amount.toLocaleString()}
-      </button>
-    </div>
-  `;
-
-  // Back button restores the form
-  document.getElementById('feePreviewBack').addEventListener('click', () => {
-    openAddMoneyModalContent();
-  });
-
-  // Confirm button proceeds with actual funding
-  document.getElementById('feePreviewConfirm').addEventListener('click', async () => {
-    const confirmBtn = document.getElementById('feePreviewConfirm');
-    if (isFundingInProgress) return;
-
-    isFundingInProgress = true;
-    confirmBtn.disabled = true;
-    confirmBtn.textContent = 'Processing...';
-
-    try {
-      const localPending = getPendingTxFromStorage();
-      if (localPending) {
-        window.showPendingTxToast('Please complete your pending transaction.');
-        showGeneratedAccount(localPending);
-        return;
-      }
-
-      const check = window.withLoader
-        ? await window.withLoader(() => fetchPendingTransaction())
-        : await fetchPendingTransaction();
-      if (check.ok && check.data) {
-        showGeneratedAccount(check.data);
-        window.showPendingTxToast('Please complete your pending transaction.');
-        return;
-      }
-
-      const res = window.withLoader
-        ? await window.withLoader(() => apiFetch('/api/fund-wallet', { method: 'POST', body: { amount } }))
-        : await apiFetch('/api/fund-wallet', { method: 'POST', body: { amount } });
-
-      if (res.ok) showGeneratedAccount(res.data);
-      else if (res.status === 403 && res.error?.code === 'PROFILE_INCOMPLETE') {
-        showGeneratedError(res.error.message);
-      } else {
-        showGeneratedError(res.error?.message || 'Failed to generate account.');
-      }
-    } catch (err) {
-      showGeneratedError('Network error. Try again.');
-    } finally {
-      isFundingInProgress = false;
-      if (confirmBtn) {
-        confirmBtn.disabled = false;
-        confirmBtn.textContent = `Confirm — Pay ₦${amount.toLocaleString()}`;
-      }
+  try {
+    const localPending = getPendingTxFromStorage();
+    if (localPending) {
+      window.showPendingTxToast('Please complete your pending transaction.');
+      showGeneratedAccount(localPending);
+      return;
     }
-  });
+
+    const check = window.withLoader
+      ? await window.withLoader(() => fetchPendingTransaction())
+      : await fetchPendingTransaction();
+    if (check.ok && check.data) {
+      showGeneratedAccount(check.data);
+      window.showPendingTxToast('Please complete your pending transaction.');
+      return;
+    }
+
+    const res = window.withLoader
+      ? await window.withLoader(() => apiFetch('/api/fund-wallet', { method: 'POST', body: { amount } }))
+      : await apiFetch('/api/fund-wallet', { method: 'POST', body: { amount } });
+
+    if (res.ok) showGeneratedAccount(res.data);
+    else if (res.status === 403 && res.error?.code === 'PROFILE_INCOMPLETE') {
+      showGeneratedError(res.error.message);
+    } else {
+      showGeneratedError(res.error?.message || 'Failed to generate account.');
+    }
+  } catch (err) {
+    showGeneratedError('Network error. Try again.');
+  } finally {
+    isFundingInProgress = false;
+    fundBtn.disabled = false;
+    fundBtn.textContent = 'Fund Wallet';
+  }
 });
 }
 
