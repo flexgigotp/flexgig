@@ -691,6 +691,10 @@ async function processPayment(authResult) {
       case 'PIN_TOKEN_WRONG_ACTION':
       case 'PIN_TOKEN_ALREADY_USED':
         throw new Error('PIN session expired. Please verify your PIN again.');
+      case 'ACCOUNT_FLAGGED':
+        throw new Error(
+          'Your account has been temporarily restricted. Please contact support to resolve this.'
+        );
       default:
         if (result.error === 'insufficient_balance' || result.current_balance !== undefined) {
           throw new Error(`Insufficient balance: ₦${result.current_balance?.toLocaleString() || '0'}`);
@@ -1121,6 +1125,16 @@ async function verifyPin(pin) {
 
         case 'PIN_SERVICE_UNAVAILABLE':
           showToast('Network issue. Try again shortly.', 'error');
+          break;
+          
+        case 'ACCOUNT_FLAGGED':
+          hideCheckoutPinModal();
+          showToast(
+            'Your account has been temporarily restricted. Please contact support.',
+            'error'
+          );
+          // Resolve the promise as cancelled so the purchase flow stops cleanly
+          window._checkoutPinResolve?.({ success: false, code: 'ACCOUNT_FLAGGED' });
           break;
 
         default:

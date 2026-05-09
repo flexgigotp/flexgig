@@ -8233,6 +8233,11 @@ window.showToast = showToast;
         }
 
         onPinSetupSuccess();
+        fetch('https://api.flexgig.com.ng/reauth/complete', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        }).catch(e => console.debug('[save-pin] reauth/complete error (non-fatal):', e));
         const dashboardPinCard = document.getElementById('dashboardPinCard');
         if (dashboardPinCard) dashboardPinCard.style.display = 'none';
         if (accountPinStatus) accountPinStatus.textContent = 'PIN set';
@@ -14129,6 +14134,18 @@ async function handlePinCompletion() {
         case 'PIN_ENTRY_LIMIT_EXCEEDED': {
           showTopNotifier(payload?.message || 'PIN entry limit reached — use Forget PIN', 'error', { autoHide: false });
           setTimeout(() => openForgetPinFlow(), 800);
+          break;
+        }
+        case 'ACCOUNT_FLAGGED': {
+          showTopNotifier(
+            'Your account has been temporarily restricted. Please contact support.',
+            'error',
+            { autoHide: false }
+          );
+          // Close the reauth modal — no point keeping it open
+          if (typeof guardedHideReauthModal === 'function') {
+            await guardedHideReauthModal();
+          }
           break;
         }
         default: {
