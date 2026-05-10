@@ -446,12 +446,12 @@ window.addEventListener('fg:session-expired', () => {
   // Show a non-blocking toast rather than a hard redirect
   // so the user can finish reading whatever they're on
   if (typeof showToast === 'function') {
-    showToast('Your session has expired. Please log in again.', 'error');
+    showToast('Your session has expired. Reloading...', 'error');
   }
 
   // Redirect after a short delay so the toast is visible
   setTimeout(() => {
-    window.location.href = '/login.html';
+    window.location.href = '/login';
   }, 3000);
 }, { once: true }); // once: true prevents duplicate handlers on hot reload
 
@@ -509,6 +509,268 @@ async function getSharedAuthClient(forceRefresh = false) {
 }
 
 window.getSharedAuthClient = getSharedAuthClient;
+// ==================== GLOBAL FETCH INTERCEPTOR ====================
+// Drop this in dashboard.js once — all files get silent token refresh automatically
+
+(function interceptFetch() {
+  const _originalFetch = window.fetch;
+  const OWN_API = 'api.flexgig.com.ng';
+  const PUBLIC_PATHS = ['/auth/login', '/auth/send-otp', '/auth/verify-otp', 
+                        '/auth/refresh', '/auth/check-email', '/auth/resend-otp'];
+
+  window.fetch = async function(url, options = {}) {
+    const urlStr = String(url);
+
+    // Only intercept calls to your own API
+    if (!urlStr.includes(OWN_API)) {
+      return _originalFetch(url, options);
+    }
+
+    // Skip public auth endpoints — they don't need a token
+    if (PUBLIC_PATHS.some(p => urlStr.includes(p))) {
+      return _originalFetch(url, options);
+    }
+
+    // Inject token into every request to your API
+    const token = localStorage.getItem('token') || '';
+    const enhancedOptions = {
+      ...options,
+      credentials: 'include',
+      headers: {
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...options.headers, // preserve caller's headers (X-PIN-TOKEN etc.)
+      }
+    };
+
+    let res = await _originalFetch(url, enhancedOptions);
+
+    // On 401, silently refresh and retry once
+    if (res.status === 401) {
+      console.warn('[FetchInterceptor] 401 on', urlStr, '— attempting silent refresh');
+
+      try {
+        const refreshRes = await _originalFetch('https://api.flexgig.com.ng/auth/refresh', {
+          method: 'POST',
+          credentials: 'include'
+        });
+
+        if (!refreshRes.ok) {
+          console.error('[FetchInterceptor] Refresh failed — session expired');
+          handleSessionExpired();
+          return res; // return original 401 response
+        }
+
+        const refreshData = await refreshRes.json();
+
+        if (refreshData.token) {
+          localStorage.setItem('token', refreshData.token);
+          scheduleTokenRefresh(refreshData.token);
+          console.log('[FetchInterceptor] ✅ Token refreshed — retrying original request');
+
+          // Retry with new token
+          return _originalFetch(url, {
+            ...options,
+            credentials: 'include',
+            headers: {
+              'Authorization': `Bearer ${refreshData.token}`,
+              ...options.headers,
+            }
+          });
+        }
+
+      } catch (err) {
+        console.warn('[FetchInterceptor] Refresh network error:', err.message);
+      }
+    }
+
+    return res;
+  };
+
+  console.log('[FetchInterceptor] ✅ Global fetch interceptor active');
+})();
+
+
+// ==================== SILENT TOKEN REFRESH SYSTEM ====================
+
+const TOKEN_REFRESH_THRESHOLD_MS = 2 * 60 * 1000; // Refresh when 2 min left
+let _refreshTimer = null;
+let _isRefreshing = false;
+
+function getTokenExpiryMs(token) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.exp ? payload.exp * 1000 : null; // convert to ms
+  } catch (e) {
+    return null;
+  }
+}
+
+function scheduleTokenRefresh(token) {
+  if (_refreshTimer) clearTimeout(_refreshTimer);
+
+  const expiryMs = getTokenExpiryMs(token);
+  if (!expiryMs) return;
+
+  const now = Date.now();
+  const msUntilExpiry = expiryMs - now;
+  const msUntilRefresh = msUntilExpiry - TOKEN_REFRESH_THRESHOLD_MS;
+
+  if (msUntilRefresh <= 0) {
+    // Already near/past expiry — refresh immediately
+    console.log('[TokenRefresh] Token near/past expiry — refreshing now');
+    silentRefreshToken();
+    return;
+  }
+
+  console.log(`[TokenRefresh] Scheduled refresh in ${Math.round(msUntilRefresh / 1000)}s`);
+
+  _refreshTimer = setTimeout(() => {
+    silentRefreshToken();
+  }, msUntilRefresh);
+}
+
+async function silentRefreshToken() {
+  if (_isRefreshing) return; // Prevent double refresh
+  _isRefreshing = true;
+
+  try {
+    console.log('[TokenRefresh] Silently refreshing token...');
+
+    const res = await fetch('https://api.flexgig.com.ng/auth/refresh', {
+      method: 'POST',
+      credentials: 'include', // sends the httpOnly rt cookie automatically
+    });
+
+    if (!res.ok) {
+      console.warn('[TokenRefresh] Refresh failed with status:', res.status);
+
+      // Only force logout on 401 (invalid/expired refresh token)
+      // Don't logout on network errors (server might be temporarily down)
+      if (res.status === 401) {
+        console.error('[TokenRefresh] Refresh token expired — logging out');
+        handleSessionExpired();
+      }
+      return;
+    }
+
+    const data = await res.json();
+
+    // Store new token and reschedule next refresh
+    if (data.token) {
+      localStorage.setItem('token', data.token);
+      console.log('[TokenRefresh] ✅ Token refreshed silently');
+      scheduleTokenRefresh(data.token); // Schedule next refresh
+    }
+
+  } catch (err) {
+    // Network error — don't logout, just retry in 30s
+    console.warn('[TokenRefresh] Network error during refresh, retrying in 30s:', err.message);
+    _refreshTimer = setTimeout(silentRefreshToken, 30000);
+  } finally {
+    _isRefreshing = false;
+  }
+}
+
+// ==================== AUTH FETCH (uses fresh token, auto-retries once) ====================
+
+async function authFetch(url, options = {}) {
+  const token = localStorage.getItem('token') || '';
+
+  const makeRequest = (t) => fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(t ? { 'Authorization': `Bearer ${t}` } : {}),
+      ...(options.headers || {})
+    }
+  });
+
+  let res = await makeRequest(token);
+
+  // If 401, try one silent refresh then retry
+  if (res.status === 401) {
+    console.warn('[authFetch] 401 received — attempting silent refresh before retry');
+    await silentRefreshToken();
+
+    const newToken = localStorage.getItem('token') || '';
+    if (!newToken || newToken === token) {
+      // Refresh didn't get a new token — session is truly expired
+      handleSessionExpired();
+      throw new Error('Session expired. Please log in again.');
+    }
+
+    // Retry with new token
+    res = await makeRequest(newToken);
+
+    if (res.status === 401) {
+      handleSessionExpired();
+      throw new Error('Session expired. Please log in again.');
+    }
+  }
+
+  return res;
+}
+
+function handleSessionExpired() {
+  console.error('[Auth] Session expired — redirecting to login');
+  clearTimeout(_refreshTimer);
+  localStorage.removeItem('token');
+
+  // Show toast before redirect if available
+  if (typeof showToast === 'function') {
+    showToast('Your session has expired. Please log in again.', 'error');
+  }
+
+  setTimeout(() => {
+    window.location.href = '/login.html';
+  }, 1500);
+}
+
+// ==================== BOOT: start the refresh cycle ====================
+
+(function initTokenRefresh() {
+  const token = localStorage.getItem('token');
+  if (token) {
+    scheduleTokenRefresh(token);
+    console.log('[TokenRefresh] Refresh cycle started');
+  } else {
+    // No token in localStorage — cookies handle it, 
+    // call /api/session to get a fresh one and start the cycle
+    fetch('https://api.flexgig.com.ng/api/session', { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.token) {
+          localStorage.setItem('token', data.token);
+          scheduleTokenRefresh(data.token);
+          console.log('[TokenRefresh] Token seeded from session, refresh cycle started');
+        }
+      })
+      .catch(() => console.warn('[TokenRefresh] Could not seed token from session'));
+  }
+})();
+
+// Also refresh when tab becomes visible again (user switching back to the tab)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const expiryMs = getTokenExpiryMs(token);
+    if (!expiryMs) return;
+
+    const msLeft = expiryMs - Date.now();
+    if (msLeft < TOKEN_REFRESH_THRESHOLD_MS) {
+      console.log('[TokenRefresh] Tab focused — token near expiry, refreshing');
+      silentRefreshToken();
+    }
+  }
+});
+
+window.authFetch = authFetch;
+window.silentRefreshToken = silentRefreshToken;
+window.scheduleTokenRefresh = scheduleTokenRefresh;
+
 
 // ────────────────────────────────────────────────
 // REAL-TIME BALANCE SUBSCRIPTION
@@ -3692,6 +3954,7 @@ function updateLocalStorageFromUser(user) {
       allTimeIn: user.allTimeIn || 0,
       allTimeOut: user.allTimeOut || 0,
       totalDataTxCount: user.totalDataTxCount || 0,
+      recentDataTx: user.recentDataTx || [],
       // ✅ Always persist the real balance so the page-load inline script can read it
       wallet_balance: user.wallet_balance ?? null,
       cachedAt: Date.now()
@@ -3715,6 +3978,7 @@ function updateLocalStorageFromUser(user) {
     localStorage.setItem('allTimeIn', user.allTimeIn || 0);
     localStorage.setItem('allTimeOut', user.allTimeOut || 0);
     localStorage.setItem('totalDataTxCount', user.totalDataTxCount || 0);
+    localStorage.setItem('recentDataTx', JSON.stringify(user.recentDataTx || []));
 
     console.log('[DEBUG] updateLocalStorageFromUser: Updated', {
       hasPin: user.hasPin,
@@ -7750,6 +8014,16 @@ if (window.__recentTxInitialized) {
       return phone?.replace(/\s+/g, '').replace(/^0/, '+234') || '';
     }
 
+    function toLocalPhone(phone) {
+  if (!phone) return '';
+  phone = phone.replace(/\s+/g, '');
+  if (phone.startsWith('+234')) return '0' + phone.slice(4);
+  if (phone.startsWith('234') && phone.length === 13) return '0' + phone.slice(3);
+  return phone;
+}
+
+window.toLocalPhone = toLocalPhone; // Expose globally if needed
+
     // --- PERMANENT RENDER FUNCTION ---
     function renderRecentTransactions(transactions = []) {
       recentTransactionsList.innerHTML = '';
@@ -7761,13 +8035,12 @@ if (window.__recentTxInitialized) {
 
       // Filter to data purchases + successes only
       const dataSuccessTxs = transactions.filter(tx => {
-  const provider = (tx.provider || '').toLowerCase();
   const status = (tx.status || '').toLowerCase();
   const hasPhone = !!(tx.phone?.trim());
-  return ['mtn', 'airtel', 'glo', '9mobile'].includes(provider) 
-         && status === 'success' 
-         && hasPhone;
-});
+  return status === 'success'
+      && hasPhone
+      && ['AWOOF', 'CG', 'GIFTING', 'SPECIAL', 'STANDARD'].includes(category);
+}).slice(0, 5);
 
       if (!dataSuccessTxs.length) {
         recentTransactionsSection.classList.remove('active');
@@ -7787,26 +8060,20 @@ if (window.__recentTxInitialized) {
             : 'Unknown';
 
         // Priority 1: Use clean column from transactions table
-        let dataAmount = tx.data_amount || '';
+        let dataAmount = tx.data_amount || tx.dataAmount || '';
 
-        // Priority 2: Fallback regex (catches GB and MB reliably)
-        if (!dataAmount && tx.description) {
-          const match = tx.description.match(/(\d+\.?\d*)\s*(GB|MB|TB|gb|mb|tb)/i);
-          if (match) {
-            dataAmount = match[0].toUpperCase(); // e.g. "5GB", "200MB", "1.5 GB"
-          } else if (tx.description.toLowerCase().includes('data')) {
-            dataAmount = 'Data Bundle';
-          }
-        }
+if (!dataAmount && tx.description) {
+  const match = tx.description.match(/(\d+\.?\d*)\s*(GB|MB|TB)/i);
+  if (match) dataAmount = match[0].toUpperCase();
+}
 
-        // Ultimate fallback
-        if (!dataAmount) dataAmount = 'Data Purchase';
+if (!dataAmount) dataAmount = 'Data Bundle';
 
         const providerKey = tx.provider?.toLowerCase() === '9mobile' ? 'ninemobile' : tx.provider?.toLowerCase();
         const svg = window.svgShapes[providerKey] || '';
 
         txDiv.innerHTML = `
-          <span class="tx-desc">${tx.phone} - ${dataAmount}</span>
+          <span class="tx-desc">${toLocalPhone(tx.phone)} - ${dataAmount}</span>
           <span class="tx-provider">${svg} ${displayName}</span>
         `;
 
@@ -7820,8 +8087,9 @@ if (window.__recentTxInitialized) {
             return;
           }
 
-          const result = window.formatNigeriaNumber(tx.phone);
-          phoneInput.value = result.value;
+          const localPhone = toLocalPhone(tx.phone);
+phoneInput.value = localPhone;
+phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
 
           const normalizedPhone = tx.phone.replace(/^\+234/, '0');
           const provider = detectProvider(normalizedPhone);
@@ -7848,67 +8116,60 @@ if (window.__recentTxInitialized) {
       console.log('[recent-tx] Rendered', dataSuccessTxs.length, 'successful data transactions');
     }
 
-    // === LOAD, MERGE, DEDUPLICATE, LIMIT TO 5 ===
+    // === LOAD FROM recentDataTx (SESSION) FIRST, API AS FALLBACK ===
     let recentTransactions = [];
 
-    try {
-      const stored = localStorage.getItem('recentTransactions');
-      if (stored) {
-        recentTransactions = JSON.parse(stored);
-        if (!Array.isArray(recentTransactions)) recentTransactions = [];
+    // Priority 1: Use server-embedded recentDataTx (instant, no fetch needed)
+    const serverRecent = window.__SERVER_USER_DATA__?.recentDataTx || [];
+
+    if (serverRecent.length) {
+      recentTransactions = serverRecent;
+      console.log('[recent-tx] Using server-embedded recentDataTx:', recentTransactions.length, 'items');
+    } else {
+      // Priority 2: localStorage cache
+      try {
+        const stored = localStorage.getItem('recentDataTx');
+        if (stored) {
+          recentTransactions = JSON.parse(stored);
+          if (!Array.isArray(recentTransactions)) recentTransactions = [];
+          console.log('[recent-tx] Using localStorage recentDataTx:', recentTransactions.length, 'items');
+        }
+      } catch (e) {
+        console.warn('[recent-tx] localStorage parse error', e);
       }
-    } catch (e) {
-      console.warn('[recent-tx] localStorage parse error', e);
+    }
+
+    // Priority 3: Only fetch from API if we have nothing at all
+    if (!recentTransactions.length) {
+      try {
+        const res = await fetch(`${window.__SEC_API_BASE}/api/transactions?limit=50`, {
+          credentials: 'include',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          recentTransactions = (data.items || []).filter(tx =>
+            tx?.phone?.trim() &&
+            (tx.status || '').toLowerCase() === 'success' &&
+            ['AWOOF', 'CG', 'GIFTING', 'special', 'STANDARD'].includes(tx.category)
+          ).slice(0, 5);
+          console.log('[recent-tx] Fetched from API as fallback:', recentTransactions.length);
+        }
+      } catch (err) {
+        console.error('[recent-tx] API fallback failed', err);
+      }
     }
 
     recentTransactions = recentTransactions.filter(tx => tx && tx.phone && tx.phone.trim() !== '');
 
     try {
-      const res = await fetch(`${window.__SEC_API_BASE}/api/transactions?limit=100`, {
-        credentials: 'include',
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        const serverTxs = (data.items || []).filter(tx => tx && tx.phone && tx.phone.trim() !== '');
-
-        serverTxs.forEach(serverTx => {
-          const exists = recentTransactions.some(localTx =>
-            (localTx.id && serverTx.id && localTx.id === serverTx.id) ||
-            (normalizePhone(localTx.phone) === normalizePhone(serverTx.phone) && 
-             localTx.amount === serverTx.amount)
-          );
-
-          if (!exists) {
-            recentTransactions.push(serverTx);
-          }
-        });
-      } else {
-        console.warn('[recent-tx] Server fetch not OK:', res.status);
-      }
-    } catch (err) {
-      console.error('[recent-tx] Server fetch failed', err);
-    }
-
-    recentTransactions.sort((a, b) => {
-      const timeA = new Date(a.timestamp || a.created_at || 0).getTime();
-      const timeB = new Date(b.timestamp || b.created_at || 0).getTime();
-      return timeB - timeA;
-    });
-
-    recentTransactions = recentTransactions.slice(0, 5);
-
-    try {
-      localStorage.setItem('recentTransactions', JSON.stringify(recentTransactions));
+      localStorage.setItem('recentDataTx', JSON.stringify(recentTransactions));
       window.recentTransactions = recentTransactions;
     } catch (e) {
       console.warn('[recent-tx] Save failed', e);
     }
 
     renderRecentTransactions(recentTransactions);
-
     window.renderRecentTransactions = renderRecentTransactions;
-
     console.log('%c[recent-tx] INITIALIZED — single run guaranteed', 'color:lime;font-weight:bold');
   })();
 }
@@ -8225,6 +8486,11 @@ window.showToast = showToast;
         }
 
         onPinSetupSuccess();
+        fetch('https://api.flexgig.com.ng/reauth/complete', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        }).catch(e => console.debug('[save-pin] reauth/complete error (non-fatal):', e));
         const dashboardPinCard = document.getElementById('dashboardPinCard');
         if (dashboardPinCard) dashboardPinCard.style.display = 'none';
         if (accountPinStatus) accountPinStatus.textContent = 'PIN set';
@@ -12991,7 +13257,7 @@ async function startRegistration(userId, username, displayName) {
 }
 
 /* ---- Authentication flow ---- */
-async function startAuthentication(userId) {
+async function startAuthentication(userId, action = 'reauth') {
   __sec_log.d('startAuthentication entry', { userId });
   try {
     // Get user for UID (no token needed)
@@ -13108,7 +13374,7 @@ async function startAuthentication(userId) {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, credential }),
+      body: JSON.stringify({ userId, credential, action }),
     });
     const verifyRaw = await verifyRes.text();
     __sec_log.d('startAuthentication: Verify response', { status: verifyRes.status, ok: verifyRes.ok, raw: verifyRaw });
@@ -14123,6 +14389,18 @@ async function handlePinCompletion() {
           setTimeout(() => openForgetPinFlow(), 800);
           break;
         }
+        case 'ACCOUNT_FLAGGED': {
+          showTopNotifier(
+            'Your account has been temporarily restricted. Please contact support.',
+            'error',
+            { autoHide: false }
+          );
+          // Close the reauth modal — no point keeping it open
+          if (typeof guardedHideReauthModal === 'function') {
+            await guardedHideReauthModal();
+          }
+          break;
+        }
         default: {
           showTopNotifier(payload?.message || serverMsg || 'PIN verification failed', 'error');
         }
@@ -14519,7 +14797,13 @@ try {
     try {
       const cached = localStorage.getItem('userData');
       if (cached) {
-        try { return JSON.parse(cached); } catch (e) { console.warn('userData parse failed', e); }
+        try {
+          const parsed = JSON.parse(cached);
+          if (!parsed.profilePicture) {
+            parsed.profilePicture = localStorage.getItem('profilePicture') || '';
+          }
+          return parsed;
+        } catch (e) { console.warn('userData parse failed', e); }
       }
       const session = await safeCall(__sec_getCurrentUser) || {};
       const sUser = session.user || {};
@@ -14542,7 +14826,7 @@ try { localStorage.setItem('userData', JSON.stringify(userObj)); } catch(e){ con
       return userObj;
     } catch (err) {
       console.error('buildUser failed', err);
-      return { username: 'User', fullName: '', profilePicture: '', id: '', hasPin: false };
+      return { username: 'User', fullName: '', profilePicture: localStorage.getItem('profilePicture') || '', id: '', hasPin: false };
     }
   }
 
@@ -14752,6 +15036,8 @@ async function tryBiometricWithCachedOptions() {
   }
 }
 
+window.tryBiometricWithCachedOptions = tryBiometricWithCachedOptions; // expose for testing/debugging
+
 
  (function bindPinBiometricBtn() {
   const bioBtn = document.getElementById('pinBiometricBtn');
@@ -14823,9 +15109,6 @@ async function tryBiometricWithCachedOptions() {
     } catch(e){}
 
     // Simulate PIN entry
-    try { simulatePinEntry?.({ stagger:0, expectedCount:4, fillAll:true }); } catch(e){}
-
-    // 🔥 Use cached biometric options only
     const cachedAttempt = await tryBiometricWithCachedOptions();
 
     if (!cachedAttempt.ok) {
@@ -14838,6 +15121,8 @@ async function tryBiometricWithCachedOptions() {
       try { getReauthInputs()[0]?.focus(); } catch(e){}
       return;
     }
+
+    try { simulatePinEntry?.({ stagger:0, expectedCount:4, fillAll:true }); } catch(e){}
 
     const assertion = cachedAttempt.assertion;
     const payload = {
@@ -14866,7 +15151,7 @@ async function tryBiometricWithCachedOptions() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, userId })
+        body: JSON.stringify({ ...payload, userId, action: 'reauth' })
       });
     } catch (err) {
       hideLoader();
@@ -15233,7 +15518,7 @@ async function bioVerifyAndFinalize(assertion) {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...currentPayload, userId: uid })
+            body: JSON.stringify({ ...currentPayload, userId: uid, action: 'reauth' })
           });
         });
       } catch (err) {
@@ -18434,7 +18719,7 @@ async function verifyBiometrics(uid, context = 'reauth') {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ ...payload, action: 'reauth' })
       });
 
       if (!verifyRes.ok) {
