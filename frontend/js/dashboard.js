@@ -8036,7 +8036,6 @@ window.toLocalPhone = toLocalPhone; // Expose globally if needed
       // Filter to data purchases + successes only
       const dataSuccessTxs = transactions.filter(tx => {
   const status = (tx.status || '').toLowerCase();
-  const category = (tx.category || '').toUpperCase();
   const hasPhone = !!(tx.phone?.trim());
   return status === 'success'
       && hasPhone
