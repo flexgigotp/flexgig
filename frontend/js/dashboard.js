@@ -509,6 +509,268 @@ async function getSharedAuthClient(forceRefresh = false) {
 }
 
 window.getSharedAuthClient = getSharedAuthClient;
+// ==================== GLOBAL FETCH INTERCEPTOR ====================
+// Drop this in dashboard.js once — all files get silent token refresh automatically
+
+(function interceptFetch() {
+  const _originalFetch = window.fetch;
+  const OWN_API = 'api.flexgig.com.ng';
+  const PUBLIC_PATHS = ['/auth/login', '/auth/send-otp', '/auth/verify-otp', 
+                        '/auth/refresh', '/auth/check-email', '/auth/resend-otp'];
+
+  window.fetch = async function(url, options = {}) {
+    const urlStr = String(url);
+
+    // Only intercept calls to your own API
+    if (!urlStr.includes(OWN_API)) {
+      return _originalFetch(url, options);
+    }
+
+    // Skip public auth endpoints — they don't need a token
+    if (PUBLIC_PATHS.some(p => urlStr.includes(p))) {
+      return _originalFetch(url, options);
+    }
+
+    // Inject token into every request to your API
+    const token = localStorage.getItem('token') || '';
+    const enhancedOptions = {
+      ...options,
+      credentials: 'include',
+      headers: {
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...options.headers, // preserve caller's headers (X-PIN-TOKEN etc.)
+      }
+    };
+
+    let res = await _originalFetch(url, enhancedOptions);
+
+    // On 401, silently refresh and retry once
+    if (res.status === 401) {
+      console.warn('[FetchInterceptor] 401 on', urlStr, '— attempting silent refresh');
+
+      try {
+        const refreshRes = await _originalFetch('https://api.flexgig.com.ng/auth/refresh', {
+          method: 'POST',
+          credentials: 'include'
+        });
+
+        if (!refreshRes.ok) {
+          console.error('[FetchInterceptor] Refresh failed — session expired');
+          handleSessionExpired();
+          return res; // return original 401 response
+        }
+
+        const refreshData = await refreshRes.json();
+
+        if (refreshData.token) {
+          localStorage.setItem('token', refreshData.token);
+          scheduleTokenRefresh(refreshData.token);
+          console.log('[FetchInterceptor] ✅ Token refreshed — retrying original request');
+
+          // Retry with new token
+          return _originalFetch(url, {
+            ...options,
+            credentials: 'include',
+            headers: {
+              'Authorization': `Bearer ${refreshData.token}`,
+              ...options.headers,
+            }
+          });
+        }
+
+      } catch (err) {
+        console.warn('[FetchInterceptor] Refresh network error:', err.message);
+      }
+    }
+
+    return res;
+  };
+
+  console.log('[FetchInterceptor] ✅ Global fetch interceptor active');
+})();
+
+
+// ==================== SILENT TOKEN REFRESH SYSTEM ====================
+
+const TOKEN_REFRESH_THRESHOLD_MS = 2 * 60 * 1000; // Refresh when 2 min left
+let _refreshTimer = null;
+let _isRefreshing = false;
+
+function getTokenExpiryMs(token) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.exp ? payload.exp * 1000 : null; // convert to ms
+  } catch (e) {
+    return null;
+  }
+}
+
+function scheduleTokenRefresh(token) {
+  if (_refreshTimer) clearTimeout(_refreshTimer);
+
+  const expiryMs = getTokenExpiryMs(token);
+  if (!expiryMs) return;
+
+  const now = Date.now();
+  const msUntilExpiry = expiryMs - now;
+  const msUntilRefresh = msUntilExpiry - TOKEN_REFRESH_THRESHOLD_MS;
+
+  if (msUntilRefresh <= 0) {
+    // Already near/past expiry — refresh immediately
+    console.log('[TokenRefresh] Token near/past expiry — refreshing now');
+    silentRefreshToken();
+    return;
+  }
+
+  console.log(`[TokenRefresh] Scheduled refresh in ${Math.round(msUntilRefresh / 1000)}s`);
+
+  _refreshTimer = setTimeout(() => {
+    silentRefreshToken();
+  }, msUntilRefresh);
+}
+
+async function silentRefreshToken() {
+  if (_isRefreshing) return; // Prevent double refresh
+  _isRefreshing = true;
+
+  try {
+    console.log('[TokenRefresh] Silently refreshing token...');
+
+    const res = await fetch('https://api.flexgig.com.ng/auth/refresh', {
+      method: 'POST',
+      credentials: 'include', // sends the httpOnly rt cookie automatically
+    });
+
+    if (!res.ok) {
+      console.warn('[TokenRefresh] Refresh failed with status:', res.status);
+
+      // Only force logout on 401 (invalid/expired refresh token)
+      // Don't logout on network errors (server might be temporarily down)
+      if (res.status === 401) {
+        console.error('[TokenRefresh] Refresh token expired — logging out');
+        handleSessionExpired();
+      }
+      return;
+    }
+
+    const data = await res.json();
+
+    // Store new token and reschedule next refresh
+    if (data.token) {
+      localStorage.setItem('token', data.token);
+      console.log('[TokenRefresh] ✅ Token refreshed silently');
+      scheduleTokenRefresh(data.token); // Schedule next refresh
+    }
+
+  } catch (err) {
+    // Network error — don't logout, just retry in 30s
+    console.warn('[TokenRefresh] Network error during refresh, retrying in 30s:', err.message);
+    _refreshTimer = setTimeout(silentRefreshToken, 30000);
+  } finally {
+    _isRefreshing = false;
+  }
+}
+
+// ==================== AUTH FETCH (uses fresh token, auto-retries once) ====================
+
+async function authFetch(url, options = {}) {
+  const token = localStorage.getItem('token') || '';
+
+  const makeRequest = (t) => fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(t ? { 'Authorization': `Bearer ${t}` } : {}),
+      ...(options.headers || {})
+    }
+  });
+
+  let res = await makeRequest(token);
+
+  // If 401, try one silent refresh then retry
+  if (res.status === 401) {
+    console.warn('[authFetch] 401 received — attempting silent refresh before retry');
+    await silentRefreshToken();
+
+    const newToken = localStorage.getItem('token') || '';
+    if (!newToken || newToken === token) {
+      // Refresh didn't get a new token — session is truly expired
+      handleSessionExpired();
+      throw new Error('Session expired. Please log in again.');
+    }
+
+    // Retry with new token
+    res = await makeRequest(newToken);
+
+    if (res.status === 401) {
+      handleSessionExpired();
+      throw new Error('Session expired. Please log in again.');
+    }
+  }
+
+  return res;
+}
+
+function handleSessionExpired() {
+  console.error('[Auth] Session expired — redirecting to login');
+  clearTimeout(_refreshTimer);
+  localStorage.removeItem('token');
+
+  // Show toast before redirect if available
+  if (typeof showToast === 'function') {
+    showToast('Your session has expired. Please log in again.', 'error');
+  }
+
+  setTimeout(() => {
+    window.location.href = '/login.html';
+  }, 1500);
+}
+
+// ==================== BOOT: start the refresh cycle ====================
+
+(function initTokenRefresh() {
+  const token = localStorage.getItem('token');
+  if (token) {
+    scheduleTokenRefresh(token);
+    console.log('[TokenRefresh] Refresh cycle started');
+  } else {
+    // No token in localStorage — cookies handle it, 
+    // call /api/session to get a fresh one and start the cycle
+    fetch('https://api.flexgig.com.ng/api/session', { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.token) {
+          localStorage.setItem('token', data.token);
+          scheduleTokenRefresh(data.token);
+          console.log('[TokenRefresh] Token seeded from session, refresh cycle started');
+        }
+      })
+      .catch(() => console.warn('[TokenRefresh] Could not seed token from session'));
+  }
+})();
+
+// Also refresh when tab becomes visible again (user switching back to the tab)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const expiryMs = getTokenExpiryMs(token);
+    if (!expiryMs) return;
+
+    const msLeft = expiryMs - Date.now();
+    if (msLeft < TOKEN_REFRESH_THRESHOLD_MS) {
+      console.log('[TokenRefresh] Tab focused — token near expiry, refreshing');
+      silentRefreshToken();
+    }
+  }
+});
+
+window.authFetch = authFetch;
+window.silentRefreshToken = silentRefreshToken;
+window.scheduleTokenRefresh = scheduleTokenRefresh;
+
 
 // ────────────────────────────────────────────────
 // REAL-TIME BALANCE SUBSCRIPTION
