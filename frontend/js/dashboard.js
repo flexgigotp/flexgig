@@ -3954,6 +3954,7 @@ function updateLocalStorageFromUser(user) {
       allTimeIn: user.allTimeIn || 0,
       allTimeOut: user.allTimeOut || 0,
       totalDataTxCount: user.totalDataTxCount || 0,
+      recentDataTx: user.recentDataTx || [],
       // ✅ Always persist the real balance so the page-load inline script can read it
       wallet_balance: user.wallet_balance ?? null,
       cachedAt: Date.now()
@@ -3977,6 +3978,7 @@ function updateLocalStorageFromUser(user) {
     localStorage.setItem('allTimeIn', user.allTimeIn || 0);
     localStorage.setItem('allTimeOut', user.allTimeOut || 0);
     localStorage.setItem('totalDataTxCount', user.totalDataTxCount || 0);
+    localStorage.setItem('recentDataTx', JSON.stringify(user.recentDataTx || []));
 
     console.log('[DEBUG] updateLocalStorageFromUser: Updated', {
       hasPin: user.hasPin,
@@ -8033,12 +8035,12 @@ window.toLocalPhone = toLocalPhone; // Expose globally if needed
 
       // Filter to data purchases + successes only
       const dataSuccessTxs = transactions.filter(tx => {
-  const type = (tx.type || '').toLowerCase();
   const status = (tx.status || '').toLowerCase();
+  const category = (tx.category || '').toUpperCase();
   const hasPhone = !!(tx.phone?.trim());
-  return type === 'data'
-      && status === 'success'
-      && hasPhone;
+  return status === 'success'
+      && hasPhone
+      && ['AWOOF', 'CG', 'GIFTING', 'SPECIAL', 'STANDARD'].includes(category);
 }).slice(0, 5);
 
       if (!dataSuccessTxs.length) {
@@ -8115,70 +8117,60 @@ phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
       console.log('[recent-tx] Rendered', dataSuccessTxs.length, 'successful data transactions');
     }
 
-    // === LOAD, MERGE, DEDUPLICATE, LIMIT TO 5 ===
+    // === LOAD FROM recentDataTx (SESSION) FIRST, API AS FALLBACK ===
     let recentTransactions = [];
 
-    try {
-      const stored = localStorage.getItem('recentTransactions');
-      if (stored) {
-        recentTransactions = JSON.parse(stored);
-        if (!Array.isArray(recentTransactions)) recentTransactions = [];
+    // Priority 1: Use server-embedded recentDataTx (instant, no fetch needed)
+    const serverRecent = window.__SERVER_USER_DATA__?.recentDataTx || [];
+
+    if (serverRecent.length) {
+      recentTransactions = serverRecent;
+      console.log('[recent-tx] Using server-embedded recentDataTx:', recentTransactions.length, 'items');
+    } else {
+      // Priority 2: localStorage cache
+      try {
+        const stored = localStorage.getItem('recentDataTx');
+        if (stored) {
+          recentTransactions = JSON.parse(stored);
+          if (!Array.isArray(recentTransactions)) recentTransactions = [];
+          console.log('[recent-tx] Using localStorage recentDataTx:', recentTransactions.length, 'items');
+        }
+      } catch (e) {
+        console.warn('[recent-tx] localStorage parse error', e);
       }
-    } catch (e) {
-      console.warn('[recent-tx] localStorage parse error', e);
+    }
+
+    // Priority 3: Only fetch from API if we have nothing at all
+    if (!recentTransactions.length) {
+      try {
+        const res = await fetch(`${window.__SEC_API_BASE}/api/transactions?limit=50`, {
+          credentials: 'include',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          recentTransactions = (data.items || []).filter(tx =>
+            tx?.phone?.trim() &&
+            (tx.status || '').toLowerCase() === 'success' &&
+            ['AWOOF', 'CG', 'GIFTING', 'special', 'STANDARD'].includes(tx.category)
+          ).slice(0, 5);
+          console.log('[recent-tx] Fetched from API as fallback:', recentTransactions.length);
+        }
+      } catch (err) {
+        console.error('[recent-tx] API fallback failed', err);
+      }
     }
 
     recentTransactions = recentTransactions.filter(tx => tx && tx.phone && tx.phone.trim() !== '');
 
     try {
-      const res = await fetch(`${window.__SEC_API_BASE}/api/transactions?limit=100`, {
-        credentials: 'include',
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        const serverTxs = (data.items || []).filter(tx => tx && tx.phone && tx.phone.trim() !== '');
-
-        // Server data always wins — replace any matching local entry with fresh server one
-serverTxs.forEach(serverTx => {
-  const existingIndex = recentTransactions.findIndex(localTx =>
-    (localTx.id && serverTx.id && localTx.id === serverTx.id) ||
-    (normalizePhone(localTx.phone) === normalizePhone(serverTx.phone) &&
-     localTx.amount === serverTx.amount)
-  );
-
-  if (existingIndex !== -1) {
-    recentTransactions[existingIndex] = serverTx; // overwrite stale local with fresh server
-  } else {
-    recentTransactions.push(serverTx);
-  }
-});
-      } else {
-        console.warn('[recent-tx] Server fetch not OK:', res.status);
-      }
-    } catch (err) {
-      console.error('[recent-tx] Server fetch failed', err);
-    }
-
-    recentTransactions.sort((a, b) => {
-      const timeA = new Date(a.timestamp || a.created_at || 0).getTime();
-      const timeB = new Date(b.timestamp || b.created_at || 0).getTime();
-      return timeB - timeA;
-    });
-
-    recentTransactions = recentTransactions.slice(0, 5);
-
-    try {
-      localStorage.setItem('recentTransactions', JSON.stringify(recentTransactions));
+      localStorage.setItem('recentDataTx', JSON.stringify(recentTransactions));
       window.recentTransactions = recentTransactions;
     } catch (e) {
       console.warn('[recent-tx] Save failed', e);
     }
 
     renderRecentTransactions(recentTransactions);
-
     window.renderRecentTransactions = renderRecentTransactions;
-
     console.log('%c[recent-tx] INITIALIZED — single run guaranteed', 'color:lime;font-weight:bold');
   })();
 }
