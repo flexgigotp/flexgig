@@ -8039,7 +8039,7 @@ window.toLocalPhone = toLocalPhone; // Expose globally if needed
   const hasPhone = !!(tx.phone?.trim());
   return status === 'success'
       && hasPhone
-      && ['AWOOF', 'CG', 'GIFTING', 'SPECIAL', 'STANDARD'].includes(category);
+      && ['AWOOF', 'CG', 'GIFTING', 'SPECIAL', 'STANDARD'];
 }).slice(0, 5);
 
       if (!dataSuccessTxs.length) {
