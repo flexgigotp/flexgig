@@ -375,6 +375,19 @@ if (sendBtn) {
     }
 
     const pinVerifiedToken = verification.token;
+
+    // Simulate filled PIN dots + show loader now that verification passed
+    try {
+      const pinInputs = Array.from(document.querySelectorAll('#checkout-pin-modal .checkout-pin-digit'));
+      pinInputs.forEach(input => {
+        input.classList.add('filled', 'simulated-pin');
+        input.value = '';
+      });
+    } catch (e) {}
+    try {
+      if (typeof window.showLoader === 'function') window.showLoader();
+    } catch (e) {}
+
     if (!pinVerifiedToken) {
       console.error('[fxgTransfer] verify-pin returned no token');
       fxgTransfer_showProcessingReceipt(payload);
@@ -464,6 +477,7 @@ if (sendBtn) {
     console.error('[fxgTransfer] Transfer failed:', err);
     fxgTransfer_updateReceiptToFailed(payload, err.message || 'Transfer failed. Please try again.');
   } finally {
+    try { if (typeof window.hideLoader === 'function') window.hideLoader(); } catch (e) {}
     if (sendBtn) {
       sendBtn.disabled = false;
       sendBtn.textContent = 'Send';

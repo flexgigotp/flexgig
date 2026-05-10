@@ -929,7 +929,7 @@ try {
       userHandle: assertion.response.userHandle ? bufToB64Url(assertion.response.userHandle) : null
     },
     userId: uid,
-    action: 'buy-data'
+    action: window._pinModalAction || 'buy-data'
   };
 
   const verifyRes = await fetch((window.__SEC_API_BASE || 'https://api.flexgig.com.ng') + '/webauthn/auth/verify', {
@@ -1094,7 +1094,13 @@ async function verifyPin(pin) {
     });
   } catch (e) {}
 
-  return await withLoader(async () => {
+  // Hide modal first so loader appears on the main screen, not behind the pin modal
+  hideCheckoutPinModal();
+
+  const _withLoader = typeof withLoader === 'function' ? withLoader
+    : (typeof window.withLoader === 'function' ? window.withLoader : fn => fn());
+
+  return await _withLoader(async () => {
     let raw = '';
     try {
       const token = localStorage.getItem('token') || '';
@@ -1135,13 +1141,6 @@ async function verifyPin(pin) {
 
       // ✅ Success path
       if (res.ok && data.pinToken) {
-  // Clear simulated state before hiding
-  try {
-    Array.from(modal.querySelectorAll('.checkout-pin-digit')).forEach(input => {
-      input.classList.remove('filled', 'simulated-pin');
-    });
-  } catch (e) {}
-  hideCheckoutPinModal();
   window._checkoutPinResolve?.({
     success: true,
     pinToken: data.pinToken
@@ -1154,7 +1153,7 @@ async function verifyPin(pin) {
       switch (data.code) {
         case 'WRONG_PIN':
           showToast('Incorrect PIN. Try again.', 'error');
-          resetPin();
+          window._checkoutPinResolve?.({ success: false, code: 'WRONG_PIN' });
           break;
 
         case 'PIN_NOT_SET':
@@ -1187,14 +1186,14 @@ async function verifyPin(pin) {
 
         default:
           showToast(data.message || 'PIN verification failed.', 'error');
-          resetPin();
+          window._checkoutPinResolve?.({ success: false, code: data.code || 'UNKNOWN' });
       }
 
     } catch (err) {
       console.error('[verifyPin] fetch error:', err);
       console.log('RAW PIN RESPONSE:', raw);
       showToast('Unable to verify PIN. Check your connection.', 'error');
-      resetPin();
+      window._checkoutPinResolve?.({ success: false, code: 'NETWORK_ERROR' });
     }
   });
 }
