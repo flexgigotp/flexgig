@@ -13004,7 +13004,7 @@ async function startRegistration(userId, username, displayName) {
 }
 
 /* ---- Authentication flow ---- */
-async function startAuthentication(userId) {
+async function startAuthentication(userId, action = 'reauth') {
   __sec_log.d('startAuthentication entry', { userId });
   try {
     // Get user for UID (no token needed)
@@ -13121,7 +13121,7 @@ async function startAuthentication(userId) {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, credential }),
+      body: JSON.stringify({ userId, credential, action }),
     });
     const verifyRaw = await verifyRes.text();
     __sec_log.d('startAuthentication: Verify response', { status: verifyRes.status, ok: verifyRes.ok, raw: verifyRaw });
@@ -14897,7 +14897,7 @@ async function tryBiometricWithCachedOptions() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, userId })
+        body: JSON.stringify({ ...payload, userId, action: 'reauth' })
       });
     } catch (err) {
       hideLoader();
@@ -15264,7 +15264,7 @@ async function bioVerifyAndFinalize(assertion) {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...currentPayload, userId: uid })
+            body: JSON.stringify({ ...currentPayload, userId: uid, action: 'reauth' })
           });
         });
       } catch (err) {
@@ -18465,7 +18465,7 @@ async function verifyBiometrics(uid, context = 'reauth') {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ ...payload, action: 'reauth' })
       });
 
       if (!verifyRes.ok) {

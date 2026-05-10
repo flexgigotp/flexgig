@@ -904,10 +904,10 @@ try {
       : Promise.resolve(null));
     const uid = session?.user?.uid || session?.user?.id ||
       (() => { try { return JSON.parse(localStorage.getItem('userData') || '{}').uid; } catch(e){ return null; } })();
-    result = await startAuthentication(uid);
+    result = await startAuthentication(uid, 'buy-data');
     // startAuthentication returns verifyData directly — wrap it
     if (result?.verified) {
-      result = { success: true, data: result };
+      result = { success: true, data: result, biometricToken: result.token };
     }
   }
 } catch (e) {
