@@ -14854,9 +14854,6 @@ async function tryBiometricWithCachedOptions() {
     } catch(e){}
 
     // Simulate PIN entry
-    try { simulatePinEntry?.({ stagger:0, expectedCount:4, fillAll:true }); } catch(e){}
-
-    // 🔥 Use cached biometric options only
     const cachedAttempt = await tryBiometricWithCachedOptions();
 
     if (!cachedAttempt.ok) {
@@ -14869,6 +14866,8 @@ async function tryBiometricWithCachedOptions() {
       try { getReauthInputs()[0]?.focus(); } catch(e){}
       return;
     }
+
+    try { simulatePinEntry?.({ stagger:0, expectedCount:4, fillAll:true }); } catch(e){}
 
     const assertion = cachedAttempt.assertion;
     const payload = {

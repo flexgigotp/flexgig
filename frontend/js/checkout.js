@@ -1052,6 +1052,15 @@ window.openForgetPinFlow = async function openForgetPinFlow() {
     }
   });
 async function verifyPin(pin) {
+  // Simulate filled PIN inputs immediately (visual feedback before server round-trip)
+  try {
+    const pinInputs = Array.from(modal.querySelectorAll('.checkout-pin-digit'));
+    pinInputs.forEach(input => {
+      input.classList.add('filled', 'simulated-pin');
+      input.value = '';
+    });
+  } catch (e) {}
+
   return await withLoader(async () => {
     let raw = '';
     try {
@@ -1093,6 +1102,12 @@ async function verifyPin(pin) {
 
       // ✅ Success path
       if (res.ok && data.pinToken) {
+  // Clear simulated state before hiding
+  try {
+    Array.from(modal.querySelectorAll('.checkout-pin-digit')).forEach(input => {
+      input.classList.remove('filled', 'simulated-pin');
+    });
+  } catch (e) {}
   hideCheckoutPinModal();
   window._checkoutPinResolve?.({
     success: true,
