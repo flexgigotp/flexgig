@@ -14783,6 +14783,8 @@ async function tryBiometricWithCachedOptions() {
   }
 }
 
+window.tryBiometricWithCachedOptions = tryBiometricWithCachedOptions; // expose for testing/debugging
+
 
  (function bindPinBiometricBtn() {
   const bioBtn = document.getElementById('pinBiometricBtn');
