@@ -897,18 +897,51 @@ async function handleBiometricAuth() {
     let result = { success: false };
 
 try {
-  // Use startAuthentication directly — avoids reauth side effects
-  if (typeof startAuthentication === 'function') {
-    const session = await (typeof getSession === 'function' 
-      ? getSession().catch(() => null) 
-      : Promise.resolve(null));
-    const uid = session?.user?.uid || session?.user?.id ||
-      (() => { try { return JSON.parse(localStorage.getItem('userData') || '{}').uid; } catch(e){ return null; } })();
-    result = await startAuthentication(uid, 'buy-data');
-    // startAuthentication returns verifyData directly — wrap it
-    if (result?.verified) {
-      result = { success: true, data: result, biometricToken: result.token };
-    }
+  const cachedAttempt = await tryBiometricWithCachedOptions();
+  if (!cachedAttempt.ok) {
+    showToast('Biometric challenge expired — please try again or use PIN.', 'info');
+    inputs[0]?.focus();
+    return;
+  }
+
+  const session = await (typeof getSession === 'function'
+    ? getSession().catch(() => null)
+    : Promise.resolve(null));
+  const uid = session?.user?.uid || session?.user?.id ||
+    (() => { try { return JSON.parse(localStorage.getItem('userData') || '{}').uid; } catch(e){ return null; } })();
+
+  function bufToB64Url(buf) {
+    const bytes = new Uint8Array(buf);
+    let str = '';
+    for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  const assertion = cachedAttempt.assertion;
+  const payload = {
+    id: assertion.id,
+    rawId: bufToB64Url(assertion.rawId),
+    type: assertion.type,
+    response: {
+      authenticatorData: bufToB64Url(assertion.response.authenticatorData),
+      clientDataJSON: bufToB64Url(assertion.response.clientDataJSON),
+      signature: bufToB64Url(assertion.response.signature),
+      userHandle: assertion.response.userHandle ? bufToB64Url(assertion.response.userHandle) : null
+    },
+    userId: uid,
+    action: 'buy-data'
+  };
+
+  const verifyRes = await fetch((window.__SEC_API_BASE || 'https://api.flexgig.com.ng') + '/webauthn/auth/verify', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const verifyData = await verifyRes.json().catch(() => ({}));
+  if (verifyRes.ok && verifyData?.verified) {
+    result = { success: true, data: verifyData, biometricToken: verifyData.token };
   }
 } catch (e) {
   console.warn('[checkout-pin] Biometric failed:', e);
