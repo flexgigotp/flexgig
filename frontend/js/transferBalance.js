@@ -138,6 +138,24 @@
     }
   }
 
+  function fxgTransfer_beginProcessing(payload) {
+  // Close the auth modal at the processing stage, not during biometric success
+  if (typeof window.hideCheckoutPinModal === 'function') {
+    window.hideCheckoutPinModal();
+  }
+
+  fxgTransfer_showProcessingReceipt(payload);
+
+  requestAnimationFrame(() => {
+    try {
+      if (window.__transferLoaderActive && typeof window.hideLoader === 'function') {
+        window.hideLoader();
+        window.__transferLoaderActive = false;
+      }
+    } catch (e) {}
+  });
+}
+
   function fxgTransfer_bindBalanceUpdateEvent() {
     if (fxgTransfer_bindBalanceUpdateEvent._bound) return;
     window.addEventListener('balance_update', (ev) => {
@@ -327,48 +345,48 @@ if (sendBtn) {
   }
 
   // --- PIN verification using checkout modal ---
-  async function fxgTransfer_verifyPinOrBiometric() {
-    return new Promise((resolve) => {
-      window._checkoutPinResolve = (result) => {
-        try { 
-          delete window._checkoutPinResolve; 
-        } catch {}
-        
-        if (typeof window.hideCheckoutPinModal === 'function') {
-          window.hideCheckoutPinModal();
-        }
-        
-        resolve(result);
-      };
+async function fxgTransfer_verifyPinOrBiometric() {
+  return new Promise((resolve) => {
+    window._checkoutPinResolve = (result) => {
+      try {
+        delete window._checkoutPinResolve;
+      } catch {}
 
-      if (typeof window.showCheckoutPinModal === 'function') {
-        window._pinModalAction = 'transfer';
-        requestAnimationFrame(() => {
-          window.showCheckoutPinModal();
-        });
-      } else {
-        console.error('[fxgTransfer] showCheckoutPinModal not available');
-        resolve({ success: false, reason: 'modal_unavailable' });
-      }
-    }).then((modalResult) => {
-      delete window._pinModalAction;
-      if (!modalResult || modalResult.success !== true) {
-        return { success: false, reason: modalResult?.reason || 'cancelled' };
-      }
+      // Do NOT hide the modal here.
+      // Let the processing stage close it.
+      resolve(result);
+    };
 
-      const token = modalResult.pinToken || modalResult.biometricToken || null;
+    if (typeof window.showCheckoutPinModal === 'function') {
+      window._pinModalAction = 'transfer';
+      requestAnimationFrame(() => {
+        window.showCheckoutPinModal();
+      });
+    } else {
+      console.error('[fxgTransfer] showCheckoutPinModal not available');
+      resolve({ success: false, reason: 'modal_unavailable' });
+    }
+  }).then((modalResult) => {
+    delete window._pinModalAction;
 
-      if (!token) {
-        console.error('[fxgTransfer] Modal returned success but no token');
-        return { success: false, reason: 'no_token' };
-      }
+    if (!modalResult || modalResult.success !== true) {
+      return { success: false, reason: modalResult?.reason || 'cancelled' };
+    }
 
-      return {
-        success: true,
-        token: token
-      };
-    });
-  }
+    const token = modalResult.pinToken || modalResult.biometricToken || null;
+
+    if (!token) {
+      console.error('[fxgTransfer] Modal returned success but no token');
+      return { success: false, reason: 'no_token' };
+    }
+
+    return {
+      success: true,
+      token,
+      method: modalResult.biometricToken ? 'biometric' : 'pin'
+    };
+  });
+}
 
   async function fxgTransfer_confirmSend(payload) {
   const wrapper = document.getElementById('fxg-transfer-confirm-modal');
@@ -442,11 +460,7 @@ if (sendBtn) {
     }
 
     // 5. Hide loader and show processing receipt (receipt replaces the loader)
-    try {
-      if (typeof window.hideLoader === 'function') window.hideLoader();
-      window.__transferLoaderActive = false;
-    } catch (e) {}
-    fxgTransfer_showProcessingReceipt(payload);
+    fxgTransfer_beginProcessing(payload);
 
     // Small delay to ensure processing state is visible
     await new Promise(resolve => setTimeout(resolve, 0));
