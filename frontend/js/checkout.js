@@ -750,7 +750,43 @@ async function onPayClicked(ev) {
            localStorage.getItem('biometricForTransactions') === 'true';
   }
   window.isBiometricEnabledForTx = isBiometricEnabledForTx;
-
+ 
+  // ── Post-use re-warm: fetch a fresh challenge right after consuming one ──
+  // Called after every biometric attempt (success or failure) so the NEXT
+  // transaction never blocks on a cold fetch or hits a consumed challenge.
+  function _checkoutBiometricRewarm() {
+    if (!isBiometricEnabledForTx()) return;
+ 
+    const uid =
+      window.currentUser?.uid ||
+      window.__SERVER_USER_DATA__?.uid ||
+      (() => {
+        try { return JSON.parse(localStorage.getItem('userData') || '{}').uid; }
+        catch (e) { return null; }
+      })();
+ 
+    if (!uid) return;
+ 
+    // Null out stale cache so warmBiometricOptions always fetches fresh
+    window.__cachedAuthOptions = null;
+    window.__cachedAuthOptionsFetchedAt = 0;
+    try { localStorage.removeItem('__cachedAuthOptions'); } catch (e) {}
+    if (typeof window.invalidateAuthOptionsCache === 'function') {
+      window.invalidateAuthOptionsCache();
+    }
+ 
+    // Fire-and-forget — does not block the current transaction flow
+    if (typeof window.warmBiometricOptions === 'function') {
+      window.warmBiometricOptions(uid, 'buy-data', { force: true })
+        .then(opts => {
+          if (opts) console.log('[checkout] 🔥 Biometric pre-warmed for next transaction');
+          else      console.warn('[checkout] Biometric re-warm returned null');
+        })
+        .catch(err => console.warn('[checkout] Biometric re-warm failed:', err));
+    }
+  }
+  window._checkoutBiometricRewarm = _checkoutBiometricRewarm;
+ 
   function updateBiometricButton() {
     if (biometricBtn) {
       biometricBtn.style.display = isBiometricEnabledForTx() ? 'flex' : 'none';
@@ -898,17 +934,13 @@ async function handleBiometricAuth() {
 
 try {
   const cachedAttempt = await tryBiometricWithCachedOptions();
-
-  // Invalidate cache immediately after use — challenge is single-use.
-  // Without this, a second transaction reuses the stale challenge and gets 400.
-  window.__cachedAuthOptions = null;
-  window.__cachedAuthOptionsFetchedAt = 0;
-  if (typeof window.invalidateAuthOptionsCache === 'function') {
-    window.invalidateAuthOptionsCache();
-  }
-
+ 
+  // Invalidate + immediately re-warm so the NEXT transaction has a fresh
+  // challenge ready without any blocking cold fetch.
+  _checkoutBiometricRewarm();
+ 
   if (!cachedAttempt.ok) {
-    showToast('Biometric challenge expired — please try again or use PIN.', 'info');
+    showToast('Biometric failed — please try again or use PIN.', 'info');
     inputs[0]?.focus();
     return;
   }
@@ -1102,10 +1134,14 @@ async function verifyPin(pin) {
       input.value = '';
     });
   } catch (e) {}
-
+ 
   // Hide modal first so loader appears on the main screen, not behind the pin modal
   hideCheckoutPinModal();
-
+ 
+  // Kick off a fresh biometric challenge in the background immediately.
+  // Even if the user used PIN this time, biometric will be ready for their next purchase.
+  _checkoutBiometricRewarm();
+ 
   const _withLoader = typeof withLoader === 'function' ? withLoader
     : (typeof window.withLoader === 'function' ? window.withLoader : fn => fn());
 

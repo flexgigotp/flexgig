@@ -8,9 +8,43 @@
   const CONFIRM_MODAL_ID = 'fxg-transfer-confirm-modal';
   const RECEIPT_MODAL_ID = 'fxg-transfer-receipt-modal';
   const API_BASE = window.__SEC_API_BASE || 'https://api.flexgig.com.ng';
-
+ 
+  // ── Post-use re-warm: fetch a fresh challenge right after consuming one ──
+  function fxgTransfer_biometricRewarm() {
+    const biometricEnabled =
+      localStorage.getItem('biometricForTx') === 'true' ||
+      localStorage.getItem('biometricsEnabled') === 'true';
+    if (!biometricEnabled) return;
+ 
+    const uid =
+      window.currentUser?.uid ||
+      window.__SERVER_USER_DATA__?.uid ||
+      (() => {
+        try { return JSON.parse(localStorage.getItem('userData') || '{}').uid; }
+        catch (e) { return null; }
+      })();
+ 
+    if (!uid) return;
+ 
+    window.__cachedAuthOptions = null;
+    window.__cachedAuthOptionsFetchedAt = 0;
+    try { localStorage.removeItem('__cachedAuthOptions'); } catch (e) {}
+    if (typeof window.invalidateAuthOptionsCache === 'function') {
+      window.invalidateAuthOptionsCache();
+    }
+ 
+    if (typeof window.warmBiometricOptions === 'function') {
+      window.warmBiometricOptions(uid, 'transfer', { force: true })
+        .then(opts => {
+          if (opts) console.log('[fxgTransfer] 🔥 Biometric pre-warmed for next transfer');
+          else      console.warn('[fxgTransfer] Biometric re-warm returned null');
+        })
+        .catch(err => console.warn('[fxgTransfer] Biometric re-warm failed:', err));
+    }
+  }
+ 
   // helpers
-  const onlyDigits = s => (s || '').toString().replace(/[^\d]/g, '');
+  const onlyDigits = s => (s || '').toStrin
   const fmt = n => (Number(n) || 0).toLocaleString('en-NG');
 
   function $(id) { return document.getElementById(id); }
@@ -362,15 +396,11 @@ if (sendBtn) {
     // This shows the PIN modal without waiting for the session fetch
     const verification = await fxgTransfer_verifyPinOrBiometric();
 
-    // Invalidate biometric cache after every attempt so the next
-    // transaction always fetches a fresh challenge from /webauthn/auth/options.
-    window.__cachedAuthOptions = null;
-    window.__cachedAuthOptionsFetchedAt = 0;
-    if (typeof window.invalidateAuthOptionsCache === 'function') {
-      window.invalidateAuthOptionsCache();
-    }
-
+        // Invalidate + immediately re-warm so the next transfer has a fresh challenge ready.
+    fxgTransfer_biometricRewarm();
+ 
     if (!verification || !verification.success) {
+
       console.log('[fxgTransfer] PIN verification failed or cancelled:', verification?.reason || verification);
       // Don't show receipt for user cancellation
       if (verification?.reason === 'cancelled') {
@@ -510,6 +540,10 @@ if (sendBtn) {
       sendBtn.textContent = 'Send';
     }
     if (cancelBtn) cancelBtn.disabled = false;
+ 
+    // Ensure a fresh challenge is always queued after any transfer attempt
+    // (covers success, failure, thrown error, and cancellation paths)
+    fxgTransfer_biometricRewarm();
   }
 }
 
