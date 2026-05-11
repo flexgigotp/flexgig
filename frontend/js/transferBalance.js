@@ -361,7 +361,15 @@ if (sendBtn) {
     // 3. Prompt for PIN/biometric and verify server-side IMMEDIATELY
     // This shows the PIN modal without waiting for the session fetch
     const verification = await fxgTransfer_verifyPinOrBiometric();
-    
+
+    // Invalidate biometric cache after every attempt so the next
+    // transaction always fetches a fresh challenge from /webauthn/auth/options.
+    window.__cachedAuthOptions = null;
+    window.__cachedAuthOptionsFetchedAt = 0;
+    if (typeof window.invalidateAuthOptionsCache === 'function') {
+      window.invalidateAuthOptionsCache();
+    }
+
     if (!verification || !verification.success) {
       console.log('[fxgTransfer] PIN verification failed or cancelled:', verification?.reason || verification);
       // Don't show receipt for user cancellation
@@ -376,7 +384,7 @@ if (sendBtn) {
 
     const pinVerifiedToken = verification.token;
 
-    // Simulate filled PIN dots + show loader now that verification passed
+    // Simulate filled PIN dots immediately after biometric verify
     try {
       const pinInputs = Array.from(document.querySelectorAll('#checkout-pin-modal .checkout-pin-digit'));
       pinInputs.forEach(input => {
@@ -384,8 +392,17 @@ if (sendBtn) {
         input.value = '';
       });
     } catch (e) {}
+
+    // Show loader right after verification, before any async work
     try {
-      if (typeof window.showLoader === 'function') window.showLoader();
+      if (typeof window.withLoader === 'function') {
+        // Don't await — start the loader overlay immediately and let it run
+        // while we fetch session + make the transfer call
+        window.__transferLoaderActive = true;
+        if (typeof window.showLoader === 'function') window.showLoader();
+      } else if (typeof window.showLoader === 'function') {
+        window.showLoader();
+      }
     } catch (e) {}
 
     if (!pinVerifiedToken) {
@@ -406,9 +423,13 @@ if (sendBtn) {
       return;
     }
 
-    // 5. Show processing receipt after both tokens are obtained (before API call)
+    // 5. Hide loader and show processing receipt (receipt replaces the loader)
+    try {
+      if (typeof window.hideLoader === 'function') window.hideLoader();
+      window.__transferLoaderActive = false;
+    } catch (e) {}
     fxgTransfer_showProcessingReceipt(payload);
-    
+
     // Small delay to ensure processing state is visible
     await new Promise(resolve => setTimeout(resolve, 0));
 
@@ -477,7 +498,13 @@ if (sendBtn) {
     console.error('[fxgTransfer] Transfer failed:', err);
     fxgTransfer_updateReceiptToFailed(payload, err.message || 'Transfer failed. Please try again.');
   } finally {
-    try { if (typeof window.hideLoader === 'function') window.hideLoader(); } catch (e) {}
+    // Only hide loader if receipt modal didn't already hide it
+    try {
+      if (window.__transferLoaderActive && typeof window.hideLoader === 'function') {
+        window.hideLoader();
+        window.__transferLoaderActive = false;
+      }
+    } catch (e) {}
     if (sendBtn) {
       sendBtn.disabled = false;
       sendBtn.textContent = 'Send';

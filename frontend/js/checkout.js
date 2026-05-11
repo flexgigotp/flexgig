@@ -898,6 +898,15 @@ async function handleBiometricAuth() {
 
 try {
   const cachedAttempt = await tryBiometricWithCachedOptions();
+
+  // Invalidate cache immediately after use — challenge is single-use.
+  // Without this, a second transaction reuses the stale challenge and gets 400.
+  window.__cachedAuthOptions = null;
+  window.__cachedAuthOptionsFetchedAt = 0;
+  if (typeof window.invalidateAuthOptionsCache === 'function') {
+    window.invalidateAuthOptionsCache();
+  }
+
   if (!cachedAttempt.ok) {
     showToast('Biometric challenge expired — please try again or use PIN.', 'info');
     inputs[0]?.focus();
