@@ -413,15 +413,19 @@ async function fxgTransfer_verifyPinOrBiometric() {
     // and inside verifyPin (checkout.js) BEFORE the modal closes, so the user
     // sees filled dots and a loader with no blank gap. Nothing needed here.
  
-    // Show loader for the network call ahead (PIN path — biometric already showed it)
-    // ── AFTER ──
-    // Show loader for the network call ahead (PIN path — biometric already showed it)
-    try {
-      if (typeof window.showLoader === 'function') {
-        window.__transferLoaderActive = true;
-        window.showLoader();
-      }
-    } catch (e) {}
+    // Show loader for the network call ahead — PIN path only.
+    // Biometric already called showLoader() at button-click time, so don't double-call.
+    if (verification.method !== 'biometric') {
+      try {
+        if (typeof window.showLoader === 'function') {
+          window.__transferLoaderActive = true;
+          window.showLoader();
+        }
+      } catch (e) {}
+    } else {
+      // Biometric already has loader showing — just track it so finally() can clean up
+      window.__transferLoaderActive = true;
+    }
 
     if (!pinVerifiedToken) {
       console.error('[fxgTransfer] verify-pin returned no token');
@@ -441,12 +445,13 @@ async function fxgTransfer_verifyPinOrBiometric() {
       return;
     }
 
-    // 5. Hide loader and show processing receipt (receipt replaces the loader)
+    // 5. Show processing receipt, THEN hide loader — receipt is now visible so
+    //    the transition is seamless (no blank frame between loader and receipt).
+    fxgTransfer_showProcessingReceipt(payload);
     try {
       if (typeof window.hideLoader === 'function') window.hideLoader();
       window.__transferLoaderActive = false;
     } catch (e) {}
-    fxgTransfer_showProcessingReceipt(payload);
 
     // Small delay to ensure processing state is visible
     await new Promise(resolve => setTimeout(resolve, 0));

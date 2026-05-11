@@ -932,36 +932,32 @@ async function handleBiometricAuth() {
     biometricBtn.classList.add('loading');
   }
 
-  // ── 1. Show loader immediately (same as dashboard reauth bio button) ──
-  // The modal stays open behind the loader during the biometric gesture.
-  try { showLoader(); } catch (e) {}
+  // ── 1. Show loader immediately — modal stays open behind loader during gesture ──
+try { showLoader(); } catch (e) {}
+
+try {
+  let result = { success: false };
 
   try {
-    let result = { success: false };
+    const cachedAttempt = await tryBiometricWithCachedOptions();
 
+    // Invalidate + immediately re-warm ...
+    _checkoutBiometricRewarm();
+
+    if (!cachedAttempt.ok) {
+      try { hideLoader(); } catch (e) {}
+      showToast('Biometric failed — please try again or use PIN.', 'info');
+      inputs[0]?.focus();
+      return;
+    }
+
+    // ── 2. Assertion succeeded: fill dots BEFORE hiding modal (matches dashboard pattern) ──
     try {
-      const cachedAttempt = await tryBiometricWithCachedOptions();
- 
-      // Invalidate + immediately re-warm so the NEXT transaction has a fresh
-      // challenge ready without any blocking cold fetch.
-      _checkoutBiometricRewarm();
- 
-      if (!cachedAttempt.ok) {
-        // ── Failed: hide loader, let user fall back to PIN ──
-        try { hideLoader(); } catch (e) {}
-        showToast('Biometric failed — please try again or use PIN.', 'info');
-        inputs[0]?.focus();
-        return;
-      }
-
-      // ── 2. Assertion succeeded: fill the PIN dots while loader is showing ──
-      // (same pattern as dashboard.js: simulatePinEntry after cachedAttempt.ok)
-      try {
-        inputs.forEach(input => {
-          input.classList.add('filled', 'simulated-pin');
-          input.value = '';
-        });
-      } catch (e) {}
+      inputs.forEach(input => {
+        input.classList.add('filled', 'simulated-pin');
+        input.value = '';
+      });
+    } catch (e) {}
 
       const session = await (typeof getSession === 'function'
         ? getSession().catch(() => null)
@@ -1009,17 +1005,16 @@ async function handleBiometricAuth() {
     if (result?.success) {
       console.log('[checkout-pin] Biometric success');
 
-      // ── 3. On success: hide the PIN modal.
-      //    The loader stays visible — continueCheckoutFlow / fxgTransfer_confirmSend
-      //    will call showProcessingReceipt which then calls hideLoader().
-      //    This matches the dashboard reauth pattern where the loader bridges the
-      //    gap between biometric success and the next screen appearing.
-      hideCheckoutPinModal();
-
+      // ── 3. On success: resolve first so caller can act, THEN hide modal.
+      //    Loader stays visible — it bridges to showProcessingReceipt which calls hideLoader().
+      //    Do NOT call hideLoader() here — the processing receipt screen does that.
       window._checkoutPinResolve?.({
         success: true,
         biometricToken: result.data?.token
       });
+
+      // Hide modal AFTER resolving so the loader (already showing) covers the transition
+      hideCheckoutPinModal();
 
       return;
     }
