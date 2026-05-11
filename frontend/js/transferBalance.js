@@ -44,7 +44,8 @@
   }
  
   // helpers
-  const onlyDigits = s => (s || '').toStrin
+  // ── AFTER ──
+  const onlyDigits = s => (s || '').toString().replace(/[^\d]/g, '');
   const fmt = n => (Number(n) || 0).toLocaleString('en-NG');
 
   function $(id) { return document.getElementById(id); }
@@ -381,13 +382,9 @@ if (sendBtn) {
   if (cancelBtn) cancelBtn.disabled = true;
 
   try {
+    // ── AFTER ──
     // 1. Close confirm modal FIRST (before any async operations)
     fxgTransfer_closeConfirmModal();
-
-
-    
-    // Small delay to let confirm modal close animation finish
-    await new Promise(resolve => setTimeout(resolve, 50));
 
     // 2. Start fetching session JWT in the background (parallel)
     const sessionPromise = fxgTransfer_getSharedJWT();
@@ -417,21 +414,11 @@ if (sendBtn) {
     // sees filled dots and a loader with no blank gap. Nothing needed here.
  
     // Show loader for the network call ahead (PIN path — biometric already showed it)
+    // ── AFTER ──
+    // Show loader for the network call ahead (PIN path — biometric already showed it)
     try {
       if (typeof window.showLoader === 'function') {
         window.__transferLoaderActive = true;
-        window.showLoader();
-      }
-    } catch (e) {}
-
-    // Show loader right after verification, before any async work
-    try {
-      if (typeof window.withLoader === 'function') {
-        // Don't await — start the loader overlay immediately and let it run
-        // while we fetch session + make the transfer call
-        window.__transferLoaderActive = true;
-        if (typeof window.showLoader === 'function') window.showLoader();
-      } else if (typeof window.showLoader === 'function') {
         window.showLoader();
       }
     } catch (e) {}

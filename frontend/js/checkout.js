@@ -999,30 +999,26 @@ try {
 }
 
 
+    // ── AFTER ──
     if (result?.success) {
   console.log('[checkout-pin] Biometric success');
- 
-  // 1. Simulate filled dots BEFORE hiding — user sees feedback while modal is still visible
+
+  // Simulate + hide + loader all in one instant flash — no delays
   try {
     modal.querySelectorAll('.checkout-pin-digit').forEach(input => {
       input.classList.add('filled', 'simulated-pin');
       input.value = '';
     });
   } catch (e) {}
- 
-  // 2. Brief pause so the filled dots are visible before modal animates away
-  await new Promise(resolve => setTimeout(resolve, 320));
- 
-  // 3. Hide modal, then show loader so there is no blank gap between modal close and receipt
+
   hideCheckoutPinModal();
   showLoader();
- 
-  // 4. Resolve — continueCheckoutFlow will call processPayment then hide loader via withLoader
+
   window._checkoutPinResolve?.({
     success: true,
     biometricToken: result.data?.token
   });
- 
+
   return;
 }
 
