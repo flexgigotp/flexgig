@@ -5608,13 +5608,31 @@ const svgShapes = {
     }
   }
 
+  function deepCopyAuthOptions(opts) {
+  if (!opts) return opts;
+  const out = Object.assign({}, opts);
+  // Properly clone challenge without JSON serialization
+  if (opts.challenge instanceof Uint8Array) out.challenge = new Uint8Array(opts.challenge);
+  else if (opts.challenge instanceof ArrayBuffer) out.challenge = opts.challenge.slice(0);
+  // Properly clone each credential's id
+  if (Array.isArray(opts.allowCredentials)) {
+    out.allowCredentials = opts.allowCredentials.map(function(c) {
+      const item = Object.assign({}, c);
+      if (c.id instanceof Uint8Array) item.id = new Uint8Array(c.id);
+      else if (c.id instanceof ArrayBuffer) item.id = c.id.slice(0);
+      return item;
+    });
+  }
+  return out;
+}
+
   // Core: getAuthOptionsWithCache
   window.getAuthOptionsWithCache = window.getAuthOptionsWithCache || (async function({ credentialId=null, userId=null }={}) {
     __webauthn_log.d('getAuthOptionsWithCache entry', { credentialId, userId, cachedFresh: cachedOptionsFresh() });
     if (cachedOptionsFresh()) {
       try {
         __webauthn_log.d('Returning fresh cached options (fast-path)');
-        return JSON.parse(JSON.stringify(window.__cachedAuthOptions));
+        return deepCopyAuthOptions(window.__cachedAuthOptions); // ✅ preserves Uint8Array
       } catch(e){
         __webauthn_log.w('Cache deep-copy failed, returning raw');
         return window.__cachedAuthOptions;
@@ -5652,7 +5670,7 @@ const svgShapes = {
     const handleSuccess = (opts) => {
       const converted = convertOptionsFromServer(opts);
       cacheAuthOptions(converted);
-      try { return JSON.parse(JSON.stringify(converted)); } catch(e){ return converted; }
+      return deepCopyAuthOptions(converted); // ✅ preserves Uint8Array
     };
 
     // Primary attempt: if we have userId use '/webauthn/auth/options'
