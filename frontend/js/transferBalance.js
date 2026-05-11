@@ -138,24 +138,6 @@
     }
   }
 
-  function fxgTransfer_beginProcessing(payload) {
-  // Close the auth modal at the processing stage, not during biometric success
-  if (typeof window.hideCheckoutPinModal === 'function') {
-    window.hideCheckoutPinModal();
-  }
-
-  fxgTransfer_showProcessingReceipt(payload);
-
-  requestAnimationFrame(() => {
-    try {
-      if (window.__transferLoaderActive && typeof window.hideLoader === 'function') {
-        window.hideLoader();
-        window.__transferLoaderActive = false;
-      }
-    } catch (e) {}
-  });
-}
-
   function fxgTransfer_bindBalanceUpdateEvent() {
     if (fxgTransfer_bindBalanceUpdateEvent._bound) return;
     window.addEventListener('balance_update', (ev) => {
@@ -460,7 +442,11 @@ async function fxgTransfer_verifyPinOrBiometric() {
     }
 
     // 5. Hide loader and show processing receipt (receipt replaces the loader)
-    fxgTransfer_beginProcessing(payload);
+    try {
+      if (typeof window.hideLoader === 'function') window.hideLoader();
+      window.__transferLoaderActive = false;
+    } catch (e) {}
+    fxgTransfer_showProcessingReceipt(payload);
 
     // Small delay to ensure processing state is visible
     await new Promise(resolve => setTimeout(resolve, 0));
