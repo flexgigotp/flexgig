@@ -907,16 +907,16 @@ function showCheckoutPinModal() {
   updateBiometricButton();
   resetPin();
 
-  // Always show PIN keypad first
-  // User must tap biometric button manually
-  if (isBiometricEnabledForTx()) {
-    inputs.forEach(i => i.style.opacity = '0.3');
-    if (biometricBtn) {
-      biometricBtn.style.opacity = '0.5';
-    }
-  } else {
-    inputs[0]?.focus();
+  // Always reset button and input state fresh on every open
+  inputs.forEach(i => { i.style.opacity = '1'; });
+  if (biometricBtn) {
+    biometricBtn.style.opacity = '1';
+    biometricBtn.disabled = false;
+    biometricBtn.classList.remove('loading');
+  }
 
+  if (!isBiometricEnabledForTx()) {
+    inputs[0]?.focus();
     history.pushState({ checkoutPinModal: true }, '', window.location.href);
   }
 }
