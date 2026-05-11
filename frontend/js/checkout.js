@@ -900,7 +900,22 @@ document.addEventListener('sec:switch-change', (e) => {
 // === BIOMETRIC AUTH HANDLER (UPDATED) ===
 if (biometricBtn) {
   biometricBtn.addEventListener('click', async () => {
-    await handleBiometricAuth();  // Reuse the same function for button and auto-trigger
+
+    // Prevent double-trigger
+    if (window.__biometricInFlight) return;
+
+    window.__biometricInFlight = true;
+
+    try {
+      // Instant UX like reauth
+      await runInstantBiometricUX();
+
+      // Run actual biometric auth
+      await handleBiometricAuth();
+
+    } finally {
+      window.__biometricInFlight = false;
+    }
   });
 }
 
@@ -928,112 +943,167 @@ function showCheckoutPinModal() {
 
 }
 
+async function runInstantBiometricUX() {
+  try {
+    // Immediately hide pin modal
+    hideCheckoutPinModal();
+
+    // Show loader instantly BEFORE biometric prompt
+    if (typeof showLoader === 'function') {
+      showLoader('Verify your identity');
+    }
+
+    // Small frame delay so loader paints immediately
+    await new Promise(r => requestAnimationFrame(r));
+
+    return true;
+  } catch (err) {
+    console.error('[checkout] runInstantBiometricUX failed', err);
+    return false;
+  }
+}
+
+
 // === SHARED BIOMETRIC AUTH FUNCTION ===
 async function handleBiometricAuth() {
-
   inputs.forEach(i => i.style.opacity = '1');
   if (biometricBtn) {
     biometricBtn.style.opacity = '1';
   }
 
+  const safeShowLoader = () => {
+    try {
+      if (typeof showLoader === 'function') showLoader();
+    } catch (e) {}
+  };
+
+  const safeHideLoader = () => {
+    try {
+      if (typeof hideLoader === 'function') hideLoader();
+    } catch (e) {}
+  };
+
   try {
-    biometricBtn.disabled = true;
-    biometricBtn.classList.add('loading'); // optional visual state
+    if (biometricBtn) {
+      biometricBtn.disabled = true;
+      biometricBtn.classList.add('loading');
+    }
+
+    // Show loader immediately so the UX feels instant
+    safeShowLoader();
+    await new Promise(requestAnimationFrame);
 
     let result = { success: false };
 
-try {
-  const cachedAttempt = await tryBiometricWithCachedOptions();
- 
-  // Invalidate + immediately re-warm so the NEXT transaction has a fresh
-  // challenge ready without any blocking cold fetch.
-  _checkoutBiometricRewarm();
- 
-  if (!cachedAttempt.ok) {
-    showToast('Biometric failed — please try again or use PIN.', 'info');
-    inputs[0]?.focus();
-    return;
-  }
+    try {
+      const cachedAttempt = await tryBiometricWithCachedOptions();
 
-  const session = await (typeof getSession === 'function'
-    ? getSession().catch(() => null)
-    : Promise.resolve(null));
-  const uid = session?.user?.uid || session?.user?.id ||
-    (() => { try { return JSON.parse(localStorage.getItem('userData') || '{}').uid; } catch(e){ return null; } })();
+      // Re-warm right away so the next transaction is ready
+      _checkoutBiometricRewarm();
 
-  function bufToB64Url(buf) {
-    const bytes = new Uint8Array(buf);
-    let str = '';
-    for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
-    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
+      if (!cachedAttempt?.ok) {
+        safeHideLoader();
+        showToast('Biometric failed — please try again or use PIN.', 'info');
+        inputs[0]?.focus();
+        return;
+      }
 
-  const assertion = cachedAttempt.assertion;
-  const payload = {
-    id: assertion.id,
-    rawId: bufToB64Url(assertion.rawId),
-    type: assertion.type,
-    response: {
-      authenticatorData: bufToB64Url(assertion.response.authenticatorData),
-      clientDataJSON: bufToB64Url(assertion.response.clientDataJSON),
-      signature: bufToB64Url(assertion.response.signature),
-      userHandle: assertion.response.userHandle ? bufToB64Url(assertion.response.userHandle) : null
-    },
-    userId: uid,
-    action: window._pinModalAction || 'buy-data'
-  };
+      const session = await (typeof getSession === 'function'
+        ? getSession().catch(() => null)
+        : Promise.resolve(null));
 
-  const verifyRes = await fetch((window.__SEC_API_BASE || 'https://api.flexgig.com.ng') + '/webauthn/auth/verify', {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+      const uid =
+        session?.user?.uid ||
+        session?.user?.id ||
+        (() => {
+          try {
+            return JSON.parse(localStorage.getItem('userData') || '{}').uid;
+          } catch (e) {
+            return null;
+          }
+        })();
 
-  const verifyData = await verifyRes.json().catch(() => ({}));
-  if (verifyRes.ok && verifyData?.verified) {
-    result = { success: true, data: verifyData, biometricToken: verifyData.token };
-  }
-} catch (e) {
-  console.warn('[checkout-pin] Biometric failed:', e);
-}
+      function bufToB64Url(buf) {
+        const bytes = new Uint8Array(buf);
+        let str = '';
+        for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+        return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      }
 
+      const assertion = cachedAttempt.assertion;
+      const payload = {
+        id: assertion.id,
+        rawId: bufToB64Url(assertion.rawId),
+        type: assertion.type,
+        response: {
+          authenticatorData: bufToB64Url(assertion.response.authenticatorData),
+          clientDataJSON: bufToB64Url(assertion.response.clientDataJSON),
+          signature: bufToB64Url(assertion.response.signature),
+          userHandle: assertion.response.userHandle ? bufToB64Url(assertion.response.userHandle) : null
+        },
+        userId: uid,
+        action: window._pinModalAction || 'buy-data'
+      };
 
-    // ── AFTER ──
+      const verifyRes = await fetch(
+        (window.__SEC_API_BASE || 'https://api.flexgig.com.ng') + '/webauthn/auth/verify',
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      const verifyData = await verifyRes.json().catch(() => ({}));
+
+      if (verifyRes.ok && verifyData?.verified) {
+        result = {
+          success: true,
+          data: verifyData,
+          biometricToken: verifyData.token
+        };
+      }
+    } catch (e) {
+      console.warn('[checkout-pin] Biometric failed:', e);
+    }
+
     if (result?.success) {
-  console.log('[checkout-pin] Biometric success');
+      console.log('[checkout-pin] Biometric success');
 
-  // Simulate + hide + loader all in one instant flash — no delays
-  try {
-    modal.querySelectorAll('.checkout-pin-digit').forEach(input => {
-      input.classList.add('filled', 'simulated-pin');
-      input.value = '';
-    });
-  } catch (e) {}
+      // Instant visual PIN simulation
+      try {
+        modal.querySelectorAll('.checkout-pin-digit').forEach(input => {
+          input.classList.add('filled', 'simulated-pin');
+          input.value = '';
+        });
+      } catch (e) {}
 
-  hideCheckoutPinModal();
-  showLoader();
+      hideCheckoutPinModal();
 
-  window._checkoutPinResolve?.({
-    success: true,
-    biometricToken: result.data?.token
-  });
+      window._checkoutPinResolve?.({
+        success: true,
+        biometricToken: result.biometricToken
+      });
 
-  return;
-}
+      return;
+    }
 
-
+    safeHideLoader();
     showToast('Biometric failed or cancelled. Enter your PIN', 'info');
     inputs[0]?.focus();
 
   } catch (err) {
     console.warn('[checkout-pin] Biometric error:', err);
+    safeHideLoader();
     showToast('Biometric unavailable. Use your PIN', 'info');
     inputs[0]?.focus();
 
   } finally {
-    biometricBtn.disabled = false;
-    biometricBtn.classList.remove('loading');
+    if (biometricBtn) {
+      biometricBtn.disabled = false;
+      biometricBtn.classList.remove('loading');
+    }
   }
 }
 
@@ -1147,7 +1217,19 @@ window.openForgetPinFlow = async function openForgetPinFlow() {
     }
   });
 async function verifyPin(pin) {
-  // Simulate filled PIN inputs immediately (visual feedback before server round-trip)
+  const safeShowLoader = () => {
+    try {
+      if (typeof showLoader === 'function') showLoader();
+    } catch (e) {}
+  };
+
+  const safeHideLoader = () => {
+    try {
+      if (typeof hideLoader === 'function') hideLoader();
+    } catch (e) {}
+  };
+
+  // Make PIN feel the same as biometric: instant feedback first
   try {
     const pinInputs = Array.from(modal.querySelectorAll('.checkout-pin-digit'));
     pinInputs.forEach(input => {
@@ -1155,22 +1237,27 @@ async function verifyPin(pin) {
       input.value = '';
     });
   } catch (e) {}
- 
-  // Hide modal first so loader appears on the main screen, not behind the pin modal
+
+  // Show loader immediately, then hide the modal so the loader is visible
+  safeShowLoader();
+  await new Promise(requestAnimationFrame);
+
   hideCheckoutPinModal();
- 
-  // Kick off a fresh biometric challenge in the background immediately.
-  // Even if the user used PIN this time, biometric will be ready for their next purchase.
+
+  // Keep the next biometric challenge warm
   _checkoutBiometricRewarm();
- 
-  const _withLoader = typeof withLoader === 'function' ? withLoader
+
+  const _withLoader = typeof withLoader === 'function'
+    ? withLoader
     : (typeof window.withLoader === 'function' ? window.withLoader : fn => fn());
 
   return await _withLoader(async () => {
     let raw = '';
+
     try {
       const token = localStorage.getItem('token') || '';
       const action = window._pinModalAction || 'buy-data';
+
       const res = await fetch('https://api.flexgig.com.ng/api/verify-pin', {
         method: 'POST',
         headers: {
@@ -1181,14 +1268,11 @@ async function verifyPin(pin) {
         body: JSON.stringify({ pin, action })
       });
 
-      // ✅ Read raw response as text first
       raw = await res.text();
       let data = {};
 
-      // ✅ Try parse JSON safely
       try {
         data = raw ? JSON.parse(raw) : {};
-        // Handle nested error object
         if (data.error) {
           data.code = data.error.code;
           data.message = data.error.message;
@@ -1197,7 +1281,6 @@ async function verifyPin(pin) {
         console.warn('[verifyPin] JSON parse failed, raw:', raw);
       }
 
-      // ✅ Log full info for debugging
       console.warn('[PIN VERIFY RESPONSE]', {
         status: res.status,
         code: data.code,
@@ -1205,48 +1288,50 @@ async function verifyPin(pin) {
         raw
       });
 
-      // ✅ Success path
       if (res.ok && data.pinToken) {
-  window._checkoutPinResolve?.({
-    success: true,
-    pinToken: data.pinToken
-  });
-  return;
-}
+        // Keep the same end-state as biometric success
+        try {
+          const pinInputs = Array.from(modal.querySelectorAll('.checkout-pin-digit'));
+          pinInputs.forEach(input => {
+            input.classList.add('filled', 'simulated-pin');
+            input.value = '';
+          });
+        } catch (e) {}
 
+        window._checkoutPinResolve?.({
+          success: true,
+          pinToken: data.pinToken
+        });
 
-      // ❌ Error handling based on real server code/message
+        return;
+      }
+
       switch (data.code) {
         case 'WRONG_PIN':
           showToast('Incorrect PIN. Try again.', 'error');
           window._checkoutPinResolve?.({ success: false, code: 'WRONG_PIN' });
-          break;
-
-        case 'PIN_NOT_SET':
-          showToast('You have not set a PIN yet.', 'warning');
-          hideCheckoutPinModal();
+          inputs[0]?.focus();
           break;
 
         case 'PIN_RATE_LIMITED':
           showToast('Too many attempts. Please wait.', 'error');
+          window._checkoutPinResolve?.({ success: false, code: 'PIN_RATE_LIMITED' });
           break;
 
         case 'INVALID_SESSION':
           showToast('Session expired. Please login again.', 'error');
+          window._checkoutPinResolve?.({ success: false, code: 'INVALID_SESSION' });
           forceLogout?.();
           break;
 
         case 'PIN_SERVICE_UNAVAILABLE':
           showToast('Network issue. Try again shortly.', 'error');
+          window._checkoutPinResolve?.({ success: false, code: 'PIN_SERVICE_UNAVAILABLE' });
           break;
-          
+
         case 'ACCOUNT_FLAGGED':
           hideCheckoutPinModal();
-          showToast(
-            'Your account has been temporarily restricted. Please contact support.',
-            'error'
-          );
-          // Resolve the promise as cancelled so the purchase flow stops cleanly
+          showToast('Your account has been temporarily restricted. Please contact support.', 'error');
           window._checkoutPinResolve?.({ success: false, code: 'ACCOUNT_FLAGGED' });
           break;
 
@@ -1255,9 +1340,12 @@ async function verifyPin(pin) {
           window._checkoutPinResolve?.({ success: false, code: data.code || 'UNKNOWN' });
       }
 
+      safeHideLoader();
+
     } catch (err) {
       console.error('[verifyPin] fetch error:', err);
       console.log('RAW PIN RESPONSE:', raw);
+      safeHideLoader();
       showToast('Unable to verify PIN. Check your connection.', 'error');
       window._checkoutPinResolve?.({ success: false, code: 'NETWORK_ERROR' });
     }
