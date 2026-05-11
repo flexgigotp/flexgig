@@ -392,10 +392,10 @@ async function fxgTransfer_verifyPinOrBiometric() {
     // 3. Prompt for PIN/biometric and verify server-side IMMEDIATELY
     // This shows the PIN modal without waiting for the session fetch
     const verification = await fxgTransfer_verifyPinOrBiometric();
- 
-    // Invalidate + immediately re-warm so the next transfer has a fresh challenge ready
-    fxgTransfer_biometricRewarm();
- 
+    // ── Rewarm removed from here — moved to finally() below ──
+    // Calling it here overwrites the server session challenge before /webauthn/auth/verify
+    // runs inside handleBiometricAuth, causing 400 challenge mismatch errors.
+
     if (!verification || !verification.success) {
       console.log('[fxgTransfer] PIN verification failed or cancelled:', verification?.reason || verification);
       if (verification?.reason === 'cancelled') {

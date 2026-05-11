@@ -941,45 +941,39 @@ try {
   try {
     let cachedAttempt = await tryBiometricWithCachedOptions();
 
-// ── Auto-retry on bad-challenge / type errors (first-click-after-reload) ──
-// If the cache had stale/untyped data from localStorage, invalidate it,
-// fetch a fresh set of options directly, and retry ONCE silently.
-// The user never sees a failure toast — the gesture prompt just re-appears.
-if (!cachedAttempt.ok && (cachedAttempt.reason === 'bad-challenge' || cachedAttempt.reason === 'no-cache' || cachedAttempt.reason === 'get-failed')) {
-  console.log('[checkout-pin] Auto-retrying biometric with fresh options, reason:', cachedAttempt.reason);
-  try {
-    const uid =
-      window.currentUser?.uid ||
-      window.__SERVER_USER_DATA__?.uid ||
-      (() => { try { return JSON.parse(localStorage.getItem('userData') || '{}').uid; } catch(e) { return null; } })();
+    // ── Auto-retry on bad-challenge / type errors (first-click-after-reload) ──
+    if (!cachedAttempt.ok && (cachedAttempt.reason === 'bad-challenge' || cachedAttempt.reason === 'no-cache' || cachedAttempt.reason === 'get-failed')) {
+      console.log('[checkout-pin] Auto-retrying biometric with fresh options, reason:', cachedAttempt.reason);
+      try {
+        const retryUid =
+          window.currentUser?.uid ||
+          window.__SERVER_USER_DATA__?.uid ||
+          (() => { try { return JSON.parse(localStorage.getItem('userData') || '{}').uid; } catch(e) { return null; } })();
 
-    if (uid && typeof window.warmBiometricOptions === 'function') {
-      // Force-clear stale cache so warmBiometricOptions always hits the network
-      window.__cachedAuthOptions = null;
-      window.__cachedAuthOptionsFetchedAt = 0;
-      try { localStorage.removeItem('__cachedAuthOptions'); } catch(e) {}
-
-      const freshOpts = await window.warmBiometricOptions(uid, window._pinModalAction || 'buy-data', { force: true });
-      if (freshOpts) {
-        cachedAttempt = await tryBiometricWithCachedOptions();
+        if (retryUid && typeof window.warmBiometricOptions === 'function') {
+          window.__cachedAuthOptions = null;
+          window.__cachedAuthOptionsFetchedAt = 0;
+          try { localStorage.removeItem('__cachedAuthOptions'); } catch(e) {}
+          const freshOpts = await window.warmBiometricOptions(retryUid, window._pinModalAction || 'buy-data', { force: true });
+          if (freshOpts) {
+            cachedAttempt = await tryBiometricWithCachedOptions();
+          }
+        }
+      } catch (retryErr) {
+        console.warn('[checkout-pin] Auto-retry failed:', retryErr);
       }
     }
-  } catch (retryErr) {
-    console.warn('[checkout-pin] Auto-retry failed:', retryErr);
-  }
-}
 
-// Invalidate + immediately re-warm ...
-_checkoutBiometricRewarm();
+    // ── Rewarm ONLY if gesture failed — if it succeeded, rewarm AFTER verify ──
+    if (!cachedAttempt.ok) {
+      _checkoutBiometricRewarm();
+      try { hideLoader(); } catch (e) {}
+      showToast('Biometric failed — please try again or use PIN.', 'info');
+      inputs[0]?.focus();
+      return;
+    }
 
-if (!cachedAttempt.ok) {
-  try { hideLoader(); } catch (e) {}
-  showToast('Biometric failed — please try again or use PIN.', 'info');
-  inputs[0]?.focus();
-  return;
-}
-
-    // ── 2. Assertion succeeded: fill dots BEFORE hiding modal (matches dashboard pattern) ──
+    // ── 2. Assertion succeeded: fill dots BEFORE hiding modal ──
     try {
       inputs.forEach(input => {
         input.classList.add('filled', 'simulated-pin');
@@ -1021,6 +1015,10 @@ if (!cachedAttempt.ok) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+
+      // ── Rewarm NOW — after verify, regardless of result ──
+      // Doing it before verify was overwriting the server session challenge mid-flight.
+      _checkoutBiometricRewarm();
 
       const verifyData = await verifyRes.json().catch(() => ({}));
       if (verifyRes.ok && verifyData?.verified) {
