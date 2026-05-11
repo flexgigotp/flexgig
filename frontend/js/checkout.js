@@ -1359,13 +1359,21 @@ async function updateReceiptToSuccess(result) {
   document.getElementById('receipt-plan').textContent = data.dataAmount ? `${data.dataAmount} / ${data.validity || '—'}` : 'Data Bundle';
   document.getElementById('receipt-amount').textContent = `₦${displayAmount.toLocaleString('en-NG')}`;
   document.getElementById('receipt-transaction-id').textContent = transactionRef;
-  document.getElementById('receipt-balance').textContent = `₦${Number(result?.new_balance ?? data?.new_balance ?? data?.balanceAtPurchase ?? 0).toLocaleString('en-NG')}`;
+  // Prefer API result balance, then transaction balance, never the pre-purchase snapshot
+  const displayBalance = Number(
+    result?.new_balance ??
+    result?.balance ??
+    result?.wallet_balance ??
+    data?.new_balance ??
+    0
+  );
+  document.getElementById('receipt-balance').textContent = `₦${displayBalance.toLocaleString('en-NG')}`;
   document.getElementById('receipt-time').textContent = new Date().toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' });
   document.getElementById('receipt-details').style.display = 'block';
   document.getElementById('receipt-actions').style.display = 'flex';
 
   // ✅ FIX 1 — Force balance update immediately from API result
-  const newBal = result?.new_balance ?? result?.balance ?? null;
+  const newBal = result?.new_balance ?? result?.balance ?? result?.wallet_balance ?? null;
   if (newBal !== null && !isNaN(Number(newBal))) {
     if (typeof window.updateAllBalances === 'function') {
       window.updateAllBalances(Number(newBal));
