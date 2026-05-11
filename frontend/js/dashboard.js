@@ -1246,15 +1246,55 @@ async function warmBiometricOptions(userId, context = 'reauth', options = {}) {
   } catch {}
 
   if (
-    !options.force &&
-    cached &&
-    now - cached.fetchedAt < BIOMETRIC_TTL
-  ) {
-    console.log('[biometric] Using cached options from localStorage');
-    window.__cachedAuthOptions = cached.opts;
-    window.__cachedAuthOptionsFetchedAt = cached.fetchedAt;
-    return cached.opts;
+  !options.force &&
+  cached &&
+  now - cached.fetchedAt < BIOMETRIC_TTL
+) {
+  console.log('[biometric] Using cached options from localStorage');
+
+  // ── Re-hydrate types lost during JSON serialization ──
+  // localStorage round-trips strip Uint8Array → plain object with numeric keys.
+  // allowCredentials[].id must be ArrayBuffer/Uint8Array or WebAuthn rejects it.
+  const opts = cached.opts;
+  try {
+    if (opts && Array.isArray(opts.allowCredentials)) {
+      opts.allowCredentials = opts.allowCredentials.map(c => {
+        if (!c || !c.id) return c;
+        if (c.id instanceof Uint8Array || c.id instanceof ArrayBuffer) return c;
+        if (typeof c.id === 'string') {
+          // base64url string → Uint8Array
+          try {
+            const pad = (4 - (c.id.length % 4)) % 4;
+            const b64 = c.id.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat(pad);
+            const bin = atob(b64);
+            const buf = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+            return { ...c, id: buf };
+          } catch (e) { return c; }
+        }
+        // numeric-key object ({0:143, 1:209, ...}) from JSON serialization of Uint8Array
+        if (typeof c.id === 'object') {
+          try {
+            const keys = Object.keys(c.id);
+            const max = keys.reduce((m, k) => Math.max(m, parseInt(k, 10)), -1);
+            if (max >= 0) {
+              const buf = new Uint8Array(max + 1);
+              for (let i = 0; i <= max; i++) buf[i] = (c.id[i] ?? 0) & 0xff;
+              return { ...c, id: buf };
+            }
+          } catch (e) { return c; }
+        }
+        return c;
+      });
+    }
+  } catch (e) {
+    console.warn('[biometric] allowCredentials rehydration failed', e);
   }
+
+  window.__cachedAuthOptions = opts;
+  window.__cachedAuthOptionsFetchedAt = cached.fetchedAt;
+  return opts;
+}
 
   const credentialId =
     localStorage.getItem('credentialId') ||
