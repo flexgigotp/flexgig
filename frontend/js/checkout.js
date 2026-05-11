@@ -376,39 +376,47 @@ function requireTransactionReady() {
 async function continueCheckoutFlow() {
   const payBtn = document.getElementById('payBtn');
   if (!payBtn) return;
-
+ 
   const originalText = payBtn.textContent;
   payBtn.disabled = true;
   payBtn.textContent = 'Processing...';
-
+ 
   try {
     checkoutData = gatherCheckoutData();
     if (!checkoutData) throw new Error('Invalid checkout data');
-
+ 
     // authResult holds { success, pinToken } or { success, biometricToken }
     const authResult = await triggerCheckoutAuthWithDedicatedModal();
-
+ 
     if (!authResult?.success) {
+      // Biometric path calls showLoader before resolving — make sure it's cleared
+      // on cancellation too so the loader never gets stuck
+      try { hideLoader(); } catch (e) {}
       payBtn.disabled = false;
       payBtn.textContent = originalText;
       return;
     }
-
+ 
     // Force-save price before receipt
     if (checkoutData?.price && !isNaN(checkoutData.price)) {
       localStorage.setItem('lastCheckoutPrice', checkoutData.price.toString());
     }
-
+ 
     showProcessingReceipt(checkoutData);
-
+ 
+    // Hide loader now that receipt is visible — biometric path called showLoader
+    // manually in handleBiometricAuth; PIN path used withLoader in verifyPin.
+    // Either way, decrement once here so the screen is never stuck.
+    try { hideLoader(); } catch (e) {}
+ 
     // ✅ Pass authResult so processPayment can attach the token
     const result = await processPayment(authResult);
-
+ 
     pollForFinalStatus(result.reference);
-
+ 
   } catch (err) {
     console.error('[checkout] Payment failed:', err);
-
+ 
     if (err.message && err.message.includes('Insufficient balance')) {
       const match = err.message.match(/₦([\d,]+)/);
       const currentBal = match ? parseFloat(match[1].replace(/,/g, '')) : 0;
@@ -418,6 +426,8 @@ async function continueCheckoutFlow() {
     }
     
   } finally {
+    // Always clear any loader that may have been left open
+    try { hideLoader(); } catch (e) {}
     const payBtnFinal = document.getElementById('payBtn');
     if (payBtnFinal) {
       payBtnFinal.disabled = false;
@@ -991,13 +1001,28 @@ try {
 
     if (result?.success) {
   console.log('[checkout-pin] Biometric success');
-
+ 
+  // 1. Simulate filled dots BEFORE hiding — user sees feedback while modal is still visible
+  try {
+    modal.querySelectorAll('.checkout-pin-digit').forEach(input => {
+      input.classList.add('filled', 'simulated-pin');
+      input.value = '';
+    });
+  } catch (e) {}
+ 
+  // 2. Brief pause so the filled dots are visible before modal animates away
+  await new Promise(resolve => setTimeout(resolve, 320));
+ 
+  // 3. Hide modal, then show loader so there is no blank gap between modal close and receipt
   hideCheckoutPinModal();
+  showLoader();
+ 
+  // 4. Resolve — continueCheckoutFlow will call processPayment then hide loader via withLoader
   window._checkoutPinResolve?.({
-  success: true,
-  biometricToken: result.data?.token
-});
-
+    success: true,
+    biometricToken: result.data?.token
+  });
+ 
   return;
 }
 

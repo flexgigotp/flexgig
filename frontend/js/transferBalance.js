@@ -395,14 +395,12 @@ if (sendBtn) {
     // 3. Prompt for PIN/biometric and verify server-side IMMEDIATELY
     // This shows the PIN modal without waiting for the session fetch
     const verification = await fxgTransfer_verifyPinOrBiometric();
-
-        // Invalidate + immediately re-warm so the next transfer has a fresh challenge ready.
+ 
+    // Invalidate + immediately re-warm so the next transfer has a fresh challenge ready
     fxgTransfer_biometricRewarm();
  
     if (!verification || !verification.success) {
-
       console.log('[fxgTransfer] PIN verification failed or cancelled:', verification?.reason || verification);
-      // Don't show receipt for user cancellation
       if (verification?.reason === 'cancelled') {
         return;
       }
@@ -411,16 +409,19 @@ if (sendBtn) {
       fxgTransfer_updateReceiptToFailed(payload, 'Transfer cancelled during verification');
       return;
     }
-
+ 
     const pinVerifiedToken = verification.token;
-
-    // Simulate filled PIN dots immediately after biometric verify
+ 
+    // NOTE: simulate + loader are now handled inside handleBiometricAuth (checkout.js)
+    // and inside verifyPin (checkout.js) BEFORE the modal closes, so the user
+    // sees filled dots and a loader with no blank gap. Nothing needed here.
+ 
+    // Show loader for the network call ahead (PIN path — biometric already showed it)
     try {
-      const pinInputs = Array.from(document.querySelectorAll('#checkout-pin-modal .checkout-pin-digit'));
-      pinInputs.forEach(input => {
-        input.classList.add('filled', 'simulated-pin');
-        input.value = '';
-      });
+      if (typeof window.showLoader === 'function') {
+        window.__transferLoaderActive = true;
+        window.showLoader();
+      }
     } catch (e) {}
 
     // Show loader right after verification, before any async work
