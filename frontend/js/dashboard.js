@@ -1279,11 +1279,25 @@ async function warmBiometricOptions(userId, context = 'reauth', options = {}) {
 
     // Store in both window and localStorage
     window.__cachedAuthOptions = opts;
-    window.__cachedAuthOptionsFetchedAt = Date.now();
-    localStorage.setItem(CACHE_KEY, JSON.stringify({
-      opts,
-      fetchedAt: Date.now()
-    }));
+window.__cachedAuthOptionsFetchedAt = Date.now();
+localStorage.setItem(CACHE_KEY, JSON.stringify({
+  opts,
+  fetchedAt: Date.now()
+}));
+
+// ── Rolling challenge history (last 5) ──
+// Stores each server-issued challenge so tryBiometricWithCachedOptions can
+// identify which one the browser actually signed, even if a re-warm fired
+// between the fetch and the user's gesture and overwrote the session.
+try {
+  if (opts?.challenge) {
+    const raw = localStorage.getItem('__bioChallengeHistory');
+    const hist = raw ? JSON.parse(raw) : [];
+    const updated = [opts.challenge, ...hist.filter(c => c !== opts.challenge)].slice(0, 5);
+    localStorage.setItem('__bioChallengeHistory', JSON.stringify(updated));
+    console.log('[biometric] Challenge history updated, depth:', updated.length);
+  }
+} catch (e) {}
 
     console.log('[biometric] Options warmed for user', userId);
     return opts;
@@ -15042,7 +15056,40 @@ async function tryBiometricWithCachedOptions() {
   try {
     // Call the authenticator with the prepared publicKey object
     const assertion = await navigator.credentials.get({ publicKey });
-    return { ok: true, assertion };
+
+// ── Extract which challenge the browser actually signed ──
+// clientDataJSON contains the exact challenge bytes used.
+// If a re-warm fired between our fetch and the gesture, the server session
+// will have a newer challenge. We find the matching one in our local history
+// and destroy it (single-use) so it can't be replayed.
+try {
+  const cdj = assertion.response.clientDataJSON;
+  // clientDataJSON arrives as ArrayBuffer from the authenticator
+  const text = new TextDecoder().decode(
+    cdj instanceof ArrayBuffer ? cdj : cdj.buffer ? new Uint8Array(cdj.buffer) : cdj
+  );
+  const parsed = JSON.parse(text);
+  const usedChallenge = parsed.challenge; // base64url string as the browser received it
+
+  if (usedChallenge) {
+    const raw = localStorage.getItem('__bioChallengeHistory');
+    const hist = raw ? JSON.parse(raw) : [];
+    const idx = hist.indexOf(usedChallenge);
+
+    if (idx !== -1) {
+      // Found — destroy it (single-use) and persist the pruned list
+      const remaining = hist.filter(c => c !== usedChallenge);
+      localStorage.setItem('__bioChallengeHistory', JSON.stringify(remaining));
+      console.log('[bio] ✅ Matched + consumed challenge at history index', idx, '— remaining:', remaining.length);
+    } else {
+      console.warn('[bio] ⚠️ Used challenge not found in local history (may still pass via server candidates)');
+    }
+  }
+} catch (e) {
+  console.warn('[bio] Could not parse clientDataJSON for challenge tracking:', e);
+}
+
+return { ok: true, assertion };
   } catch (err) {
     console.warn('navigator.credentials.get failed with cached options', err);
     return { ok: false, reason: 'get-failed', error: err };
