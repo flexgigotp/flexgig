@@ -328,6 +328,10 @@
   </div>
 
   <script>
+    ['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
+
+window.addEventListener('unhandledrejection', e => e.preventDefault());
+window.onerror = () => true;
   // ─── withLoader (inline fallback + your external one will override if loaded) ───
   (function () {
     let __loaderRefCount = 0;
