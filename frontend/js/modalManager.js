@@ -1,4 +1,7 @@
 ['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
+
+window.addEventListener('unhandledrejection', e => e.preventDefault());
+window.onerror = () => true;
 (function () {
   'use strict';
 

@@ -1,5 +1,8 @@
 // dataPlans.js with Supabase Realtime
 ['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
+
+window.addEventListener('unhandledrejection', e => e.preventDefault());
+window.onerror = () => true;
 let plansCache = [];
 let cacheUpdatedAt = null;
 const CACHE_KEY = 'cached_data_plans_v12';

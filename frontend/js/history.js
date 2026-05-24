@@ -6,6 +6,9 @@
    - Accurate month filtering from server data
 */
 ['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
+
+window.addEventListener('unhandledrejection', e => e.preventDefault());
+window.onerror = () => true;
 (() => {
   'use strict';
 

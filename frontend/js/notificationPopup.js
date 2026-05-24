@@ -1,4 +1,7 @@
 ['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
+
+window.addEventListener('unhandledrejection', e => e.preventDefault());
+window.onerror = () => true;
 // notificationPopup.js
 // ============================================================
 // FLEXGIG — LOGIN / DASHBOARD NOTIFICATION POPUP SYSTEM

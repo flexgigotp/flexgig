@@ -1,11 +1,10 @@
-// dashboard.js
-// === PREVENT UNWANTED AUTO-SCROLL ON RELOAD (lightweight hack) ===
 ['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
+
+window.addEventListener('unhandledrejection', e => e.preventDefault());
+window.onerror = () => true;
 (function() {
-  // Attaching a focusin listener early often blocks browser auto-focus/scroll restore
   document.addEventListener('focusin', () => {}, { passive: true });
 
-  // Safety: also force top on load (clean, no flash)
   const forceTop = () => window.scrollTo(0, 0);
 
   if (document.readyState === 'loading') {
@@ -42,38 +41,30 @@ window.SUPABASE_URL = SUPABASE_URL;
 window.SUPABASE_ANON_KEY = SUPABASE_ANON_KEY;
 
 
-    // NUCLEAR OPTION: Total scroll control - disables restore, forces top, blocks jumps
     (function() {
-      // 1. EARLY: Disable browser's scroll memory globally (before anything else)
       if ('scrollRestoration' in history) {
         history.scrollRestoration = 'manual';
       }
       
-      // 2. PRE-SAVE: On unload/reload, wipe scroll position (prevents Chrome/Safari from remembering)
       window.addEventListener('beforeunload', function() {
         window.scrollTo(0, 0);
-        // Clear any history state that might carry scroll
         if (history.state && history.state.scrollY) {
           history.replaceState({ ...history.state, scrollY: 0 }, '');
         }
       });
       
-      // 3. POST-LOAD ENFORCEMENT: Force top after full render (images/JS done)
       window.addEventListener('load', function() {
         window.scrollTo(0, 0);
-        // Trap the first unwanted scroll (common Chrome jump after load)
         let hasJumped = false;
         window.addEventListener('scroll', function handler() {
           if (!hasJumped && window.scrollY > 0) {
             hasJumped = true;
             window.scrollTo(0, 0);
-            // Remove listener after fix (no perf hit)
             window.removeEventListener('scroll', handler);
           }
         }, { once: true, passive: true });
       }, { once: true });
       
-      // 4. DOM READY SAFETY: Immediate top if already loaded (edge case)
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function() {
           setTimeout(() => window.scrollTo(0, 0), 0); // Micro-delay for reflow
@@ -86,15 +77,10 @@ window.SUPABASE_ANON_KEY = SUPABASE_ANON_KEY;
     })();
 
 
-    // ────────────────────────────────────────────────
-// STATUS / BROADCAST SYSTEM – uses broadcasts table
-// Direct Supabase + Realtime – no backend calls
-// ────────────────────────────────────────────────
 
 window.pollStatus = async function pollStatus(force = false) {
   const now = Date.now();
 
-  // Throttle unless forced
   if (!force && now - (window.__fg_last_poll_ts || 0) < 30000) {
     console.debug('[BROADCAST] Skipped – too soon');
     return;
@@ -118,7 +104,6 @@ window.pollStatus = async function pollStatus(force = false) {
       return;
     }
 
-    // Default: no broadcast
     let message = '';
     let level = 'info';
     let serverId = null;
@@ -138,7 +123,6 @@ window.pollStatus = async function pollStatus(force = false) {
           url: data.url || null   // optional: make banner clickable if url exists
         });
 
-        // Update global state
         window.__fg_currentBanner = window.__fg_currentBanner || {};
         window.__fg_currentBanner.id = serverId;
         window.__fg_currentBanner.message = message;
@@ -151,7 +135,6 @@ window.pollStatus = async function pollStatus(force = false) {
         }
       }
     } else {
-      // No active broadcast → hide unless client made it sticky
       if (!window.__fg_currentBanner?.clientSticky) {
         hideBanner(true);
         localStorage.removeItem('active_broadcast_id');
@@ -169,12 +152,8 @@ window.pollStatus = async function pollStatus(force = false) {
   }
 };
 
-// ────────────────────────────────────────────────
-// REALTIME SUBSCRIPTION – instant updates
-// ────────────────────────────────────────────────
 
 function setupBroadcastRealtime() {
-  // Clean up old channel
   if (window.__broadcast_channel) {
     window.__broadcast_channel.unsubscribe().catch(() => {});
   }
@@ -195,9 +174,6 @@ function setupBroadcastRealtime() {
     });
 }
 
-// ────────────────────────────────────────────────
-// Initialize in onDashboardLoad
-// ────────────────────────────────────────────────
 
 if (typeof onDashboardLoad === 'function') {
   const original = onDashboardLoad;
@@ -206,8 +182,6 @@ if (typeof onDashboardLoad === 'function') {
 
     setupBroadcastRealtime();
     pollStatus(true);                // initial fetch
-    // Light fallback polling (optional – realtime should suffice)
-    // setInterval(() => pollStatus(), 120000); // every 2 min
   };
 } else {
   console.warn('[BROADCAST] No onDashboardLoad – running standalone');
@@ -215,7 +189,6 @@ if (typeof onDashboardLoad === 'function') {
   pollStatus(true);
 }
 
-// For manual debug calls
 window.forceBroadcastCheck = () => pollStatus(true);
 
 if (!window.__specialPlanRealtimeAttached__) {
@@ -228,10 +201,6 @@ if (!window.__specialPlanRealtimeAttached__) {
 }
 
 
-// ────────────────────────────────────────────────
-// SHARED JWT CACHE - ONE FETCH FOR ALL
-// Prevents multiple simultaneous JWT requests
-// ────────────────────────────────────────────────
 
 const JWT_CACHE = {
   token: null,
@@ -245,7 +214,6 @@ const JWT_CACHE = {
  * @param {boolean} forceRefresh - Force new token even if cached
  * @returns {Promise<string|null>} JWT token or null
  */
-// Track refresh attempts to avoid infinite loops
 let _jwtRefreshAttempts = 0;
 const JWT_MAX_REFRESH_ATTEMPTS = 2;
 let _jwtBlockedByLock = false; // ✅ stops retry hammering when 423 locked
@@ -253,7 +221,6 @@ let _jwtBlockedByLock = false; // ✅ stops retry hammering when 423 locked
 async function getSharedJWT(forceRefresh = false) {
   const now = Date.now();
 
-  // ✅ If locked and not a forced reauth retry, bail immediately
   if (_jwtBlockedByLock && !forceRefresh) {
     throw new Error('JWT blocked — awaiting reauth');
   }
@@ -278,7 +245,6 @@ async function getSharedJWT(forceRefresh = false) {
         headers: { 'Accept': 'application/json' }
       });
 
-      // ── Reauth lock ──
       if (res.status === 423) {
         _jwtBlockedByLock = true; // ✅ block all further JWT fetches until reauth clears
         console.warn('[JWT Cache] 🔒 Account locked (423) — triggering reauth modal');
@@ -302,14 +268,10 @@ async function getSharedJWT(forceRefresh = false) {
         throw new Error('JWT fetch failed: 423');
       }
 
-      // ── Access token expired — try to refresh it once ──
       if (res.status === 401) {
         const body = await res.json().catch(() => ({}));
         const code = body?.error?.code || '';
 
-        // Attempt refresh on any 401 — server doesn't always send TOKEN_EXPIRED
-        // NO_TOKEN = access cookie expired (refresh cookie may still be valid — always retry)
-        // INVALID_TOKEN / BANNED = hard failures, never retry
         const isHardFailure = code === 'INVALID_TOKEN' || code === 'BANNED';
         if (!isHardFailure && _jwtRefreshAttempts < JWT_MAX_REFRESH_ATTEMPTS) {
           _jwtRefreshAttempts++;
@@ -325,12 +287,9 @@ async function getSharedJWT(forceRefresh = false) {
             const newAccessToken = refreshData.token;
 
             if (newAccessToken) {
-              // Store new token so middleware can pick it up via cookie on next request
-              // The server already set the cookie — we just need to retry
               console.log('[JWT Cache] ✅ Refresh succeeded — retrying supabase/token');
               _jwtRefreshAttempts = 0; // reset for next natural expiry
 
-              // Retry the original supabase/token call with fresh cookie
               const retryRes = await fetch('https://api.flexgig.com.ng/api/supabase/token', {
                 method: 'POST',
                 credentials: 'include',
@@ -345,7 +304,6 @@ async function getSharedJWT(forceRefresh = false) {
                 JWT_CACHE.expiry = expiry;
                 console.log('[JWT Cache] ✅ Token cached after refresh (expires:', new Date(expiry).toISOString(), ')');
 
-                // Schedule proactive refresh
                 const refreshIn = expiry - Date.now() - 60_000;
                 if (refreshIn > 0) {
                   clearTimeout(window.__jwtProactiveRefreshTimer);
@@ -360,20 +318,16 @@ async function getSharedJWT(forceRefresh = false) {
             }
           }
 
-          // Refresh failed — session is truly dead
           console.warn('[JWT Cache] Refresh failed — session expired, dispatching logout event');
           _jwtRefreshAttempts = 0;
           
-          // Clear cached token so we don't serve a stale one
           JWT_CACHE.token = null;
           JWT_CACHE.expiry = 0;
 
-          // Dispatch event so the app can respond (show login prompt, etc.)
           window.dispatchEvent(new CustomEvent('fg:session-expired'));
           return null;
         }
 
-        // For other 401s or if we've already tried refreshing, give up cleanly
         console.warn('[JWT Cache] 401 with hard auth failure or max retries reached — giving up. code:', code);
         return null;
       }
@@ -382,7 +336,6 @@ async function getSharedJWT(forceRefresh = false) {
         throw new Error(`JWT fetch failed: ${res.status}`);
       }
 
-      // ── Success ──
       _jwtRefreshAttempts = 0;
       const { token } = await res.json();
       const payload = JSON.parse(atob(token.split('.')[1]));
@@ -393,7 +346,6 @@ async function getSharedJWT(forceRefresh = false) {
 
       console.log('[JWT Cache] ✅ New token cached (expires:', new Date(expiry).toISOString(), ')');
 
-      // ── Proactive refresh: schedule a refresh 60s before expiry ──
       const refreshIn = expiry - Date.now() - 60_000;
       if (refreshIn > 0) {
         clearTimeout(window.__jwtProactiveRefreshTimer);
@@ -426,51 +378,34 @@ function clearJWTCache() {
   console.log('[JWT Cache] Cache cleared');
 }
 
-// Expose globally
-// Expose globally
 window.getSharedJWT = getSharedJWT;
 window.clearJWTCache = clearJWTCache;
 
-// ── Handle fully-expired sessions (refresh token also dead) ──
 window.addEventListener('fg:session-expired', () => {
   console.warn('[Session] Session fully expired — stopping retries and prompting login');
 
-  // Stop all realtime retry loops by poisoning the healthy timestamps
-  // (the retry functions check these before re-subscribing)
   if (typeof lastTxHealthy !== 'undefined') lastTxHealthy = Date.now();
   if (typeof lastUserHealthy !== 'undefined') lastUserHealthy = Date.now();
 
-  // Clear any pending retry timers defined in history.js scope
-  // (those are in a closure so we can't clear them directly —
-  //  but poisoning the healthy timestamp means they'll skip on next fire)
 
-  // Show a non-blocking toast rather than a hard redirect
-  // so the user can finish reading whatever they're on
   if (typeof showToast === 'function') {
     showToast('Your session has expired. Reloading...', 'error');
   }
 
-  // Redirect after a short delay so the toast is visible
   setTimeout(() => {
     window.location.href = '/login';
   }, 3000);
 }, { once: true }); // once: true prevents duplicate handlers on hot reload
 
-// ────────────────────────────────────────────────
-// SHARED AUTHENTICATED SUPABASE CLIENT (singleton)
-// Eliminates multiple GoTrueClient warning
-// ────────────────────────────────────────────────
 let sharedAuthClient = null;
 let sharedAuthClientReady = false;
 
 async function getSharedAuthClient(forceRefresh = false) {
-  // If client exists and no force refresh, return it
   if (sharedAuthClient && sharedAuthClientReady && !forceRefresh) {
     console.log('[Shared Auth Client] Reusing existing client');
     return sharedAuthClient;
   }
 
-  // Fetch (or refresh) token
   console.log('[Shared Auth Client] Fetching/refreshing token...');
   const token = await getSharedJWT(forceRefresh);
   if (!token) {
@@ -478,7 +413,6 @@ async function getSharedAuthClient(forceRefresh = false) {
     return null;
   }
 
-  // If client doesn't exist, create it once
   if (!sharedAuthClient) {
     console.log('[Shared Auth Client] Creating new authenticated client (singleton)...');
     sharedAuthClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -492,7 +426,6 @@ async function getSharedAuthClient(forceRefresh = false) {
     console.log('[Shared Auth Client] Reusing existing client, just refreshing session...');
   }
 
-  // Set/refresh session on the existing client
   const { error } = await sharedAuthClient.auth.setSession({
     access_token: token,
     refresh_token: 'rt-cookie-managed' // ✅ real refresh handled by rt cookie on backend
@@ -510,8 +443,6 @@ async function getSharedAuthClient(forceRefresh = false) {
 }
 
 window.getSharedAuthClient = getSharedAuthClient;
-// ==================== GLOBAL FETCH INTERCEPTOR ====================
-// Drop this in dashboard.js once — all files get silent token refresh automatically
 
 (function interceptFetch() {
   const _originalFetch = window.fetch;
@@ -522,17 +453,14 @@ window.getSharedAuthClient = getSharedAuthClient;
   window.fetch = async function(url, options = {}) {
     const urlStr = String(url);
 
-    // Only intercept calls to your own API
     if (!urlStr.includes(OWN_API)) {
       return _originalFetch(url, options);
     }
 
-    // Skip public auth endpoints — they don't need a token
     if (PUBLIC_PATHS.some(p => urlStr.includes(p))) {
       return _originalFetch(url, options);
     }
 
-    // Inject token into every request to your API
     const token = localStorage.getItem('token') || '';
     const enhancedOptions = {
       ...options,
@@ -545,7 +473,6 @@ window.getSharedAuthClient = getSharedAuthClient;
 
     let res = await _originalFetch(url, enhancedOptions);
 
-    // On 401, silently refresh and retry once
     if (res.status === 401) {
       console.warn('[FetchInterceptor] 401 on', urlStr, '— attempting silent refresh');
 
@@ -568,7 +495,6 @@ window.getSharedAuthClient = getSharedAuthClient;
           scheduleTokenRefresh(refreshData.token);
           console.log('[FetchInterceptor] ✅ Token refreshed — retrying original request');
 
-          // Retry with new token
           return _originalFetch(url, {
             ...options,
             credentials: 'include',
@@ -591,7 +517,6 @@ window.getSharedAuthClient = getSharedAuthClient;
 })();
 
 
-// ==================== SILENT TOKEN REFRESH SYSTEM ====================
 
 const TOKEN_REFRESH_THRESHOLD_MS = 2 * 60 * 1000; // Refresh when 2 min left
 let _refreshTimer = null;
@@ -617,7 +542,6 @@ function scheduleTokenRefresh(token) {
   const msUntilRefresh = msUntilExpiry - TOKEN_REFRESH_THRESHOLD_MS;
 
   if (msUntilRefresh <= 0) {
-    // Already near/past expiry — refresh immediately
     console.log('[TokenRefresh] Token near/past expiry — refreshing now');
     silentRefreshToken();
     return;
@@ -645,8 +569,6 @@ async function silentRefreshToken() {
     if (!res.ok) {
       console.warn('[TokenRefresh] Refresh failed with status:', res.status);
 
-      // Only force logout on 401 (invalid/expired refresh token)
-      // Don't logout on network errors (server might be temporarily down)
       if (res.status === 401) {
         console.error('[TokenRefresh] Refresh token expired — logging out');
         handleSessionExpired();
@@ -656,7 +578,6 @@ async function silentRefreshToken() {
 
     const data = await res.json();
 
-    // Store new token and reschedule next refresh
     if (data.token) {
       localStorage.setItem('token', data.token);
       console.log('[TokenRefresh] ✅ Token refreshed silently');
@@ -664,7 +585,6 @@ async function silentRefreshToken() {
     }
 
   } catch (err) {
-    // Network error — don't logout, just retry in 30s
     console.warn('[TokenRefresh] Network error during refresh, retrying in 30s:', err.message);
     _refreshTimer = setTimeout(silentRefreshToken, 30000);
   } finally {
@@ -672,7 +592,6 @@ async function silentRefreshToken() {
   }
 }
 
-// ==================== AUTH FETCH (uses fresh token, auto-retries once) ====================
 
 async function authFetch(url, options = {}) {
   const token = localStorage.getItem('token') || '';
@@ -689,19 +608,16 @@ async function authFetch(url, options = {}) {
 
   let res = await makeRequest(token);
 
-  // If 401, try one silent refresh then retry
   if (res.status === 401) {
     console.warn('[authFetch] 401 received — attempting silent refresh before retry');
     await silentRefreshToken();
 
     const newToken = localStorage.getItem('token') || '';
     if (!newToken || newToken === token) {
-      // Refresh didn't get a new token — session is truly expired
       handleSessionExpired();
       throw new Error('Session expired. Please log in again.');
     }
 
-    // Retry with new token
     res = await makeRequest(newToken);
 
     if (res.status === 401) {
@@ -718,7 +634,6 @@ function handleSessionExpired() {
   clearTimeout(_refreshTimer);
   localStorage.removeItem('token');
 
-  // Show toast before redirect if available
   if (typeof showToast === 'function') {
     showToast('Your session has expired. Please log in again.', 'error');
   }
@@ -728,7 +643,6 @@ function handleSessionExpired() {
   }, 1500);
 }
 
-// ==================== BOOT: start the refresh cycle ====================
 
 (function initTokenRefresh() {
   const token = localStorage.getItem('token');
@@ -736,8 +650,6 @@ function handleSessionExpired() {
     scheduleTokenRefresh(token);
     console.log('[TokenRefresh] Refresh cycle started');
   } else {
-    // No token in localStorage — cookies handle it, 
-    // call /api/session to get a fresh one and start the cycle
     fetch('https://api.flexgig.com.ng/api/session', { credentials: 'include' })
       .then(r => r.json())
       .then(data => {
@@ -751,7 +663,6 @@ function handleSessionExpired() {
   }
 })();
 
-// Also refresh when tab becomes visible again (user switching back to the tab)
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     const token = localStorage.getItem('token');
@@ -773,10 +684,6 @@ window.silentRefreshToken = silentRefreshToken;
 window.scheduleTokenRefresh = scheduleTokenRefresh;
 
 
-// ────────────────────────────────────────────────
-// REAL-TIME BALANCE SUBSCRIPTION
-// Watches user_wallets table for live balance changes
-// ────────────────────────────────────────────────
 
 let balanceRealtimeChannel = null;
 let isSubscribing = false;
@@ -792,7 +699,6 @@ async function subscribeToWalletBalance(force = false) {
   if (isSubscribing) return;
   if (!force && now - lastHealthyTs < HEALTHY_THRESHOLD_MS) return;
 
-  // ✅ Remove stale channel before re-subscribing (prevents "cannot add callbacks after subscribe" crash)
   if (balanceRealtimeChannel) {
     try {
       const authClient = await getSharedAuthClient(false);
@@ -826,7 +732,6 @@ async function subscribeToWalletBalance(force = false) {
       return;
     }
 
-    // Visibility test
     const { data: testRow, error: testErr } = await authClient
       .from('user_wallets')
       .select('balance, user_uid')
@@ -839,7 +744,6 @@ async function subscribeToWalletBalance(force = false) {
       console.log('[Wallet Realtime] RLS OK — current balance:', testRow?.balance);
     }
 
-    // Create channel
     balanceRealtimeChannel = authClient.channel(`wallet:${uid}`);
 
     balanceRealtimeChannel
@@ -870,7 +774,6 @@ async function subscribeToWalletBalance(force = false) {
                 timestamp: Date.now()
               };
 
-              // Call all balance update handlers
               if (typeof window.__handleBalanceUpdate === 'function') {
                 window.__handleBalanceUpdate(updateData);
               }
@@ -915,24 +818,16 @@ async function subscribeToWalletBalance(force = false) {
 window.subscribeToWalletBalance = subscribeToWalletBalance;
 
 
-// ────────────────────────────────────────────────
-// DIRECT SUPABASE REAUTH LOCK HELPERS
-// Secure client-side with RLS - no backend needed
-// ────────────────────────────────────────────────
 
 const REAUTH_TTL_MINUTES = 60;
 
 
-// ────────────────────────────────────────────────
-// REAUTH CLIENT (now reuses shared auth client logic)
-// ────────────────────────────────────────────────
 let reauthClient = null;
 let reauthClientExpiry = 0;
 
 async function getReauthClient(forceRefresh = false) {
   const now = Date.now();
 
-  // Reuse if valid and no force
   if (reauthClient && now < reauthClientExpiry && !forceRefresh) {
     console.log('[REAUTH] Reusing existing client');
     return reauthClient;
@@ -945,7 +840,6 @@ async function getReauthClient(forceRefresh = false) {
     return null;
   }
 
-  // Create only if not exists
   if (!reauthClient) {
     console.log('[REAUTH] Creating new client (singleton)...');
     reauthClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -959,7 +853,6 @@ async function getReauthClient(forceRefresh = false) {
     console.log('[REAUTH] Reusing client, refreshing session...');
   }
 
-  // Set/refresh session
   const { error } = await reauthClient.auth.setSession({
     access_token: token,
     refresh_token: token
@@ -991,7 +884,6 @@ async function requireReauthLock(reason = 'soft_idle_timeout') {
 
   const authClient = await getReauthClient();
 
-  // If already locked, no need to write again
   if (authClient?.__locked) {
     console.warn('[REAUTH] Lock already active (backend)');
     return true;
@@ -1047,8 +939,6 @@ async function checkReauthLock() {
     console.warn('[REAUTH] getReauthClient threw:', e);
   }
 
-  // 🔥 THIS IS THE CRITICAL PART
-  // If JWT fetch was blocked → account IS locked
   if (authClient && authClient.__locked) {
     console.warn('[REAUTH] Active lock detected via backend (423)');
 
@@ -1060,13 +950,11 @@ async function checkReauthLock() {
     return { required: true, reason: 'backend_423' };
   }
 
-  // If we couldn't even get a client, DO NOT assume unlocked
   if (!authClient) {
     console.warn('[REAUTH] No auth client — treating as locked (fail-safe)');
     return { required: true, reason: 'unknown_auth_state' };
   }
 
-  // Only now is it safe to query Supabase
   const { data, error } = await authClient
     .from('reauth_locks')
     .select('reason, expires_at')
@@ -1156,7 +1044,6 @@ function scheduleRetry() {
   }, SUBSCRIPTION_RETRY_MS);
 }
 
-// Updated onDashboardLoad wrapper — REMOVE the setTimeout retry
 if (typeof onDashboardLoad === 'function') {
   const original = onDashboardLoad;
   onDashboardLoad = async function (...args) {
@@ -1176,7 +1063,6 @@ if (typeof onDashboardLoad === 'function') {
 
 
 
-// Auto-refresh shared authenticated client every 30 minutes to keep JWT fresh
 setInterval(async () => {
   console.log('[Shared Auth Client] Auto-refreshing JWT and client...');
   await getSharedAuthClient(true);
@@ -1185,25 +1071,20 @@ setInterval(async () => {
 
     function saveCurrentAppState() {
   const state = {
-    // ==================== MODALS – FIXED & BULLETPROOF ====================
     
 
-    // Form inputs
     phoneNumber: document.getElementById('phone-input')?.value || '',
 
 
-    // Selection state
     selectedProvider: document.querySelector('.provider-box.active')?.className.match(/mtn|airtel|glo|ninemobile/)?.[0] || 'mtn',
     selectedPlanId: document.querySelector('.plan-box.selected')?.getAttribute('data-id') || '',
 
 
 
-    // Extra
     timestamp: Date.now(),
     version: APP_VERSION || '1.0.0'
   };
 
-  // Save in two places
   sessionStorage.setItem('__fg_app_state_v2', JSON.stringify(state));
   history.replaceState(state, '', location.href);
 
@@ -1211,7 +1092,6 @@ setInterval(async () => {
 }
 window.saveCurrentAppState = saveCurrentAppState;
 
-// dashboard.js (or a shared utils file loaded FIRST)
 
 (function () {
   'use strict';
@@ -1226,21 +1106,16 @@ window.saveCurrentAppState = saveCurrentAppState;
     }
   }
 
-  // ✅ expose globally
   window.getUserState = window.getUserState || getUserState;
 })();
 
 
-// ---------------------------
-// 1️⃣ Biometric warm function
-// ---------------------------
 const BIOMETRIC_TTL = 60_000; // safe short-lived TTL (~1 min)
 const CACHE_KEY = '__cachedAuthOptions';
 
 async function warmBiometricOptions(userId, context = 'reauth', options = {}) {
   const now = Date.now();
 
-  // Load cached options from localStorage
   let cached = null;
   try {
     cached = JSON.parse(localStorage.getItem(CACHE_KEY));
@@ -1253,9 +1128,6 @@ async function warmBiometricOptions(userId, context = 'reauth', options = {}) {
 ) {
   console.log('[biometric] Using cached options from localStorage');
 
-  // ── Re-hydrate types lost during JSON serialization ──
-  // localStorage round-trips strip Uint8Array → plain object with numeric keys.
-  // allowCredentials[].id must be ArrayBuffer/Uint8Array or WebAuthn rejects it.
   const opts = cached.opts;
   try {
     if (opts && Array.isArray(opts.allowCredentials)) {
@@ -1263,7 +1135,6 @@ async function warmBiometricOptions(userId, context = 'reauth', options = {}) {
         if (!c || !c.id) return c;
         if (c.id instanceof Uint8Array || c.id instanceof ArrayBuffer) return c;
         if (typeof c.id === 'string') {
-          // base64url string → Uint8Array
           try {
             const pad = (4 - (c.id.length % 4)) % 4;
             const b64 = c.id.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat(pad);
@@ -1273,7 +1144,6 @@ async function warmBiometricOptions(userId, context = 'reauth', options = {}) {
             return { ...c, id: buf };
           } catch (e) { return c; }
         }
-        // numeric-key object ({0:143, 1:209, ...}) from JSON serialization of Uint8Array
         if (typeof c.id === 'object') {
           try {
             const keys = Object.keys(c.id);
@@ -1318,7 +1188,6 @@ async function warmBiometricOptions(userId, context = 'reauth', options = {}) {
 
     const opts = await res.json();
 
-    // Store in both window and localStorage
     window.__cachedAuthOptions = opts;
 window.__cachedAuthOptionsFetchedAt = Date.now();
 localStorage.setItem(CACHE_KEY, JSON.stringify({
@@ -1326,10 +1195,6 @@ localStorage.setItem(CACHE_KEY, JSON.stringify({
   fetchedAt: Date.now()
 }));
 
-// ── Rolling challenge history (last 5) ──
-// Stores each server-issued challenge so tryBiometricWithCachedOptions can
-// identify which one the browser actually signed, even if a re-warm fired
-// between the fetch and the user's gesture and overwrote the session.
 try {
   if (opts?.challenge) {
     const raw = localStorage.getItem('__bioChallengeHistory');
@@ -1349,10 +1214,6 @@ try {
 }
 
 window.warmBiometricOptions = window.warmBiometricOptions || warmBiometricOptions;
-// ---------------------------
-// 🔄 Checkout Modal Controls Biometric Rewarming
-// Keeps options fresh every 30 seconds while modal is open
-// ---------------------------
 let biometricRewarmInterval = null;
 
 const checkoutModal = document.getElementById('checkoutModal');
@@ -1360,7 +1221,6 @@ const checkoutModal = document.getElementById('checkoutModal');
 function startModalBiometricRewarming() {
   if (biometricRewarmInterval) clearInterval(biometricRewarmInterval);
 
-  // Get UID once
   let uid = null;
   try {
     const userData = localStorage.getItem('userData');
@@ -1379,15 +1239,12 @@ function startModalBiometricRewarming() {
 
   const rewarm = async () => {
     try {
-      // Clear old cache first
       window.__cachedAuthOptions = null;
       localStorage.removeItem('__cachedAuthOptions');
 
-      // Fetch fresh
       const opts = await warmBiometricOptions(uid, 'reauth', { force: true });
       if (!opts) return;
 
-      // Force correct types (Uint8Array)
       if (window.__cachedAuthOptions) {
         if (!(window.__cachedAuthOptions.challenge instanceof Uint8Array)) {
           const buf = fromBase64Url(window.__cachedAuthOptions.challenge);
@@ -1418,12 +1275,9 @@ function startModalBiometricRewarming() {
     }
   };
 
-  // Initial + every 30 seconds
-  // Initial + every 30 seconds
 rewarm();
 
 biometricRewarmInterval = setInterval(async () => {
-  // 🔥 CRITICAL FIX: don't rewarm during active biometric auth
   if (window.__biometricInFlight) {
     console.log('[modal-rewarm] Skipped (biometric in flight)');
     return;
@@ -1441,9 +1295,6 @@ function stopModalBiometricRewarming() {
   }
 }
 
-// ---------------------------
-// Observe modal visibility (aria-hidden + display)
-// ---------------------------
 if (checkoutModal) {
   const observer = new MutationObserver(() => {
     const isHidden = checkoutModal.getAttribute('aria-hidden') === 'true';
@@ -1461,28 +1312,20 @@ if (checkoutModal) {
     attributeFilter: ['aria-hidden', 'style', 'class']
   });
 
-  // Check initial state
   if (checkoutModal.getAttribute('aria-hidden') !== 'true' &&
       window.getComputedStyle(checkoutModal).display !== 'none') {
     startModalBiometricRewarming();
   }
 }
 
-// Also stop when close button clicked (extra safety)
 checkoutModal?.querySelector('.close-btn')?.addEventListener('click', stopModalBiometricRewarming);
 
 
 
-// ==========================================
-// 🔧 PRODUCTION-READY MOBILE DEBUG CONSOLE
-// ==========================================
-// ⚙️ SET THIS TO false IN PRODUCTION ⚙️
 const DEBUG_MODE = false; // ← Change to false to hide completely
-// ==========================================
 
 (function () {
   if (!DEBUG_MODE) {
-    // Completely disable in production - no DOM injection, no performance impact
     window.mobileLog = () => {}; // No-op function
     console.log('[Debug] Console disabled (DEBUG_MODE = false)');
     return;
@@ -1503,7 +1346,6 @@ const DEBUG_MODE = false; // ← Change to false to hide completely
   }
   window.mobileConsoleLoaded = true;
 
-  // === Enhanced CSS with proper z-index ===
   const style = document.createElement('style');
   style.textContent = `
     #mobileConsole{position:fixed;inset:0;display:none;flex-direction:column;background:#000;color:#0f0;z-index:2147483640;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
@@ -1529,7 +1371,6 @@ const DEBUG_MODE = false; // ← Change to false to hide completely
   `;
   document.head.appendChild(style);
 
-  // === Inject HTML ===
   document.body.insertAdjacentHTML('beforeend', `
     <button id="toggleBtn" aria-label="Toggle Debug Console">🔧</button>
     <div id="mobileConsole">
@@ -1561,13 +1402,11 @@ const DEBUG_MODE = false; // ← Change to false to hide completely
   const commandInput = document.getElementById('commandInput');
   const quickCommands = document.getElementById('quickCommands');
 
-  // === ENHANCED LOG FUNCTION (Chrome-like) ===
   function log(msg, type = 'info') {
     const ts = new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3});
     const div = document.createElement('div');
     div.className = `log-entry log-${type}`;
     
-    // Smart formatting for objects, arrays, errors
     let formatted = '';
     if (typeof msg === 'object' && msg !== null) {
       try {
@@ -1590,13 +1429,11 @@ const DEBUG_MODE = false; // ← Change to false to hide completely
     logOutput.appendChild(div);
     logOutput.scrollTop = logOutput.scrollHeight;
     
-    // Also log to real console
     console.log(`[MobileConsole ${type.toUpperCase()}]`, msg);
   }
   
   window.mobileLog = log;
 
-  // === Toggle console (allows navigation when closed) ===
   toggleBtn.onclick = () => {
     const isVisible = consoleEl.style.display !== 'none';
     consoleEl.style.display = isVisible ? 'none' : 'flex';
@@ -1611,7 +1448,6 @@ const DEBUG_MODE = false; // ← Change to false to hide completely
     log('Console cleared', 'success'); 
   };
 
-  // === Enhanced execute with better error reporting ===
   function execute(cmd) {
     log(`> ${cmd}`, 'info');
     try {
@@ -1647,12 +1483,10 @@ const DEBUG_MODE = false; // ← Change to false to hide completely
     if (btn) execute(btn.dataset.cmd);
   });
 
-  // === HELPER: Get API Base ===
   function getApiBase() {
     return window.__SEC_API_BASE || 'https://api.flexgig.com.ng' || window.location.origin;
   }
 
-  // === HELPER: Get User ID ===
   function safeGetUserId() {
     try {
       return window.__USER_UID || (localStorage && localStorage.getItem('userId')) || null;
@@ -1661,7 +1495,6 @@ const DEBUG_MODE = false; // ← Change to false to hide completely
     }
   }
 
-  // === DIAGNOSTIC FUNCTIONS ===
   
   window.checkPolling = () => {
     log('🔍 Checking polling...', 'ws');
@@ -1889,12 +1722,10 @@ const DEBUG_MODE = false; // ← Change to false to hide completely
     return status;
   };
 
-  // === INITIALIZATION ===
   log('🚀 Mobile Dev Console Ready!', 'success');
   log('Tap 🔧 to toggle console', 'info');
   log(`Debug Mode: ${DEBUG_MODE ? 'ENABLED' : 'DISABLED'}`, 'info');
 
-  // Auto-show on errors
   window.addEventListener('error', e => {
     if (consoleEl.style.display === 'none') {
       consoleEl.style.display = 'flex';
@@ -1909,7 +1740,6 @@ const DEBUG_MODE = false; // ← Change to false to hide completely
     }, 'error');
   });
 
-  // Initial checks (delayed)
   setTimeout(() => {
     log('Running initial checks...', 'info');
     getUserId();
@@ -1920,14 +1750,10 @@ const DEBUG_MODE = false; // ← Change to false to hide completely
 
 
 let __backHandler = null;
-// Ensure shared UI refs / flags are declared before any functions use them
 let reauthModal = null;
 let promptModal = null;
 let reauthModalOpen = false;
 
-// ----------------------
-// Client helpers (paste once near other helpers)
-// ----------------------
 const REAUTH_GRACE_SECONDS = 20; // tune 15-30s as desired
 
 function getLastPinReauthTs() {
@@ -1941,7 +1767,6 @@ function inGraceWindow() {
   return ts && (Date.now() - ts) < REAUTH_GRACE_SECONDS * 1000;
 }
 
-// === FRESH PLAN FETCH ON LOAD - SUPABASE FIRST, API FALLBACK ===
 (function ensureFreshPlansOnLoad() {
   const CACHE_KEY = 'cached_data_plans_v12'; // Match your current version
 
@@ -1952,7 +1777,6 @@ function inGraceWindow() {
     try {
       console.log('%c[PLANS] Fetching fresh plans on load...', 'color:cyan');
 
-      // TRY SUPABASE FIRST
       const supabase = window.supabaseClient;
       
       if (supabase) {
@@ -1980,13 +1804,11 @@ function inGraceWindow() {
           }
         } catch (supabaseErr) {
           console.warn('[PLANS] Supabase failed, falling back to API:', supabaseErr.message);
-          // Fall through to API fallback
         }
       } else {
         console.warn('[PLANS] Supabase client not available, using API');
       }
 
-      // FALLBACK TO API IF SUPABASE FAILED
       if (!freshPlans) {
         console.log('%c[PLANS] Attempting API fetch...', 'color:orange');
         
@@ -2008,7 +1830,6 @@ function inGraceWindow() {
         console.log(`%c[PLANS] ✅ Fetched ${freshPlans.length} plans from API`, 'color:lime;font-weight:bold');
       }
 
-      // UPDATE CACHE WITH FRESH DATA
       if (freshPlans && freshPlans.length > 0) {
         const latestUpdate = freshPlans.reduce((max, p) => 
           p.updated_at && p.updated_at > max ? p.updated_at : max, ''
@@ -2021,13 +1842,11 @@ function inGraceWindow() {
           fetchedAt: new Date().toISOString()
         }));
 
-        // Update in-memory cache if variables exist
         if (typeof plansCache !== 'undefined') plansCache = freshPlans;
         if (typeof cacheUpdatedAt !== 'undefined') cacheUpdatedAt = latestUpdate;
 
         console.log(`%c[PLANS] Cache updated with fresh data from ${source}`, 'color:lime');
 
-        // Refresh UI if provider is already active
         const activeProvider = ['mtn', 'airtel', 'glo', 'ninemobile'].find(p => 
           document.querySelector(`.provider-box.${p}.active`)
         );
@@ -2043,7 +1862,6 @@ function inGraceWindow() {
     } catch (err) {
       console.error('[PLANS] All fetch methods failed, using cache:', err);
       
-      // Load from cache as last resort
       try {
         const cached = localStorage.getItem(CACHE_KEY);
         if (cached) {
@@ -2056,26 +1874,17 @@ function inGraceWindow() {
     }
   }
 
-  // Run on load
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', fetchAndCacheFreshPlans);
   } else {
     fetchAndCacheFreshPlans();
   }
 
-  // Also run when tab becomes visible (user returns)
-  // document.addEventListener('visibilitychange', () => {
-  //   if (!document.hidden) {
-  //     console.log('[PLANS] Tab visible — checking for updates');
-  //     fetchAndCacheFreshPlans();
-  //   }
-  // });
 
   console.log('🚀 Fresh plan fetch system active (Supabase → API → Cache)');
 })();
 
 
-// Call this as early as practical (before container paints) - e.g., in onDashboardLoad() before manageDashboardCards() if possible.
 async function renderDashboardCardsFromState({ preferServer = true } = {}) {
   const pinCard = document.getElementById('dashboardPinCard');
   const updateProfileCard = document.getElementById('dashboardUpdateProfileCard');
@@ -2085,7 +1894,6 @@ async function renderDashboardCardsFromState({ preferServer = true } = {}) {
   let hasPin = localStorage.getItem('hasPin') === 'true';
   let profileCompleted = localStorage.getItem('profileCompleted') === 'true';
 
-  // optional: fetch session from server for authoritative state
   if (preferServer && typeof getSession === 'function') {
     try {
       const session = await getSession();
@@ -2101,7 +1909,6 @@ async function renderDashboardCardsFromState({ preferServer = true } = {}) {
     }
   }
 
-  // --- Apply visibility rules ---
   if (pinCard) {
   if (!hasPin) {
     pinCard.classList.add("js-ready");
@@ -2123,7 +1930,6 @@ if (updateProfileCard) {
 }
 
 
-  // allow your existing dashboard logic to continue working
   if (typeof manageDashboardCards === "function") {
     try { manageDashboardCards(); } catch (e) {}
   }
@@ -2143,25 +1949,21 @@ async function scheduleHardIdleCheck() {
   hardIdleTimeout = setTimeout(async () => {
     console.log('🔥 [HARD IDLE] Timeout triggered - checking reauth status');
     
-    // Local-first decision
     const localCheck = shouldReauthLocal('reauth');
     if (localCheck.needsReauth) {
       try { 
         console.log('🔒 [HARD IDLE] Local check: Reauth required - showing modal');
         await showReauthModal({ context: 'reauth', reason: 'hard-idle' }); 
-        // 🚨 REMOVED: Auto-trigger biometrics call
       } catch(e) { 
         console.error('[hardIdle] showReauthModal failed', e); 
       }
     } else {
-      // optionally call server async to update status
       try {
         console.log('🔒 [HARD IDLE] Local check passed - verifying with server');
         const serverCheck = await checkServerReauthStatus();
         if (serverCheck && (serverCheck.needsReauth || serverCheck.reauthRequired)) {
           console.log('🔒 [HARD IDLE] Server check: Reauth required - showing modal');
           await showReauthModal({ context: 'reauth', reason: 'hard-idle' });
-          // 🚨 REMOVED: Auto-trigger biometrics call
         } else {
           console.log('✅ [HARD IDLE] Server check passed - no reauth needed');
         }
@@ -2171,24 +1973,14 @@ async function scheduleHardIdleCheck() {
     }
   }, remaining > 0 ? remaining : 0);
 }
-// Replace the existing guardedHideReauthModal function in dashboard.js with this version.
-// This removes the call to onSuccessfulReauth() inside guardedHideReauthModal to break the circular dependency.
-// The onSuccessfulReauth() function should be called by the verification flows (e.g., after PIN or biometrics success)
-// BEFORE attempting to hide the modal. This ensures clearing happens first, then safe hide.
 
-// Guarded hide: only hide UI if canonical flag cleared.
-// Use this everywhere instead of calling reauthModal.classList.add('hidden') directly.
 async function guardedHideReauthModal() {
   try {
-    // REMOVED: Do not call onSuccessfulReauth here to avoid circular calls.
-    // Assume the caller has already run onSuccessfulReauth() to perform any necessary clearing/reset logic.
 
-    // helper that reads canonical server/local flag
     function _isCanonicalPending() {
       try { return !!JSON.parse(localStorage.getItem('fg_reauth_required_v1') || 'null'); } catch (e) { return false; }
     }
 
-    // only hide UI if canonical flag (fg_reauth_required_v1) is not present
     if (!_isCanonicalPending()) {
       try {
         if (reauthModal) {
@@ -2201,7 +1993,6 @@ async function guardedHideReauthModal() {
             try { reauthModal.removeAttribute('aria-hidden'); reauthModal.style.pointerEvents = ''; } catch (e) {}
           }
         }
-                // safe access to the DOM element; avoid referencing a possibly undeclared variable
         const _pm = (typeof document !== 'undefined') ? document.getElementById('promptModal') : null;
         if (_pm) {
           try {
@@ -2226,12 +2017,10 @@ async function guardedHideReauthModal() {
   }
 }
 
-// ✅ IMPROVED: Complete client-side logout with better error handling
 async function fullClientLogout() {
   try {
     console.log('[fullClientLogout] Starting complete logout process...');
 
-    // 1️⃣ Call backend to fully logout
     try {
       const res = await fetch(`${BACKEND_URL}/auth/logout`, { 
         method: 'POST', 
@@ -2249,15 +2038,12 @@ async function fullClientLogout() {
       }
     } catch (fetchErr) {
       console.error('[fullClientLogout] Server logout request failed:', fetchErr);
-      // Continue with client-side cleanup regardless
     }
 
-    // 2️⃣ Clear all frontend state
     try {
       localStorage.clear();
       sessionStorage.clear();
       
-      // Clear global variables
       window.currentUser = null;
       window.currentEmail = null;
       window.__rp_reset_token = null;
@@ -2268,7 +2054,6 @@ async function fullClientLogout() {
       console.error('[fullClientLogout] Storage clearing failed:', storageErr);
     }
 
-    // 3️⃣ Clear IndexedDB
     try {
       if (window.indexedDB) {
         if (indexedDB.databases) {
@@ -2280,8 +2065,6 @@ async function fullClientLogout() {
             }
           }
         } else {
-          // Fallback for browsers that don't support indexedDB.databases()
-          // Clear known database names if you have any
           const knownDBs = ['flexgig-db', 'webauthn-credentials']; // Add your DB names
           for (const dbName of knownDBs) {
             indexedDB.deleteDatabase(dbName);
@@ -2292,14 +2075,12 @@ async function fullClientLogout() {
       console.error('[fullClientLogout] IndexedDB clearing failed:', idbErr);
     }
 
-    // 4️⃣ Clear client-accessible cookies (non-HttpOnly)
     try {
       const cookies = document.cookie.split(';');
       for (let cookie of cookies) {
         const eqPos = cookie.indexOf('=');
         const name = eqPos > -1 ? cookie.substring(0, eqPos).trim() : cookie.trim();
         
-        // Clear cookie for all possible paths and domains
         const domains = [
           window.location.hostname,
           '.flexgig.com.ng',
@@ -2322,7 +2103,6 @@ async function fullClientLogout() {
       console.error('[fullClientLogout] Cookie clearing failed:', cookieErr);
     }
 
-    // 5️⃣ Clear Service Workers cache (if you have any)
     try {
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
         const registrations = await navigator.serviceWorker.getRegistrations();
@@ -2341,7 +2121,6 @@ async function fullClientLogout() {
       console.error('[fullClientLogout] Service worker/cache clearing failed:', swErr);
     }
 
-    // 6️⃣ Clear WebAuthn credentials from memory (if stored)
     try {
       if (window.webauthnCredentials) {
         window.webauthnCredentials = null;
@@ -2353,12 +2132,10 @@ async function fullClientLogout() {
 
     console.log('[fullClientLogout] Logout complete, redirecting to login...');
 
-    // 7️⃣ Redirect to login (use replace to prevent back button issues)
     window.location.replace('/');
 
   } catch (err) {
     console.error('[fullClientLogout] Critical error during logout:', err);
-    // Force redirect even if everything fails
     window.location.replace('/');
   }
 }
@@ -2386,15 +2163,12 @@ async function notifyReauthComplete() {
 }
 window.notifyReauthComplete = notifyReauthComplete;
 
-// ===== Sticky reauth bootstrap (drop near top of dashboard.js, BEFORE initFlow boot) =====
 (function ensurePersistentReauthBootstrap(){
   try {
-    // If the cross-tab module exists, call its init now (defensive)
     if (typeof initCrossTabReauth === 'function') {
       try { initCrossTabReauth(); } catch(e) { console.warn('early initCrossTabReauth failed', e); }
     }
 
-    // Small helper to attempt showing modal even if DOM isn't ready yet
     const LOCAL_KEY = 'fg_reauth_required_v1';
     function readLocalKey() {
       try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || 'null'); } catch(e){ return null; }
@@ -2403,7 +2177,6 @@ window.notifyReauthComplete = notifyReauthComplete;
     const stored = readLocalKey();
     if (!stored) return;
 
-    // Try to show modal as soon as possible, but wait for DOM wiring if needed.
     let attempts = 0;
     const maxAttempts = 20;
     const retryMs = 250;
@@ -2411,21 +2184,16 @@ window.notifyReauthComplete = notifyReauthComplete;
     const tryShow = async () => {
       attempts++;
       try {
-        // Prefer the local show helper if available
         if (typeof showReauthModalLocal === 'function') {
           showReauthModalLocal({ fromStorageObj: stored });
           return;
         }
-        // Otherwise prefer the higher-level API
         if (window.__reauth && typeof window.__reauth.initReauthModal === 'function') {
-          // try to init and show
           await window.__reauth.initReauthModal({ show: true, context: 'reauth' });
           return;
         }
-        // Fallback: dispatch storage event to trigger other wiring
         window.dispatchEvent(new StorageEvent('storage', { key: LOCAL_KEY, newValue: JSON.stringify(stored) }));
       } catch (e) {
-        // swallow and retry
       }
       if (attempts < maxAttempts) setTimeout(tryShow, retryMs);
       else console.warn('ensurePersistentReauthBootstrap: giving up after attempts');
@@ -2433,7 +2201,6 @@ window.notifyReauthComplete = notifyReauthComplete;
 
     tryShow();
 
-    // When tab becomes visible, re-check local key and force show if present
     document.addEventListener('visibilitychange', () => {
       try {
         if (document.visibilityState === 'visible') {
@@ -2448,7 +2215,6 @@ window.notifyReauthComplete = notifyReauthComplete;
       } catch (e) {}
     }, { passive:true });
 
-    // Before unload: keep the key in place (defensive; localStorage persists anyway)
     window.addEventListener('beforeunload', () => {
       try {
         const s = readLocalKey();
@@ -2461,13 +2227,10 @@ window.notifyReauthComplete = notifyReauthComplete;
 })();
 
 
-// --- START: Server-reconcile on boot to handle cleared localStorage / cache ---
-// --- START: Server-reconcile on boot to handle cleared localStorage / cache ---
 (async function reconcileServerReauthOnBoot() {
   const LOCAL_KEY = 'fg_reauth_required_v1';
 
   try {
-    // If we already have local canonical flag, nothing to do
     const local = (function readLocal() { 
       try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || 'null'); } 
       catch(e){ return null; } 
@@ -2485,7 +2248,6 @@ window.notifyReauthComplete = notifyReauthComplete;
       return;
     }
 
-    // 🔥 THIS IS THE CRITICAL CALL
     let srv;
     try {
       srv = await checkReauthLock();
@@ -2497,14 +2259,11 @@ window.notifyReauthComplete = notifyReauthComplete;
     if (srv && srv.required) {
       console.warn('[REAUTH-BOOT] Lock detected, showing modal immediately');
       
-      // 🔥 FIX: Show modal IMMEDIATELY, don't rely on other code to pick it up
       try {
-        // Try the direct method first
         if (window.__reauth && typeof window.__reauth.initReauthModal === 'function') {
           await window.__reauth.initReauthModal({ show: true, context: 'reauth' });
           console.info('[REAUTH-BOOT] Modal shown via __reauth.initReauthModal');
         } 
-        // Fallback to showReauthModalLocal if it exists
         else if (typeof showReauthModalLocal === 'function') {
           showReauthModalLocal({ 
             fromStorageObj: { 
@@ -2514,7 +2273,6 @@ window.notifyReauthComplete = notifyReauthComplete;
           });
           console.info('[REAUTH-BOOT] Modal shown via showReauthModalLocal');
         }
-        // Last resort: dispatch storage event
         else {
           const obj = {
             token: (crypto && crypto.randomUUID) ? crypto.randomUUID() : ('t_' + Date.now()),
@@ -2537,11 +2295,9 @@ window.notifyReauthComplete = notifyReauthComplete;
     console.warn('[REAUTH-BOOT] Unexpected error in reconcile:', e);
   }
 })();
-// --- END: Server-reconcile on boot ---
 
 
 
-// ---------- Helpers (paste near other helper functions) ----------
 function isCanonicalReauthPending() {
   console.log('❄️❄️❄️ isCanonicalReauthPending check');
   try {
@@ -2554,7 +2310,6 @@ function isCanonicalReauthPending() {
 function clearCanonicalReauthFlag() {
   console.log('clearCanonicalReauthFlag called');
   try {
-    // prefer the cross-tab/server API if available (fire-and-forget)
     if (window.fgReauth && typeof window.fgReauth.completeReauth === 'function') {
       try {
         const p = window.fgReauth.completeReauth();
@@ -2569,7 +2324,6 @@ function clearCanonicalReauthFlag() {
 
 
 
-// ---------- helpers (add once near top-level) ----------
 function normalizeB64Url(s) {
   if (s === null || s === undefined) return '';
   s = String(s);
@@ -2616,15 +2370,10 @@ function challengeToB64Url(ch) {
   try { return normalizeB64Url(btoa(JSON.stringify(ch))); } catch (e) { return ''; }
 }
 
-// Try a single immediate navigator.credentials.get() with server-supplied freshOpts
-// 🔒 NO AUTO-CALL: This function should only be called manually by user button clicks
 async function tryImmediateReauthWithFreshOptions(freshOpts, attemptLimit = 1, context = {}) {
-  // 🚨 REMOVED: All auto-call guards and hard idle checks
-  // This function now only executes when explicitly called (e.g., user clicks bio button)
   
   console.log('[webauthn] tryImmediateReauth: Manual call initiated', context);
   
-  // Safety: Check if biometrics are enabled and user has credentials
   const biometricsEnabled = localStorage.getItem('biometricsEnabled') === 'true';
   const credentialId = localStorage.getItem('credentialId') || localStorage.getItem('webauthn-cred-id');
   
@@ -2702,13 +2451,9 @@ async function tryImmediateReauthWithFreshOptions(freshOpts, attemptLimit = 1, c
   }
   return { ok: false, reason: 'get-failed' };
 }
-// ---------- end helpers ----------
 
 
-// ---------- Loader (refcounted, idempotent) ----------
-// PATCH FOR dashboard.js - Replace your existing loader section with this:
 
-// ---------- Loader (refcounted, idempotent) - FIXED for Modal Manager ----------
 (function () {
   let __loaderRefCount = 0;
   let __loaderSavedState = null;
@@ -2747,10 +2492,8 @@ async function tryImmediateReauthWithFreshOptions(freshOpts, attemptLimit = 1, c
       loader.hidden = false;
       _saveAndDisableInteractive();
 
-      // CRITICAL FIX: Only lock scroll if ModalManager isn't already locking it
       const modalManagerActive = window.ModalManager && window.ModalManager.isScrollLocked && window.ModalManager.isScrollLocked();
       if (!modalManagerActive) {
-        // Loader can lock scroll (lightweight - just overflow)
         document.body.style.setProperty('--loader-scroll-lock', 'hidden', 'important');
         document.body.classList.add('loader-active');
       }
@@ -2780,7 +2523,6 @@ async function tryImmediateReauthWithFreshOptions(freshOpts, attemptLimit = 1, c
       loader.hidden = true;
       _restoreInteractive();
 
-      // CRITICAL FIX: Only unlock if ModalManager isn't using it
       const modalManagerActive = window.ModalManager && window.ModalManager.isScrollLocked && window.ModalManager.isScrollLocked();
       if (!modalManagerActive) {
         document.body.style.removeProperty('--loader-scroll-lock');
@@ -2802,23 +2544,15 @@ async function tryImmediateReauthWithFreshOptions(freshOpts, attemptLimit = 1, c
 async function withLoader(task) {
   const start = Date.now();
 
-  // Try to extract caller info from the stack trace
   let callerInfo = 'unknown';
   try {
     const rawStack = (new Error()).stack || '';
     const lines = rawStack.split('\n').map(l => l.trim()).filter(Boolean);
 
-    // Find the first stack frame that is NOT inside withLoader itself
-    // The stack usually looks like:
-    // Error
-    // at withLoader (file:line:col)
-    // at callerFunction (file:line:col)
     let callerLine = lines.find(l => !/withLoader/.test(l) && !/Error/.test(l));
-    // Fallback to the second line if above didn't work
     if (!callerLine && lines.length >= 2) callerLine = lines[1];
 
     if (callerLine) {
-      // Try to match common V8/Chromium stack frame: "at funcName (fileURL:line:col)"
       let m = callerLine.match(/at\s+(.*)\s+\((.*):(\d+):(\d+)\)/);
       if (m) {
         const func = m[1];
@@ -2827,7 +2561,6 @@ async function withLoader(task) {
         const col = m[4];
         callerInfo = `${func} @ ${file}:${line}:${col}`;
       } else {
-        // Try Firefox-like format: "funcName@fileURL:line:col"
         m = callerLine.match(/(.*)@(.+):(\d+):(\d+)/);
         if (m) {
           const func = m[1] || '(anonymous)';
@@ -2836,7 +2569,6 @@ async function withLoader(task) {
           const col = m[4];
           callerInfo = `${func} @ ${file}:${line}:${col}`;
         } else {
-          // Last resort: just use the raw frame string
           callerInfo = callerLine;
         }
       }
@@ -2862,12 +2594,9 @@ async function withLoader(task) {
 }
 window.withLoader = window.withLoader || withLoader
 
-// Robust error parser: returns { message, code, raw }
 async function parseErrorResponse(res) {
   try {
-    // clone in case the caller later wants to read the body too
     const clone = res.clone();
-    // try JSON first
     const json = await clone.json().catch(() => null);
     if (json && (json.message || json.code || Object.keys(json).length)) {
       return { message: (json.message || JSON.stringify(json)), code: json.code || null, raw: json };
@@ -2882,7 +2611,6 @@ async function parseErrorResponse(res) {
   return { message: res.status ? `${res.status} ${res.statusText || ''}`.trim() : 'Unknown error', code: null, raw: null };
 }
 
-// Safe fallback clear all pin inputs if older helper missing
 if (typeof window.__fg_pin_clearAllInputs !== 'function') {
   window.__fg_pin_clearAllInputs = function __fg_pin_clearAllInputs_fallback() {
     try {
@@ -2895,7 +2623,6 @@ if (typeof window.__fg_pin_clearAllInputs !== 'function') {
 
 
 
-// ---------- STORAGE INSTRUMENTATION (paste once near top of script) ----------
 (function instrumentStorage() {
   try {
     const origRemove = Storage.prototype.removeItem;
@@ -2933,7 +2660,6 @@ if (typeof window.__fg_pin_clearAllInputs !== 'function') {
 })();
 
 
-// banner state (used to prevent pollStatus from stomping intentional broadcasts)
 window.__fg_currentBanner = window.__fg_currentBanner || {
   id: null,            // server-provided notification id (if any)
   sticky: false,       // true = server asked that this not be auto-cleared
@@ -2943,8 +2669,6 @@ window.__fg_currentBanner = window.__fg_currentBanner || {
 
 
 
-// 🚀 Global banner helpers
-// Put this in your JS file (replace old showBanner)
 
 function setBannerMessage(msg, repeatTimes = 6) {
   const repeated = String(msg).repeat(repeatTimes);
@@ -2960,35 +2684,28 @@ function setBannerMessage(msg, repeatTimes = 6) {
 }
 
 function showBanner(msg, opts = {}) {
-  // opts: { type: 'info'|'error'|'warning', persistent: boolean, serverId: any, clientSticky: boolean }
   const STATUS_BANNER = document.getElementById('status-banner');
   if (!STATUS_BANNER) return;
 
-  // Update message
   setBannerMessage(msg, 1);
   STATUS_BANNER.classList.remove('hidden');
 
-  // Remove previous level classes
   STATUS_BANNER.classList.remove('level-info', 'level-error', 'level-warning');
 
-  // Apply new level class (default to info)
   const level = opts.type || 'info';
   STATUS_BANNER.classList.add(`level-${level}`);
 
-  // Update global banner state
   try {
     window.__fg_currentBanner = window.__fg_currentBanner || { id: null, sticky: false, clientSticky: false, message: '' };
     window.__fg_currentBanner.message = String(msg || '');
     window.__fg_currentBanner.sticky = !!opts.persistent;
     window.__fg_currentBanner.id = opts.serverId || window.__fg_currentBanner.id || null;
 
-    // clientSticky flag
     if (opts.clientSticky) window.__fg_currentBanner.clientSticky = true;
     if (opts.serverId && !opts.clientSticky) window.__fg_currentBanner.clientSticky = false;
   } catch (e) { /* swallow */ }
 }
 
-// 🔥 MAKE BROADCAST ENGINE GLOBAL (required since dashboard.js is an ES module)
 window.setBannerMessage = setBannerMessage;
 window.showBanner = showBanner;
 window.hideBanner = hideBanner;
@@ -3001,17 +2718,14 @@ window.fetchWithAutoRefresh = fetchWithAutoRefresh;
 
 window.handleBroadcast = handleBroadcast;
 
-// Optional internal state (for debugging)
 window.__fg_currentBanner = window.__fg_currentBanner || {};
 window.__fg_broadcast_channel = window.__fg_broadcast_channel || null;
 
 
 function hideBanner(force = false) {
-  // If a sticky banner is present, do not hide unless force === true
   try {
     const state = window.__fg_currentBanner || {};
     if (!force && (state.sticky || state.clientSticky)) {
-      // preserve sticky banner
       return;
     }
   } catch (e) { /* ignore */ }
@@ -3020,7 +2734,6 @@ function hideBanner(force = false) {
   if (STATUS_BANNER) STATUS_BANNER.classList.add('hidden');
 
   try {
-    // clear state only when forced or not sticky
     if (force || !(window.__fg_currentBanner?.sticky || window.__fg_currentBanner?.clientSticky)) {
       window.__fg_currentBanner = { id: null, sticky: false, clientSticky: false, message: '' };
       localStorage.removeItem('active_broadcast_id');
@@ -3028,7 +2741,6 @@ function hideBanner(force = false) {
   } catch (e) {}
 }
 
-// idempotent, robust broadcast subscription that also fetches current state on subscribe
 let __fg_broadcast_channel = null;
 
 function safeUnsubscribeChannel() {
@@ -3042,16 +2754,12 @@ function safeUnsubscribeChannel() {
 
 function setupBroadcastSubscription(force = false) {
   try {
-    // If already subscribed and not forced, do nothing
     if (__fg_broadcast_channel && !force) return __fg_broadcast_channel;
 
-    // Unsubscribe previous channel if any
     safeUnsubscribeChannel();
 
-    // Create a fresh channel: keep same topic you used
     __fg_broadcast_channel = supabaseClient.channel('public:broadcasts');
 
-    // Helper: centralize showing logic so we consistently persist serverId
 function applyBroadcastRow(row) {
   if (!row) return;
   const now = new Date();
@@ -3061,11 +2769,9 @@ function applyBroadcastRow(row) {
   if (row.active && startsOk && notExpired) {
     const id = row.id != null ? String(row.id) : null;
 
-    // Determine level from DB, default 'info'
     const allowedLevels = ['info', 'warning', 'error'];
     const level = allowedLevels.includes(row.level) ? row.level : 'info';
 
-    // Show banner with correct level
     try {
       showBanner(row.message || '', {
         persistent: !!row.sticky,
@@ -3130,15 +2836,11 @@ function applyBroadcastRow(row) {
       .subscribe((status) => {
         console.log('[BROADCAST SUBSCRIBE STATUS]', status);
         if (status === 'SUBSCRIBED') {
-          // IMPORTANT: Immediately fetch authoritative current broadcast(s) for this new subscriber.
-          // Prefer calling your pollStatus() (which is already authoritative and deduped)
           if (typeof pollStatus === 'function') {
             try {
-              // run fire-and-forget; wrapper dedupes
               pollStatus();
             } catch (e) { console.debug('setupBroadcastSubscription: pollStatus failed', e); }
           } else {
-            // Fallback: request a direct endpoint that returns active broadcasts.
             (async () => {
               try {
                 const apiBase = (window.__SEC_API_BASE || (typeof API_BASE !== 'undefined' ? API_BASE : ''));
@@ -3146,7 +2848,6 @@ function applyBroadcastRow(row) {
                 const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
                 if (res.ok) {
                   const json = await res.json();
-                  // accept either a single row or array
                   const row = Array.isArray(json) ? json[0] : json;
                   if (row) applyBroadcastRow(row);
                 }
@@ -3169,7 +2870,6 @@ function applyBroadcastRow(row) {
 
 
 
-// Fetch active broadcasts on load and show the first applicable one
 async function fetchActiveBroadcasts() {
   try {
     const res = await fetch(`${window.__SEC_API_BASE || ''}/api/broadcasts/active?_${Date.now()}`, {
@@ -3185,7 +2885,6 @@ async function fetchActiveBroadcasts() {
     const json = await res.json();
     const broadcasts = json.broadcasts || [];
 
-    // Sort by starts_at (earliest first)
     broadcasts.sort((a, b) => {
       const aStart = a.starts_at ? new Date(a.starts_at).getTime() : 0;
       const bStart = b.starts_at ? new Date(b.starts_at).getTime() : 0;
@@ -3196,25 +2895,19 @@ async function fetchActiveBroadcasts() {
       const b = broadcasts[0];
       const now = new Date();
 
-      // Check expiry
       if (!b.expire_at || new Date(b.expire_at) > now) {
         const STATUS_BANNER = document.getElementById('status-banner');
         if (STATUS_BANNER) {
-          // Remove previous level classes
           STATUS_BANNER.classList.remove('level-info', 'level-warning', 'level-error');
 
-          // Determine level from DB, default 'info'
           const allowedLevels = ['info', 'warning', 'error'];
           const level = allowedLevels.includes(b.level) ? b.level : 'info';
           STATUS_BANNER.classList.add(`level-${level}`);
 
-          // Set banner message
           window.setBannerMessage(b.message || '', 1);
 
-          // Show banner
           STATUS_BANNER.classList.remove('hidden');
 
-          // Update global state
           window.__fg_currentBanner = window.__fg_currentBanner || {};
           window.__fg_currentBanner.message = b.message || '';
           window.__fg_currentBanner.level = level;
@@ -3223,10 +2916,8 @@ async function fetchActiveBroadcasts() {
           window.__fg_currentBanner.id = b.id;
         }
 
-        // Store visible broadcast id
         localStorage.setItem('active_broadcast_id', b.id);
       } else {
-        // Expired
         hideBanner();
         localStorage.removeItem('active_broadcast_id');
       }
@@ -3246,7 +2937,6 @@ async function fetchActiveBroadcasts() {
 
 
 
-// Optional: centralize fetch-with-refresh for reuse (call other APIs with this)
 async function fetchWithAutoRefresh(url, opts = {}) {
   opts.credentials = 'include';
   opts.headers = opts.headers || { 'Accept': 'application/json' };
@@ -3268,7 +2958,6 @@ async function fetchWithAutoRefresh(url, opts = {}) {
   return res;
 }
 
-// 🚀 NEW: App Version (BUMP ON EACH DEPLOY, e.g., '1.0.1')
 const APP_VERSION = '1.0.0';
 
 
@@ -3279,25 +2968,17 @@ if (updateProfileModal && updateProfileModal.classList.contains('active')) {
 
 
 
-// --- Fetch User Data ---
-// --- Fetch User Data ---
-// --- Robust getSession() with guarded updates and stable avatar handling ---
-// --- Robust getSession() with cache-first rendering ---
-// --- Robust getSession() with cache-first rendering ---
-// Global flags to prevent race conditions
 window.__sessionLoading = false;
 window.__sessionPromise = null;
 window.__lastSessionLoadId = 0;
 window.__INITIAL_SESSION_FETCHED = false;
 
 async function getSession() {
-  // Block retries if we recently confirmed there's no valid session
   if (window.__sessionDeadUntil && Date.now() < window.__sessionDeadUntil) {
     console.debug('[getSession] Cooling down — no session available');
     return null;
   }
 
-  // Reuse in-flight request to prevent duplicate calls
   if (window.__sessionPromise) {
     console.log('[DEBUG] getSession: Reusing in-flight promise');
     return window.__sessionPromise;
@@ -3310,8 +2991,6 @@ async function getSession() {
     try {
       console.log('[DEBUG] getSession: Starting (loadId=' + loadId + ')');
 
-      // PHASE 1: Return cache immediately if fresh (5 min TTL)
-      // Kicks off a background refresh so next call gets updated data
       const cachedUserData = localStorage.getItem('userData');
       let cachedUser = null;
 
@@ -3322,7 +3001,6 @@ async function getSession() {
             console.log('[DEBUG] getSession: Cache is fresh — returning immediately');
             applySessionToDOM(parsed);
 
-            // Background refresh — updates cache for next load, doesn't block this return
             setTimeout(async () => {
               try {
                 const res = await fetch(`${window.__SEC_API_BASE}/api/session`, {
@@ -3347,7 +3025,6 @@ async function getSession() {
         }
       }
 
-      // PHASE 2: Cache is stale or missing — fetch from API
       console.log('[DEBUG] getSession: Cache stale or missing, fetching from /api/session');
 
       let res = await fetch(`${window.__SEC_API_BASE}/api/session`, {
@@ -3406,7 +3083,6 @@ async function getSession() {
       const { user } = payload;
       console.log('[DEBUG] getSession: API success', user);
 
-      // Only update DOM if data changed
       if (!cachedUser || JSON.stringify(user) !== JSON.stringify(cachedUser)) {
         console.log('[DEBUG] getSession: Data changed, updating DOM');
         applySessionToDOM(user);
@@ -3419,7 +3095,6 @@ async function getSession() {
 if (window.subscribeToTransactions) {
   console.log('[Auth] Session ready → triggering realtime subscriptions');
   
-  // Set UID globally so all realtime functions find it immediately
   const resolvedUid = user?.uid || localStorage.getItem('userId');
   if (resolvedUid) window.__USER_UID = resolvedUid;
 
@@ -3438,7 +3113,6 @@ if (window.subscribeToTransactions) {
           const cached = JSON.parse(cachedUserData);
 console.log('[DEBUG] getSession: Using cache as fallback');
 applySessionToDOM(cached);
-// ✅ If cache has a balance, force-apply it even if balanceInitialized is already true
 if (cached.wallet_balance != null && !isNaN(Number(cached.wallet_balance))) {
   window.balanceInitialized = false; // reset so updateAllBalances doesn't skip
   window.updateAllBalances(Number(cached.wallet_balance), true);
@@ -3459,14 +3133,12 @@ return { user: cached };
 
 window.getSession = getSession;
 
-// GLOBAL BALANCE STATE (only once!)
 window.currentDisplayedBalance = 0;
 window.isBalanceMasked = true;
 window.animationFrame = null;
 window.balanceInitialized = false;
 let balanceToggleInProgress = false;
 
-// Restore user preference
 try {
   const saved = localStorage.getItem('balanceMasked');
   if (saved !== null) window.isBalanceMasked = saved === 'true';
@@ -3478,7 +3150,6 @@ function easeOutCubic(t) {
   return 1 - Math.pow(1 - t, 3);
 }
 
-// Apply visibility – no layout jumps
 function applyBalanceVisibility() {
   const cards = document.querySelectorAll('.balance');
   cards.forEach(card => {
@@ -3515,9 +3186,7 @@ function applyBalanceVisibility() {
   });
 }
 
-// NUCLEAR EYE TOGGLE — THE EYE IS NOW GOD (replaces old handler)
 function setupNuclearEyeToggle() {
-  // Remove any old handler
   document.removeEventListener('click', window.__NUCLEAR_EYE_HANDLER, true);
 
   window.__NUCLEAR_EYE_HANDLER = function(e) {
@@ -3527,17 +3196,14 @@ function setupNuclearEyeToggle() {
     e.preventDefault();
     e.stopImmediatePropagation();
 
-    // Cancel any balance animation
     if (window.animationFrame) {
       cancelAnimationFrame(window.animationFrame);
       window.animationFrame = null;
     }
 
-    // Determine desired state (click = toggle)
     const wasMasked = window.isBalanceMasked;
     const shouldShowBalance = wasMasked; // clicking closed eye → show, clicking open → hide
 
-    // FORCE GLOBAL STATE
     window.isBalanceMasked = !shouldShowBalance;
     localStorage.setItem('balanceMasked', window.isBalanceMasked);
 
@@ -3547,11 +3213,9 @@ function setupNuclearEyeToggle() {
       maximumFractionDigits: 2
     });
 
-    // FORCE ALL TEXT
     document.querySelectorAll('[data-balance], .balance-real').forEach(el => el.textContent = formatted);
     document.querySelectorAll('.balance-masked').forEach(el => el.textContent = shouldShowBalance ? formatted : '••••••');
 
-    // FORCE VISIBILITY
     document.querySelectorAll('.balance-real, [data-balance]').forEach(el => {
       el.style.opacity = shouldShowBalance ? '1' : '0';
       el.style.pointerEvents = shouldShowBalance ? '' : 'none';
@@ -3561,8 +3225,6 @@ function setupNuclearEyeToggle() {
       el.style.pointerEvents = shouldShowBalance ? 'none' : '';
     });
 
-    // FORCE ALL EYES TO SYNC (like twins)
-    // Sync ALL eyes + balance switch knob — 100% in sync forever
 document.querySelectorAll('.balance-eye-toggle').forEach(toggle => {
   toggle.classList.toggle('open', shouldShowBalance);
   toggle.classList.toggle('closed', !shouldShowBalance);
@@ -3580,17 +3242,13 @@ document.querySelectorAll('.balance-eye-toggle').forEach(toggle => {
   }
 });
 
-// FORCE BALANCE SWITCH TO FOLLOW IMMEDIATELY (this was missing!)
 const switchEl = document.getElementById('balanceSwitch');
 if (switchEl) {
-  // 1. Set correct state
   switchEl.setAttribute('aria-checked', shouldShowBalance ? 'true' : 'false');
 
-  // 2. Force the knob to have the exact same premium animation as the eye
   const knob = switchEl.querySelector('.knob');
   if (knob) {
     knob.style.transition = 'transform 420ms cubic-bezier(0.2, 0.9, 0.3, 1)';
-    // CSS will move it automatically via [aria-checked], but we force repaint so it never gets stuck
     knob.style.transform = shouldShowBalance 
       ? (switchEl.classList.contains('small') ? 'translateX(18px)' : 'translateX(26px)') 
       : 'translateX(0)';
@@ -3600,11 +3258,9 @@ if (switchEl) {
     console.log(`EYE FORCE: Balance is now ${shouldShowBalance ? 'VISIBLE' : 'HIDDEN'} — all eyes in sync`);
   };
 
-  // Use capture phase + highest priority
   document.addEventListener('click', window.__NUCLEAR_EYE_HANDLER, { capture: true, passive: false });
 }
 
-// Sync existing eyes on load
 function syncAllEyes() {
   const shouldShow = !window.isBalanceMasked;
   document.querySelectorAll('.balance-eye-toggle').forEach(eye => {
@@ -3625,14 +3281,11 @@ function syncAllEyes() {
   applyBalanceVisibility();
 }
 
-// First paint
 syncAllEyes();
 applyBalanceVisibility();
 
-// Setup nuclear toggle
 setupNuclearEyeToggle();
 
-// Master updater — now 100% safe
 window.updateAllBalances = function(newBalance, skipAnimation = false) {
   newBalance = Number(newBalance) || 0;
 
@@ -3653,13 +3306,11 @@ window.updateAllBalances = function(newBalance, skipAnimation = false) {
     document.querySelectorAll('[data-balance], .balance-real').forEach(el => el.textContent = formatted);
     document.querySelectorAll('.balance-masked').forEach(el => el.textContent = window.isBalanceMasked ? '••••••' : formatted);
 
-    // Re-sync eyes and visibility in case user has it unmasked
     syncAllEyes();
     applyBalanceVisibility();
     return;
   }
 
-  // Animated update...
   if (window.animationFrame) cancelAnimationFrame(window.animationFrame);
 
   const startBalance = window.currentDisplayedBalance;
@@ -3696,7 +3347,6 @@ window.__handleBalanceUpdate = function(data) {
   
   window.updateAllBalances(Number(data.balance));
 
-  // Also persist to localStorage so cache stays warm
   try {
     const raw = localStorage.getItem('userState');
     if (raw) {
@@ -3709,7 +3359,6 @@ window.__handleBalanceUpdate = function(data) {
 };
 
 
-// Run observer only on dashboard
 if (window.location.pathname.includes('dashboard')) {
   window.addEventListener('load', () => { // Or 'DOMContentLoaded' if preferred
     console.log('[DEBUG] window.load: Starting MutationObserver');
@@ -3735,7 +3384,6 @@ function responsiveNameSize() {
     const availableWidth = headerWidth - supportWidth - avatarWidth - padding - gaps;
     const nameWidth = firstname.offsetWidth;
     
-    // If name takes more than 70% of available space, shrink it
     if (nameWidth > availableWidth * 0.7) {
       firstname.style.fontSize = '0.95rem';
     } else if (nameWidth > availableWidth * 0.5) {
@@ -3748,7 +3396,6 @@ function responsiveNameSize() {
   resizeObserver.observe(header);
 }
 
-// --- Observer to wait for elements ---
 function observeForElements() {
   const targetNode = document.body; // Or a specific parent like document.querySelector('.user-greeting')
   const config = { childList: true, subtree: true }; // Watch for added/removed nodes
@@ -3776,7 +3423,6 @@ function observeForElements() {
   observer.observe(targetNode, config);
   console.log('[DEBUG] MutationObserver: Started watching for elements');
   
-  // Fallback: If elements already exist, call immediately
   const greetEl = document.getElementById('greet');
   const firstnameEl = document.getElementById('firstname');
   const avatarEl = document.getElementById('avatar');
@@ -3788,7 +3434,6 @@ function observeForElements() {
 }
 
 
-// Helper: Apply user data to DOM elements
 function applySessionToDOM(user) {
   const greetEl = document.getElementById('greet');
   const firstnameEl = document.getElementById('firstname');
@@ -3836,14 +3481,10 @@ function applySessionToDOM(user) {
     }
   }
 
-  // ADD THIS: Set initial balance without animation
-// ADD THIS: Set initial balance without animation
 if (user.wallet_balance !== undefined) {
-  // Only update balance if the server actually sent one — never default to 0
 if (user.wallet_balance === undefined || user.wallet_balance === null) return;
 const newBalance = Number(user.wallet_balance);
 if (isNaN(newBalance)) return; // malformed — don't overwrite good data
-// ✅ Force proper initialization using the global updater
 window.updateAllBalances(newBalance, true);  // skip animation on first load
   
   const formatted = '₦' + newBalance.toLocaleString('en-NG', {
@@ -3851,7 +3492,6 @@ window.updateAllBalances(newBalance, true);  // skip animation on first load
     maximumFractionDigits: 2
   });
   
-  // Update all balance elements immediately
   document.querySelectorAll('[data-balance], .balance-real').forEach(el => {
     el.textContent = formatted;
   });
@@ -3877,16 +3517,13 @@ applyBalanceVisibility();
  * Call this once after DOM ready (e.g. in onDashboardLoad or at end of script)
  */
 function initBalanceSwitchHelper() {
-  // Prevent duplicate init
   if (window.__balanceSwitchHelperInitialized) return;
   window.__balanceSwitchHelperInitialized = true;
 
-  // Ensure global state exists (your existing vars)
   window.isBalanceMasked = localStorage.getItem('balanceMasked') === 'true';
   window.currentDisplayedBalance = window.currentDisplayedBalance || 0;
   window.balanceToggleInProgress = false;
 
-  // ── Shared toggle function (same as eye uses) ────────────────────
   const toggleBalance = () => {
     if (window.balanceToggleInProgress) return;
     window.balanceToggleInProgress = true;
@@ -3901,11 +3538,9 @@ function initBalanceSwitchHelper() {
       maximumFractionDigits: 2
     });
 
-    // Update text
     document.querySelectorAll('[data-balance], .balance-real').forEach(el => el.textContent = formatted);
     document.querySelectorAll('.balance-masked').forEach(el => el.textContent = shouldShow ? formatted : '••••••');
 
-    // Update visibility
     document.querySelectorAll('.balance-real, [data-balance]').forEach(el => {
       el.style.opacity = shouldShow ? '1' : '0';
       el.style.pointerEvents = shouldShow ? '' : 'none';
@@ -3915,7 +3550,6 @@ function initBalanceSwitchHelper() {
       el.style.pointerEvents = shouldShow ? 'none' : '';
     });
 
-    // Sync eyes (your existing animation)
     document.querySelectorAll('.balance-eye-toggle').forEach(toggle => {
       toggle.classList.toggle('open', shouldShow);
       toggle.classList.toggle('closed', !shouldShow);
@@ -3933,14 +3567,12 @@ function initBalanceSwitchHelper() {
       }
     });
 
-    // ── Force switch knob to slide smoothly ─────────────────────────
     const sw = document.getElementById('balanceSwitch');
     if (sw) {
       sw.setAttribute('aria-checked', shouldShow ? 'true' : 'false');
 
       const knob = sw.querySelector('.knob');
       if (knob) {
-        // Double RAF + reflow = reliable animation trigger
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             knob.style.transition = 'none';
@@ -3958,10 +3590,8 @@ function initBalanceSwitchHelper() {
     setTimeout(() => { window.balanceToggleInProgress = false; }, 400);
   };
 
-  // ── Attach switch listener (clean & safe) ────────────────────────
   const balanceSwitch = document.getElementById('balanceSwitch');
   if (balanceSwitch) {
-    // Clone to wipe any old/broken listeners
     const freshSwitch = balanceSwitch.cloneNode(true);
     balanceSwitch.parentNode.replaceChild(freshSwitch, balanceSwitch);
 
@@ -3975,20 +3605,14 @@ function initBalanceSwitchHelper() {
     freshSwitch.style.cursor = 'pointer';
   }
 
-  // ── Eye icons keep their existing handler (no change needed) ─────
-  // Your current setupNuclearEyeToggle() already works perfectly
-  // We just make sure switch follows the same toggleBalance()
 
-  // ── Initial sync ─────────────────────────────────────────────────
 
   console.log('[Balance Switch Helper] Initialized — switch now clickable + animates knob');
 }
 
-// Run the helper once (safe to call multiple times)
 initBalanceSwitchHelper();
 
 
-// Helper: Update localStorage with user data
 function updateLocalStorageFromUser(user) {
   try {
     const userData = {
@@ -4010,7 +3634,6 @@ function updateLocalStorageFromUser(user) {
       allTimeOut: user.allTimeOut || 0,
       totalDataTxCount: user.totalDataTxCount || 0,
       recentDataTx: user.recentDataTx || [],
-      // ✅ Always persist the real balance so the page-load inline script can read it
       wallet_balance: user.wallet_balance ?? null,
       cachedAt: Date.now()
   };
@@ -4052,10 +3675,7 @@ function updateLocalStorageFromUser(user) {
 
 
 
-// 🔹 Sub-handler stubs (add these functions globally — simple local toggles)
-// 🔹 Fixed Child Toggle Handlers (auto-disable parent when both children turn OFF)
 
-// 🔹 Fixed Child Toggle Handlers (allow individual ON/OFF, auto-disable parent when both OFF)
 
 async function handleBioLoginToggle(e) {
     e.preventDefault();
@@ -4065,7 +3685,6 @@ async function handleBioLoginToggle(e) {
     
     console.log('[DEBUG] handleBioLoginToggle clicked:', { currentlyOn, newState });
     
-    // Update this child's state
     switchBtn.setAttribute('aria-checked', newState.toString());
     if (newState) {
         switchBtn.classList.add('active');
@@ -4076,23 +3695,19 @@ async function handleBioLoginToggle(e) {
     }
     localStorage.setItem('biometricForLogin', newState ? 'true' : 'false');
     
-    // Update security module keys if they exist
     if (window.__sec_KEYS && window.__sec_KEYS.bioLogin) {
         localStorage.setItem(window.__sec_KEYS.bioLogin, newState ? '1' : '0');
     }
     
-    // 🔥 CHECK: If BOTH children are now OFF, turn parent OFF
     const bioForTx = localStorage.getItem('biometricForTx') === 'true';
     if (!newState && !bioForTx) {
         console.log('[DEBUG] Both children OFF -> disabling parent');
         localStorage.setItem('biometricsEnabled', 'false');
         
-        // Update security module parent key if exists
         if (window.__sec_KEYS && window.__sec_KEYS.biom) {
             localStorage.setItem(window.__sec_KEYS.biom, '0');
         }
         
-        // Update parent UI
         const mainSwitch = document.getElementById('biometricsSwitch');
         if (mainSwitch) {
             mainSwitch.setAttribute('aria-checked', 'false');
@@ -4100,7 +3715,6 @@ async function handleBioLoginToggle(e) {
             mainSwitch.classList.add('inactive');
         }
         
-        // Hide subgroup
         const subgroup = document.getElementById('biometricsOptions');
         if (subgroup) subgroup.hidden = true;
         
@@ -4128,7 +3742,6 @@ async function handleBioTxToggle(e) {
     
     console.log('[DEBUG] handleBioTxToggle clicked:', { currentlyOn, newState });
     
-    // Update this child's state
     switchBtn.setAttribute('aria-checked', newState.toString());
     if (newState) {
         switchBtn.classList.add('active');
@@ -4139,23 +3752,19 @@ async function handleBioTxToggle(e) {
     }
     localStorage.setItem('biometricForTx', newState ? 'true' : 'false');
     
-    // Update security module keys if they exist
     if (window.__sec_KEYS && window.__sec_KEYS.bioTx) {
         localStorage.setItem(window.__sec_KEYS.bioTx, newState ? '1' : '0');
     }
     
-    // 🔥 CHECK: If BOTH children are now OFF, turn parent OFF
     const bioForLogin = localStorage.getItem('biometricForLogin') === 'true';
     if (!newState && !bioForLogin) {
         console.log('[DEBUG] Both children OFF -> disabling parent');
         localStorage.setItem('biometricsEnabled', 'false');
         
-        // Update security module parent key if exists
         if (window.__sec_KEYS && window.__sec_KEYS.biom) {
             localStorage.setItem(window.__sec_KEYS.biom, '0');
         }
         
-        // Update parent UI
         const mainSwitch = document.getElementById('biometricsSwitch');
         if (mainSwitch) {
             mainSwitch.setAttribute('aria-checked', 'false');
@@ -4163,7 +3772,6 @@ async function handleBioTxToggle(e) {
             mainSwitch.classList.add('inactive');
         }
         
-        // Hide subgroup
         const subgroup = document.getElementById('biometricsOptions');
         if (subgroup) subgroup.hidden = true;
         
@@ -4183,14 +3791,12 @@ async function handleBioTxToggle(e) {
     });
 }
 
-// 🔹 Optional: Main toggle stub (if not defined — calls register/disable)
 async function handleBioToggle(e) {
   e.preventDefault();
   const mainSwitch = e.currentTarget;
   const currentlyEnabled = mainSwitch.getAttribute('aria-checked') === 'true';
   
   if (currentlyEnabled) {
-    // Disable: Revoke + clear
     await disableBiometrics();  // Your disable func (if exists; else local clear)
     mainSwitch.setAttribute('aria-checked', 'false');
     mainSwitch.classList.remove('active');
@@ -4199,7 +3805,6 @@ async function handleBioToggle(e) {
     if (subgroup) subgroup.hidden = true;
     notify('Biometrics disabled', 'info');
   } else {
-    // Enable: Register
     const { success } = await registerBiometrics();  // Your register func
     if (success) {
       mainSwitch.setAttribute('aria-checked', 'true');
@@ -4207,7 +3812,6 @@ async function handleBioToggle(e) {
       mainSwitch.classList.remove('inactive');
       const subgroup = document.getElementById('biometricsOptions');
       if (subgroup) subgroup.hidden = false;
-      // Default subs on (optional)
       localStorage.setItem('biometricForLogin', 'true');
       localStorage.setItem('biometricForTx', 'true');
       notify('Biometrics enabled', 'success');
@@ -4216,81 +3820,18 @@ async function handleBioToggle(e) {
 }
 
 
-// // // === Safety shim: ensure pollStatus exists (place this near top, before onDashboardLoad runs) ===
-// if (typeof pollStatus === 'undefined') {
-//   // keep minimal global guards
-//   window.__fg_poll_inflight = window.__fg_poll_inflight || null;
-//   window.__fg_last_poll_ts = window.__fg_last_poll_ts || 0;
-//   window.FG_POLL_MIN_MS = window.FG_POLL_MIN_MS || 600;
-
-//   window.pollStatus = async function pollStatus() {
-//     const now = Date.now();
-
-//     // dedupe in-flight
-//     if (window.__fg_poll_inflight) {
-//       console.debug('pollStatus shim: reusing in-flight');
-//       return window.__fg_poll_inflight;
-//     }
-
-//     // throttle
-//     if (now - (window.__fg_last_poll_ts || 0) < (window.FG_POLL_MIN_MS || 600)) {
-//       console.debug('pollStatus shim: called too soon — skipping');
-//       return Promise.resolve();
-//     }
-
-//     window.__fg_poll_inflight = (async () => {
-//       try {
-//         if (typeof _pollStatus_internal === 'function') {
-//           // preferred: call your internal implementation
-//           return await _pollStatus_internal();
-//         }
-
-//         // fallback: simple processable fetch (keeps UI stable until real implementation available)
-//         try {
-//           const apiBase = (window.__SEC_API_BASE || (typeof API_BASE !== 'undefined' ? API_BASE : ''));
-//           const url = apiBase ? `${apiBase}/api/status` : '/api/status';
-//           const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
-//           let body = null;
-//           try {
-//             const ct = res.headers && typeof res.headers.get === 'function' ? res.headers.get('content-type') : null;
-//             if (res.status !== 204 && ct && ct.toLowerCase().includes('application/json')) {
-//               body = await res.json();
-//             }
-//           } catch (e) { /* ignore parse */ }
-
-//           if (body && body.notification) {
-//             const notif = Array.isArray(body.notification) ? (body.notification[0] || null) : body.notification;
-//             if (notif) {
-//               try {
-//                 showBanner(notif.message || '', { persistent: !!notif.sticky, serverId: notif.id });
-//                 window.__fg_currentBanner = window.__fg_currentBanner || {};
-//                 window.__fg_currentBanner.serverId = notif.id;
-//                 localStorage.setItem('active_broadcast_id', String(notif.id));
-//               } catch (e) { console.warn('pollStatus shim: showBanner failed', e); }
-//             }
-//           }
-//           return res;
-//         } catch (e) {
-//           console.debug('pollStatus shim: fallback fetch failed', e);
-//           return null;
-//         }
-//       } finally {
-//         window.__fg_last_poll_ts = Date.now();
-//         window.__fg_poll_inflight = null;
-//       }
-//     })();
-
-//     return window.__fg_poll_inflight;
-//   };
-// }
 
 
-// After getSession succeeds
-// After getSession succeeds (now cache-first)
+
+
+
+
+
+
+
 async function onDashboardLoad() {
   console.log('[onDashboardLoad] fired');
   console.log('[onDashboardLoad] loadLatestHistoryAsFallback available?', typeof loadLatestHistoryAsFallback);
-  // Instant cache render first
   const cachedUserData = localStorage.getItem('userData');
   if (cachedUserData) {
     try {
@@ -4303,7 +3844,6 @@ async function onDashboardLoad() {
     } catch (e) { /* ignore */ }
   }
 
-  // --- SINGLE getSession() call (capture result) ---
   let session = null;
   try {
     session = await getSession(); // <-- only one call in the entire function
@@ -4314,7 +3854,6 @@ async function onDashboardLoad() {
 
 
 
-// Seed KYC state from session so new/switched devices get localStorage populated instantly
 if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
   window.seedKYCStateFromSessionUser(session.user);
 }
@@ -4324,7 +3863,6 @@ if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
   if (typeof loadLatestHistoryAsFallback === 'function') {
   loadLatestHistoryAsFallback();
 } else {
-  // history.js not ready yet — wait for it
   const maxWait = 5000;
   const interval = 100;
   let waited = 0;
@@ -4345,12 +3883,10 @@ if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
 
 
 
-  // 🔥 ADD THESE TWO LINES (after the single getSession)
   await renderDashboardCardsFromState({ preferServer: true });
 
   initializeSmartAccountPinButton();
 
-  // fetch active broadcasts (separate; doesn't call getSession)
   try {
     const broadcasts = await fetchActiveBroadcasts(); // this already shows banner & sets active_broadcast_id
     console.debug('[BCAST] fetchActiveBroadcasts returned', broadcasts.length);
@@ -4358,9 +3894,7 @@ if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
     console.warn('[BCAST] fetchActiveBroadcasts failed at login', err);
   }
 
-  // Securely sync PIN/bio flags to storage on load
   try {
-    // 🔹 Force fresh fetch for flags (bypass 5min cache — add Cache-Control: no-cache to bust browser cache)
     const freshRes = await fetch(`${window.__SEC_API_BASE}/api/session`, {
       method: 'GET',
       credentials: 'include',
@@ -4373,7 +3907,6 @@ if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
     const freshPayload = await freshRes.json();
     const freshSession = { user: freshPayload.user || {} };  // Mimic getSession structure
 
-    // 🔹 DEBUG: Log raw fresh session for bio/pin (remove after fix)
     console.log('[DEBUG-SYNC-FRESH] Raw fresh session.user:', {
       hasPin: freshSession?.user?.hasPin,
       hasBiometrics: freshSession?.user?.hasBiometrics,
@@ -4384,11 +3917,9 @@ if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
     const hasPin = freshSession?.user?.hasPin || localStorage.getItem('hasPin') === 'true' || false;
     localStorage.setItem('hasPin', hasPin ? 'true' : 'false');
 
-    // 🔹 Align biometrics with fresh server fallback (uses backend's hasBiometrics count)
     const biometricsEnabled = freshSession?.user?.hasBiometrics || localStorage.getItem('biometricsEnabled') === 'true' || false;
     localStorage.setItem('biometricsEnabled', biometricsEnabled ? 'true' : 'false');
 
-    // 🔹 DEBUG: Log post-sync localStorage (remove after fix)
     console.log('[DEBUG-SYNC-FRESH] Post-sync localStorage:', {
       hasPin: localStorage.getItem('hasPin'),
       biometricsEnabled: localStorage.getItem('biometricsEnabled'),
@@ -4408,7 +3939,6 @@ if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
       });
     }
 
-    // If bio enabled and credentialId exists, prefetch immediately
     if (localStorage.getItem('biometricsEnabled') === 'true' && localStorage.getItem('credentialId')) {
       prefetchAuthOptions();
     }
@@ -4416,8 +3946,6 @@ if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
 
   } catch (err) {
     console.warn('[onDashboardLoad] Flag sync error', err);
-    // Fallback: Use the single-session result captured earlier (if any),
-    // otherwise leave localStorage as-is or apply conservative defaults.
     try {
       const useSession = session; // reuse single call result (may be null)
       const hasPin = useSession?.user?.hasPin || localStorage.getItem('hasPin') === 'true' || false;
@@ -4426,7 +3954,6 @@ if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
       const biometricsEnabled = useSession?.user?.hasBiometrics || localStorage.getItem('biometricsEnabled') === 'true' || false;
       localStorage.setItem('biometricsEnabled', biometricsEnabled ? 'true' : 'false');
 
-      // When biometrics not enabled, don't leave children in an indeterminate state:
       if (!biometricsEnabled) {
         localStorage.setItem('biometricForLogin', 'false');
         localStorage.setItem('biometricForTx', 'false');
@@ -4453,13 +3980,9 @@ if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
     console.warn('setupInactivity not available - skipping');
   }
 
-  // --------------------------
-  // React to successful reauth
-  // --------------------------
   (function(){
     let __fg_reauth_timer = null;
     const __fg_reauth_debounce_ms = 600; // slightly larger debounce to allow server to settle
-    // Short-circuit: do not start a new poll if one started recently
     const MIN_REAUTH_POLL_MS = 700;
     let __fg_last_reauth_poll = 0;
 
@@ -4492,9 +4015,6 @@ if (session?.user && typeof window.seedKYCStateFromSessionUser === 'function') {
     }, { passive: true });
   })();
 
-  // Boot-time: decide soft vs hard reauth using server authoritive check.
-// If we were away long enough, ask server whether session is locked.
-// If locked -> open the full reauth modal immediately. Otherwise fall back to soft prompt.
 try {
   const IDLE_TIME = 30 * 60 * 1000; // 30 minutes
   const last = parseInt(localStorage.getItem('lastActive')) || 0;
@@ -4507,7 +4027,6 @@ try {
     }
 
     if (reauthCheck && reauthCheck.needsReauth) {
-      // Server says reauth required -> open authoritative reauth modal immediately
       try {
         if (window.__reauth && typeof window.__reauth.showReauthModal === 'function') {
           await window.__reauth.showReauthModal('reauth');
@@ -4519,7 +4038,6 @@ try {
         await showInactivityPrompt();
       }
     } else {
-      // session still OK -> soft inactivity or just reset timer
       try { resetIdleTimer(); } catch (e) { console.warn('resetIdleTimer on boot failed', e); }
     }
   }
@@ -4531,17 +4049,13 @@ try {
     await window.__idleDetection.setup();
   }
 
-  // Initial status fetch
 if (typeof pollStatus === 'function') pollStatus();
 
-// Start polling
 setInterval(() => pollStatus(), 30000);
 
-// Pre-warm the reauth JWT so it's ready if the user needs to reauth
 getSharedJWT().catch(() => {});
 
 
-  // Rocket: register SW, start pollStatus, etc.
   async function registerSW() {
     if ('serviceWorker' in navigator) {
       try {
@@ -4573,7 +4087,6 @@ getSharedJWT().catch(() => {});
     }
   }
 
-  // Post-login re-sync
   if (localStorage.getItem('justLoggedIn') === 'true') {
     localStorage.removeItem('justLoggedIn');
     setupInactivity();
@@ -4599,28 +4112,13 @@ getSharedJWT().catch(() => {});
 }
 
 
-// ============================================
-// SMART DASHBOARD CARDS (Setup Pin + Update Profile)
-// ============================================
 
 /**
  * Hides dashboard cards based on completion status from server
  * Call this after getSession() or on dashboard load
  */
-// Updated manageDashboardCards(): Force server check + instant apply, with await for sync to ensure no flash/revert.
-// Mirrors profile logic exactly (symmetric). Calls apply after sync completes, not in parallel.
-// Added forceHide param for manual calls (e.g., after PIN setup success) to immediately hide if local/server confirms true.
 
-// Enhanced manageDashboardCards() with VERBOSE LOGS: Trace every step (local reads, server fetch, updates, applies).
-// Logs prefixed with [DC-TRACE] for easy grep. Run this, add PIN, check console for flow.
-// Added timestamps for timing analysis (e.g., race detection).
 
-// FIXED manageDashboardCards(): Symmetric server sync for BOTH cards.
-// - Profile now explicitly awaits server.user.profileCompleted (like PIN's hasPin).
-// - Fixed dispatch bug: Use oldProfileCompleted (not oldHasPin).
-// - Enhanced logs for Profile sync (e.g., 'SYNC: Profile server value').
-// - Ensures localStorage updated from server, then re-apply (no local-only fallback unless error).
-// - On error, log but still apply from local (graceful).
 
 async function manageDashboardCards(forceHidePin = false, forceShowProfile = false) {
     const traceId = `DC-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -4632,7 +4130,6 @@ async function manageDashboardCards(forceHidePin = false, forceShowProfile = fal
     try {
         log('START: Checking cards visibility', { forceHidePin, forceShowProfile });
         
-        // Helper to apply visibility to a card
         function applyToCard(cardId, shouldHide, cardType = 'generic') {
             const card = document.getElementById(cardId);
             if (!card) {
@@ -4646,7 +4143,6 @@ async function manageDashboardCards(forceHidePin = false, forceShowProfile = fal
             log(`APPLY: ${cardType} card - shouldHide: ${shouldHide}`, { id: cardId });
             
             if (shouldHide) {
-                // Graceful: Fade first, then hide
                 card.classList.add(fadeClass);
                 setTimeout(() => {
                     card.classList.add(hideClass);
@@ -4654,13 +4150,11 @@ async function manageDashboardCards(forceHidePin = false, forceShowProfile = fal
                     log(`APPLY: ${cardType} fade-to-hide complete`);
                 }, 200);
             } else {
-                // Show: Remove classes, force flex inline (resets overrides)
                 card.classList.remove(hideClass, fadeClass);
                 card.style.display = 'flex';  // Inline restore - no !important needed
                 log(`APPLY: ${cardType} show with inline flex`);
             }
             
-            // Post-paint verification
             requestAnimationFrame(() => {
                 const computed = getComputedStyle(card).display;
                 log(`APPLY: ${cardType} post-paint check`, { 
@@ -4670,7 +4164,6 @@ async function manageDashboardCards(forceHidePin = false, forceShowProfile = fal
                     classList: card.className 
                 });
                 
-                // Force if mismatch
                 if (shouldHide && computed !== 'none') {
                     log(`WARN: ${cardType} mismatch - forcing hide`);
                     card.classList.add(hideClass);
@@ -4682,18 +4175,14 @@ async function manageDashboardCards(forceHidePin = false, forceShowProfile = fal
             });
         }
         
-        // 🔥 APPLY INSTANTLY from localStorage (initial render)
         log('PHASE1: Instant apply from localStorage');
         const localHasPin = localStorage.getItem('hasPin') === 'true';
         const localProfileCompleted = localStorage.getItem('profileCompleted') === 'true';
         
-        // Apply to PIN card
         applyToCard('dashboardPinCard', localHasPin || forceHidePin, 'PIN');
         
-        // Apply to Profile card (local first)
         applyToCard('dashboardUpdateProfileCard', localProfileCompleted || !forceShowProfile, 'Profile');
         
-        // Listeners (unchanged)
         if (!window.__dashboardListenersAttached) {
             log('ATTACH: Adding global listeners');
             window.addEventListener('pin-status-changed', (e) => {
@@ -4714,7 +4203,6 @@ async function manageDashboardCards(forceHidePin = false, forceShowProfile = fal
             log('ATTACH: Listeners already attached');
         }
         
-        // 🔥 BACKGROUND SYNC: Await server for BOTH (authoritative - overrides local)
         log('PHASE2: Background server sync (await getSession for both PIN + Profile)');
         try {
             if (typeof getSession === 'function') {
@@ -4725,32 +4213,26 @@ async function manageDashboardCards(forceHidePin = false, forceShowProfile = fal
                 log('SYNC: getSession() complete', { durationMs: sessionDuration, sessionExists: !!session });
                 
                 if (session?.user) {
-                    // PIN: Server check
                     const serverHasPin = session.user.hasPin || false;
                     log('SYNC: PIN server value', { serverHasPin });
                     
-                    // Profile: Server check (symmetric)
                     const serverProfileCompleted = session.user.profileCompleted || false;
                     log('SYNC: Profile server value', { serverProfileCompleted });
                     
-                    // Track old locals for dispatch
                     const oldHasPin = localHasPin;
                     const oldProfileCompleted = localProfileCompleted;
                     log('SYNC: Old local values', { oldHasPin, oldProfileCompleted });
                     
-                    // Update localStorage from server (authoritative for both)
                     localStorage.setItem('hasPin', serverHasPin ? 'true' : 'false');
                     localStorage.setItem('profileCompleted', serverProfileCompleted ? 'true' : 'false');
                     log('SYNC: Updated localStorage from server', { newHasPin: serverHasPin, newProfileCompleted: serverProfileCompleted });
                     
-                    // Re-apply to BOTH after update
                     log('SYNC: Re-applying to PIN after server sync');
                     applyToCard('dashboardPinCard', serverHasPin, 'PIN');
                     
                     log('SYNC: Re-applying to Profile after server sync');
                     applyToCard('dashboardUpdateProfileCard', serverProfileCompleted, 'Profile');
                     
-                    // Dispatch if changed
                     if (serverHasPin !== oldHasPin) {
                         log('SYNC: Dispatching pin-status-changed');
                         window.dispatchEvent(new Event('pin-status-changed'));
@@ -4767,7 +4249,6 @@ async function manageDashboardCards(forceHidePin = false, forceShowProfile = fal
             }
         } catch (e) {
             log('SYNC: Failed', { error: e.message });
-            // Fallback: Re-apply from local (but log warning - server check failed)
             log('SYNC: Fallback re-apply from local (server error)');
             applyToCard('dashboardPinCard', localHasPin, 'PIN');
             applyToCard('dashboardUpdateProfileCard', localProfileCompleted, 'Profile');
@@ -4782,7 +4263,6 @@ async function manageDashboardCards(forceHidePin = false, forceShowProfile = fal
 
 function initializeSmartAccountPinButton() {
     try {
-        // Find the Account Pin row in security modal
         const accountPinRow = document.getElementById('securityPinRow');
         const accountPinStatus = document.getElementById('accountPinStatus');    if (!accountPinRow || !accountPinStatus) {
         console.warn('[Smart PIN Button] Account Pin elements not found in security modal');
@@ -4791,7 +4271,6 @@ function initializeSmartAccountPinButton() {
     
     console.log('[Smart PIN Button] Found Account Pin row, setting up smart behavior');
     
-    // Helper: Open a PIN modal with fallbacks + accessibility (DRY)
     async function openPinModal(mode = 'setup') {
         const modalId = mode === 'change' ? 'securityPinModal' : 'pinModal';
         
@@ -4799,7 +4278,6 @@ function initializeSmartAccountPinButton() {
             window.ModalManager.openModal(modalId);
             console.log(`[Smart PIN Button] Opened ${modalId} via ModalManager for ${mode}`);
         } else {
-            // Direct fallback
             const modal = document.getElementById(modalId) || 
                           document.querySelector(`.${mode === 'change' ? 'pin-change-modal' : 'pin-setup-modal'}`);
             if (modal) {
@@ -4817,22 +4295,18 @@ function initializeSmartAccountPinButton() {
         return true;
     }
     
-    // Helper: Focus first input in modal for accessibility
     function focusFirstInput(mode) {
         const modal = document.querySelector('.modal.active, .pin-modal:not(.hidden), #pinModal:not(.hidden), #securityPinModal:not(.hidden)');
         if (!modal) return;
         const firstInput = modal.querySelector('input[type="password"], input[autofocus], .pin-input, input[role="pin"]');
         
-        // Avoid auto-focus on mobile devices (prevents keyboard show/hide flicker)
         const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
         if (!firstInput) {
-            // fallback: focus the modal container title so screen readers get context without scroll
             try { modal.querySelector('h2, .modal-title, [role="banner"]')?.focus?.({ preventScroll: true }); } catch(e) {}
             return;
         }
         
         if (isMobile) {
-            // On mobile, focus a non-input element to avoid keyboard instantly showing
             try { const title = modal.querySelector('.pin-header h2, .modal-title'); if (title) title.focus({ preventScroll: true }); } catch (e) {}
             return;
         }
@@ -4845,7 +4319,6 @@ function initializeSmartAccountPinButton() {
         }
     }
     
-    // Function to update button text based on PIN status
     function updateAccountPinButton() {
         const hasPin = localStorage.getItem('hasPin') === 'true';
         
@@ -4858,12 +4331,9 @@ function initializeSmartAccountPinButton() {
         }
     }
     
-    // Update button text initially
     updateAccountPinButton();
     
-    // Override click handler (CAPTURE PHASE: Blocks ModalManager early)
     accountPinRow.addEventListener('click', async function(e) {
-        // BLOCK OVERLAP: Stop ALL propagation (ModalManager won't fire)
         e.stopImmediatePropagation();
         e.preventDefault();
         e.stopPropagation();
@@ -4878,21 +4348,17 @@ function initializeSmartAccountPinButton() {
             return;
         }
         
-        // REMOVED: Manual close of security modal. Now handled by stack for proper back/close behavior.
     }, { capture: true, passive: false });  // Capture: Runs FIRST!
     
-    // Listen for PIN status changes (e.g., after successful PIN setup)
     window.addEventListener('pin-status-changed', function() {
         console.log('[Smart PIN Button] PIN status changed, updating button');
         updateAccountPinButton();
         
-        // Also refresh dashboard cards (if function exists and we're on dashboard)
         if (typeof manageDashboardCards === 'function') {
             manageDashboardCards();
         }
     });
     
-    // Also listen for storage changes (cross-tab sync)
     window.addEventListener('storage', function(e) {
         if (e.key === 'hasPin') {
             console.log('[Smart PIN Button] hasPin changed in storage, updating button');
@@ -4907,15 +4373,7 @@ function initializeSmartAccountPinButton() {
 }}
 
 
-// 🔹 Biometric UI Restoration (runs on load to persist state across reloads)
-// 🔹 Biometric UI Restoration (runs on load to persist state across reloads)
-// 🔹 Biometric UI Restoration (targets SETTINGS toggle: #biometricsSwitch + subs)
-// 🔹 Biometric UI Restoration (with tighter guards + default subs on)
-// ----------------- Fixed restoreBiometricUI (drop-in replacement) -----------------
-// 🔹 Fixed Biometric UI Restoration (parent follows children rule)
-// ----------------- Fixed restoreBiometricUI (handles reload correctly) -----------------
 async function restoreBiometricUI() {
-    // 🔥 READ VALUES FIRST - Don't let anything modify them yet
     const biometricsEnabledRaw = localStorage.getItem('biometricsEnabled');
     const credentialId = localStorage.getItem('credentialId') || localStorage.getItem('webauthn-cred-id');
     const hasPin = localStorage.getItem('hasPin') === 'true';
@@ -4930,22 +4388,18 @@ async function restoreBiometricUI() {
         hasPin
     });
     
-    // Parse flags
     let biometricsEnabled = biometricsEnabledRaw === 'true';
     let bioForLogin = bioForLoginRaw === 'true';
     let bioForTx = bioForTxRaw === 'true';
     
-    // 🔥 KEY RULE: Parent can only be ON if at least one child is ON
     const atLeastOneChildEnabled = bioForLogin || bioForTx;
     
-    // Handle first-time setup (all keys are null)
     if (biometricsEnabledRaw === null && bioForLoginRaw === null && bioForTxRaw === null) {
         console.log('[DEBUG-UI] First-time setup detected, leaving all OFF');
         biometricsEnabled = false;
         bioForLogin = false;
         bioForTx = false;
     }
-    // If biometricsEnabled is true but children keys are unset -> default them to true
     else if (biometricsEnabled && bioForLoginRaw === null && bioForTxRaw === null) {
         console.log('[DEBUG-UI] Bio enabled but children unset -> defaulting children to true');
         bioForLogin = true;
@@ -4953,13 +4407,11 @@ async function restoreBiometricUI() {
         localStorage.setItem('biometricForLogin', 'true');
         localStorage.setItem('biometricForTx', 'true');
     }
-    // If biometricsEnabled is true but BOTH children are explicitly false -> turn parent OFF
     else if (biometricsEnabled && !bioForLogin && !bioForTx) {
         console.log('[DEBUG-UI] Both children OFF -> turning parent OFF');
         biometricsEnabled = false;
         localStorage.setItem('biometricsEnabled', 'false');
     }
-    // If biometricsEnabled is false -> ensure children are false
     else if (!biometricsEnabled) {
         console.log('[DEBUG-UI] Parent OFF -> ensuring children OFF');
         bioForLogin = false;
@@ -4968,7 +4420,6 @@ async function restoreBiometricUI() {
         localStorage.setItem('biometricForTx', 'false');
     }
     
-    // Final state
     console.log('[DEBUG-UI] restoreBiometricUI FINAL state:', {
         biometricsEnabled,
         hasCred: !!credentialId,
@@ -4978,7 +4429,6 @@ async function restoreBiometricUI() {
         atLeastOneChildEnabled: bioForLogin || bioForTx
     });
     
-    // Helper: Apply state to a switch button
     function applySwitchState(btn, checked) {
         if (!btn) return;
         try {
@@ -4995,7 +4445,6 @@ async function restoreBiometricUI() {
         }
     }
     
-    // Helper: Apply full state (main toggle + subs + subgroup)
     function applyFullState() {
         const mainSwitch = document.getElementById('biometricsSwitch');
         if (!mainSwitch) {
@@ -5003,7 +4452,6 @@ async function restoreBiometricUI() {
             return false;
         }
         
-        // 🔥 Parent state depends on: enabled flag + credential exists + at least one child enabled
         const shouldParentBeOn = biometricsEnabled && credentialId && (bioForLogin || bioForTx);
         
         console.log('[DEBUG-UI] Applying UI state:', {
@@ -5015,7 +4463,6 @@ async function restoreBiometricUI() {
         });
         
         if (shouldParentBeOn) {
-            // Case A: Parent ON (at least one child is enabled + credential exists)
             applySwitchState(mainSwitch, true);
             const subgroup = document.getElementById('biometricsOptions');
             if (subgroup) subgroup.hidden = false;
@@ -5029,7 +4476,6 @@ async function restoreBiometricUI() {
             console.log('[DEBUG-UI] ✅ Applied ACTIVE state (parent ON, children visible)');
             
         } else if (biometricsEnabled && !credentialId) {
-            // Case B: Server says enabled but no local credential -> show setup CTA
             applySwitchState(mainSwitch, false);
             const subgroup = document.getElementById('biometricsOptions');
             if (subgroup) subgroup.hidden = true;
@@ -5042,7 +4488,6 @@ async function restoreBiometricUI() {
             console.warn('[WARN-UI] biometricsEnabled true but credential missing; showing setup CTA');
             
         } else {
-            // Case C: Parent OFF (either disabled OR both children off OR no credential)
             applySwitchState(mainSwitch, false);
             const subgroup = document.getElementById('biometricsOptions');
             if (subgroup) subgroup.hidden = true;
@@ -5053,7 +4498,6 @@ async function restoreBiometricUI() {
             console.log('[DEBUG-UI] ⭕ Applied INACTIVE state (parent OFF, children hidden)');
         }
         
-        // Re-attach main/sub handlers defensively
         if (!mainSwitch.__eventsAttached) {
             if (typeof handleBioToggle === 'function') {
                 try { mainSwitch.addEventListener('click', handleBioToggle); } catch (e) {}
@@ -5069,16 +4513,13 @@ async function restoreBiometricUI() {
         return true;
     }
     
-    // Immediate apply (if DOM ready)
     if (applyFullState()) return;
     
-    // If main switch not present yet, observe DOM until it appears
     const observer = new MutationObserver((mutations) => {
         if (applyFullState()) observer.disconnect();
     });
     observer.observe(document.body, { childList: true, subtree: true });
     
-    // Safety timeout (stop after 5s)
     setTimeout(() => {
         observer.disconnect();
         if (!document.getElementById('biometricsSwitch')) {
@@ -5087,17 +4528,14 @@ async function restoreBiometricUI() {
     }, 5000);
 }
 
-// 🚀 Setup broadcast subscription
 function handleBroadcast(payload) {
   console.log('[BROADCAST RECEIVED]', payload);
 
-  // Your Supabase broadcast already has message & url at the root
   const { message, url } = payload;
 
   if (message) {
     showBanner(message);
 
-    // Optional: forward to SW for push-style notif
     if (navigator.serviceWorker?.controller) {
       navigator.serviceWorker.controller.postMessage({
         type: 'BROADCAST_NOTIFICATION',
@@ -5107,8 +4545,6 @@ function handleBroadcast(payload) {
   }
 }
 
-// ====== PIN global bindings (must be at top-level, before any usage) ======
-// Use `var` so the identifier exists as a global binding immediately (prevents ReferenceError)
 var __fg_pin_inputCurrentEl = null;
 var __fg_pin_inputNewEl = null;
 var __fg_pin_inputConfirmEl = null;
@@ -5117,12 +4553,10 @@ var __fg_pin_securityPinModal = null;
 var __fg_pin_resetPinBtn = null;
 
 
-// Defensive safe clear (override any other definition)
 (function installSafeClear() {
   const previous = window.__fg_pin_clearAllInputs;
   window.__fg_pin_clearAllInputs = function __fg_pin_clearAllInputs_safe() {
     try {
-      // Prefer the declared globals if available, fallback to DOM queries
       const cur = (typeof __fg_pin_inputCurrentEl !== 'undefined' && __fg_pin_inputCurrentEl) ? __fg_pin_inputCurrentEl : document.getElementById('currentPin');
       const neu = (typeof __fg_pin_inputNewEl !== 'undefined' && __fg_pin_inputNewEl) ? __fg_pin_inputNewEl : document.getElementById('newPin');
       const conf = (typeof __fg_pin_inputConfirmEl !== 'undefined' && __fg_pin_inputConfirmEl) ? __fg_pin_inputConfirmEl : document.getElementById('confirmPin');
@@ -5134,13 +4568,11 @@ var __fg_pin_resetPinBtn = null;
       if (cur && typeof cur.focus === 'function') try { cur.focus(); } catch(e) {}
     } catch (err) {
       console.warn('__fg_pin_clearAllInputs_safe failed', err);
-      // If there was a previous implementation, call it (largest chance it's the intended logic)
       if (typeof previous === 'function') try { previous(); } catch (e) { /* swallow */ }
     }
   };
 })();
 
-// Instrument calls to locate who triggers the clear
 (function traceClearCalls(){
   const orig = window.__fg_pin_clearAllInputs;
   window.__fg_pin_clearAllInputs = function tracedClear(...args){
@@ -5156,12 +4588,8 @@ var __fg_pin_resetPinBtn = null;
 
 
 
-// Call in load: onDashboardLoad();
 
-// Remove fetchUserData and consolidate into getSession
-// --- Lazy loadUserProfile with cache check ---
 async function loadUserProfile(noCache = false) {
-  // NEW: Early bail if cache is fresh and not forced
   const cachedUserData = localStorage.getItem('userData');
   if (!noCache && cachedUserData) {
     try {
@@ -5178,7 +4606,6 @@ async function loadUserProfile(noCache = false) {
   try {
     console.log('[DEBUG] loadUserProfile: Initiating fetch, credentials: include, time:', new Date().toISOString());
 
-    // Cookie-first: do not use localStorage tokens. Browser will send httpOnly cookies automatically.
     const headers = { 'Accept': 'application/json' };
 
     let url = 'https://api.flexgig.com.ng/api/profile';
@@ -5186,14 +4613,12 @@ async function loadUserProfile(noCache = false) {
       url += `?_${Date.now()}`;
     }
 
-    // Use helper for auto-refresh on 401
     const response = await fetchWithAutoRefresh(url, { method: 'GET', headers });
 
     console.log('[DEBUG] loadUserProfile: Response status', response.status, 'Headers', [...response.headers]);
 
     let parsedData = null;
     try {
-      // prefer .json() but guard for empty body / invalid json
       const txt = await response.text();
       parsedData = txt ? JSON.parse(txt) : null;
     } catch (e) {
@@ -5210,7 +4635,6 @@ async function loadUserProfile(noCache = false) {
     const data = parsedData || {};
     console.log('[DEBUG] loadUserProfile: Parsed response data', data);
 
-    // Your existing localStorage updates (only if changed)...
     const currentUsername = localStorage.getItem('username') || '';
     const currentProfilePicture = localStorage.getItem('profilePicture') || '';
     if (data.username && data.username !== currentUsername) {
@@ -5234,7 +4658,6 @@ async function loadUserProfile(noCache = false) {
       localStorage.setItem('lastUsernameUpdate', data.lastUsernameUpdate);
     }
 
-    // Update userData cache with new profile info
     const userData = JSON.parse(localStorage.getItem('userData') || '{}');
     userData.username = data.username || userData.username;
     userData.fullName = data.fullName || userData.fullName;
@@ -5242,7 +4665,6 @@ async function loadUserProfile(noCache = false) {
     userData.cachedAt = Date.now();
     localStorage.setItem('userData', JSON.stringify(userData));
 
-    // Your existing DOM update logic (only if changed)...
     const firstnameEl = document.getElementById('firstname');
     const avatarEl = document.getElementById('avatar');
     if (!firstnameEl || !avatarEl) {
@@ -5255,7 +4677,6 @@ async function loadUserProfile(noCache = false) {
     const isValidProfilePicture = profilePicture && /^(data:image\/|https?:\/\/|\/)/i.test(profilePicture);
     const displayName = data.username || firstName || 'User';
 
-    // Diff and update only if changed (your logic, but tighter checks)
     const currentDisplay = firstnameEl.textContent?.toLowerCase() || '';
     const newDisplay = (displayName.charAt(0).toUpperCase() + displayName.slice(1)).toLowerCase();
     if (currentDisplay !== newDisplay) {
@@ -5278,7 +4699,6 @@ async function loadUserProfile(noCache = false) {
     return data;
   } catch (err) {
     console.error('[ERROR] loadUserProfile: Fetch failed', err);
-    // Fallback: return cached data if available
     if (cachedUserData) {
       try {
         return JSON.parse(cachedUserData);
@@ -5304,7 +4724,6 @@ let firstName = localStorage.getItem('firstName') || '';
 
 
 
-// In dashboard.js
 const deleteKey = document.getElementById('deleteKey');
 deleteKey.addEventListener('click', () => {
   if (currentPin.length > 0) {
@@ -5315,11 +4734,9 @@ deleteKey.addEventListener('click', () => {
 });
 
 
-// Add this function to load user data into the modal
 async function loadProfileData() {
   console.log('[DEBUG] loadProfileData: Loading user profile into modal');
 
-  // Load data from localStorage
   const fullName = localStorage.getItem('fullName') || '';
   const username = localStorage.getItem('username') || '';
   const phoneNumber = localStorage.getItem('phoneNumber') || '';
@@ -5327,14 +4744,12 @@ async function loadProfileData() {
   const address = localStorage.getItem('address') || '';
   const profilePicture = localStorage.getItem('profilePicture') || '';
 
-  // Populate form fields
   if (fullNameInput) fullNameInput.value = fullName;
   if (usernameInput) usernameInput.value = username;
   if (phoneNumberInput) phoneNumberInput.value = phoneNumber;
   if (emailInput) emailInput.value = email;
   if (addressInput) addressInput.value = address;
 
-  // Set profile picture preview
   if (profilePicturePreview) {
     const displayName = username || fullName.split(' ')[0] || 'User';
     const fallbackLetter = displayName.charAt(0).toUpperCase();
@@ -5347,7 +4762,6 @@ async function loadProfileData() {
     }
   }
 
-  // Check if username has been set before (lock it if already set)
   const lastUpdate = localStorage.getItem('lastUsernameUpdate');
   if (lastUpdate && usernameInput) {
     usernameInput.disabled = true;
@@ -5364,7 +4778,6 @@ async function loadProfileData() {
 
 
 
-// Also attach listeners when modal opens (ModalManager callback)
 if (window.ModalManager) {
   const originalOpenModal = window.ModalManager.openModal;
   window.ModalManager.openModal = function(modalId) {
@@ -5384,11 +4797,7 @@ if (window.ModalManager) {
 
 
 
-// document.addEventListener('DOMContentLoaded', fetchUserData);
 
-// Update DOM with greeting and avatar
-// Updates the dashboard greeting and avatar based on user data
-// Helper: robust image source check (re-usable)
 function isValidImageSource(src) {
   if (!src) return false;
   return /^(data:image\/|https?:\/\/|\/)/i.test(src);
@@ -5408,9 +4817,7 @@ function updateGreetingAndAvatar(username, firstName, imageUrl) {
   const displayName = (username || firstName || 'User').toString();
   const displayNameCapitalized = displayName.charAt(0).toUpperCase() + displayName.slice(1);
 
-  // If image URL is valid show <img>, otherwise show initial
   if (isValidImageSource(profilePicture)) {
-    // Append cache-bust token so browser reloads the image when needed.
     const cacheSrc = profilePicture.includes('?') ? `${profilePicture}&v=${Date.now()}` : `${profilePicture}?v=${Date.now()}`;
     avatarEl.innerHTML = `<img src="${cacheSrc}" alt="Profile Picture" class="avatar-img" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
     avatarEl.removeAttribute('aria-label');
@@ -5426,10 +4833,8 @@ function updateGreetingAndAvatar(username, firstName, imageUrl) {
 
 let recentTransactions = JSON.parse(localStorage.getItem('recentTransactions')) || [];
 
-// Defensive global override: clears PIN inputs safely (no ReferenceErrors)
 window.__fg_pin_clearAllInputs = function __fg_pin_clearAllInputs_safe() {
   try {
-    // Prefer cached globals if available, otherwise query DOM as a fallback
     const cur = (typeof __fg_pin_inputCurrentEl !== 'undefined' && __fg_pin_inputCurrentEl) ? __fg_pin_inputCurrentEl : document.getElementById('currentPin');
     const neu = (typeof __fg_pin_inputNewEl !== 'undefined' && __fg_pin_inputNewEl) ? __fg_pin_inputNewEl : document.getElementById('newPin');
     const conf = (typeof __fg_pin_inputConfirmEl !== 'undefined' && __fg_pin_inputConfirmEl) ? __fg_pin_inputConfirmEl : document.getElementById('confirmPin');
@@ -5438,20 +4843,17 @@ window.__fg_pin_clearAllInputs = function __fg_pin_clearAllInputs_safe() {
     if (neu) try { neu.value = ''; } catch (e) { /* ignore */ }
     if (conf) try { conf.value = ''; } catch (e) { /* ignore */ }
 
-    // Focus the first input that exists
     if (cur && typeof cur.focus === 'function') {
       try { cur.focus(); } catch (e) { /* ignore */ }
     } else if (neu && typeof neu.focus === 'function') {
       try { neu.focus(); } catch (e) { /* ignore */ }
     }
   } catch (err) {
-    // never let clearing inputs throw — the app must continue to surface server error messages
     console.warn('__fg_pin_clearAllInputs_safe failed', err);
   }
 };
 
 
-// --- SVG IMAGE PATHS FOR PROVIDERS ---
 const svgPaths = {
   mtn: '/frontend/svg/MTN-icon.svg',
   airtel: '/frontend/svg/airtel-icon.svg',
@@ -5467,7 +4869,6 @@ const svgShapes = {
 };
 
 
-// temporary debug wrapper for fetch to /webauthn/auth/options
 (function(){
   const orig = window.__origFetch || window.fetch;
   window.__debugFetchAuthOptions = true;
@@ -5482,7 +4883,6 @@ const svgShapes = {
         const res = await orig(input, init);
         const text = await res.text().catch(()=>'(no body)');
         console.log('[DEBUG RESP] <-', url, 'status:', res.status, 'durationMs:', Date.now()-start, 'text:', text);
-        // re-create response for callers
         return new Response(text, { status: res.status, headers: {'Content-Type':'application/json'} });
       }
     } catch(e){ console.warn('debug fetch wrapper error', e); }
@@ -5492,14 +4892,10 @@ const svgShapes = {
 
 
 
-// --- MAIN EVENT LISTENERS ---
 
-// --- WebAuthn: centralized TTL-backed fetch for /webauthn/auth/options ---
-// --- WebAuthn: centralized TTL-backed fetch for /webauthn/auth/options (robust + verbose logging) ---
 (function(){
   const AUTH_OPTIONS_TTL = 30 * 1000; // 30s
 
-  // Simple structured logger for raw traces
   function mkLog(prefix) {
     return {
       d: (...args) => console.debug(`[${prefix}] ${new Date().toISOString()}`, ...args),
@@ -5528,25 +4924,19 @@ const svgShapes = {
     }
   }
 
-  // --- Robust fromBase64Url (replace existing definition if missing) ---
   if (!window.fromBase64Url) {
     window.fromBase64Url = function (input) {
       try {
-        // null / undefined -> empty ArrayBuffer
         if (input == null) return new ArrayBuffer(0);
 
-        // If already an ArrayBuffer -> return as-is
         if (input instanceof ArrayBuffer) return input;
 
-        // If a TypedArray (Uint8Array, etc.) -> return its buffer
         if (ArrayBuffer.isView(input)) return input.buffer;
 
-        // Node Buffer-like object: { type: 'Buffer', data: [...] }
         if (typeof input === 'object' && Array.isArray(input.data)) {
           return new Uint8Array(input.data).buffer;
         }
 
-        // Plain numeric-keyed object (JSON-decoded typed array), e.g. {0:12,1:34,...}
         if (typeof input === 'object') {
           const keys = Object.keys(input);
           const numericKeys = keys.filter(k => /^[0-9]+$/.test(k));
@@ -5558,14 +4948,12 @@ const svgShapes = {
             }
             return arr.buffer;
           }
-          // Fallback: if it's some other object, try to take Object.values if they look numeric
           const vals = Object.values(input);
           if (Array.isArray(vals) && vals.length && typeof vals[0] === 'number') {
             return new Uint8Array(vals.map(v => v & 0xff)).buffer;
           }
         }
 
-        // If it's a string -> treat as base64url and decode
         if (typeof input === 'string') {
           let s = input.replace(/-/g, '+').replace(/_/g, '/');
           while (s.length % 4) s += '=';
@@ -5575,7 +4963,6 @@ const svgShapes = {
           return arr.buffer;
         }
 
-        // Unknown type: log and return empty buffer
         console.warn('[webauthn] fromBase64Url: unknown input type', typeof input, input);
         return new ArrayBuffer(0);
       } catch (err) {
@@ -5605,7 +4992,6 @@ const svgShapes = {
             } else if (ArrayBuffer.isView(c.id)) {
               idBuf = c.id.buffer;
             } else if (typeof c.id === 'object') {
-              // object may be {type:'Buffer',data:[...]} or numeric keys
               const maybe = fromBase64Url(c.id);
               idBuf = maybe && (maybe instanceof ArrayBuffer) ? maybe : null;
               if (!idBuf) {
@@ -5628,7 +5014,6 @@ const svgShapes = {
     }
   }
 
-  // small helper: try parse cached user from localStorage
   function deriveUserIdFromLocalStorage() {
     try {
       const ud = localStorage.getItem('userData') || localStorage.getItem('user');
@@ -5641,7 +5026,6 @@ const svgShapes = {
     }
   }
 
-  // helper: await getSession but timeout quickly (non-blocking friendly)
   async function tryGetSessionUserId(timeoutMs = 600) {
     if (typeof getSession !== 'function') return null;
     let resolved = null;
@@ -5666,10 +5050,8 @@ const svgShapes = {
   function deepCopyAuthOptions(opts) {
   if (!opts) return opts;
   const out = Object.assign({}, opts);
-  // Properly clone challenge without JSON serialization
   if (opts.challenge instanceof Uint8Array) out.challenge = new Uint8Array(opts.challenge);
   else if (opts.challenge instanceof ArrayBuffer) out.challenge = opts.challenge.slice(0);
-  // Properly clone each credential's id
   if (Array.isArray(opts.allowCredentials)) {
     out.allowCredentials = opts.allowCredentials.map(function(c) {
       const item = Object.assign({}, c);
@@ -5681,7 +5063,6 @@ const svgShapes = {
   return out;
 }
 
-  // Core: getAuthOptionsWithCache
   window.getAuthOptionsWithCache = window.getAuthOptionsWithCache || (async function({ credentialId=null, userId=null }={}) {
     __webauthn_log.d('getAuthOptionsWithCache entry', { credentialId, userId, cachedFresh: cachedOptionsFresh() });
     if (cachedOptionsFresh()) {
@@ -5695,10 +5076,8 @@ const svgShapes = {
     }
 
     const apiBase = (window.__SEC_API_BASE || (typeof API_BASE!=='undefined' ? API_BASE : ''));
-    // derive credentialId if not supplied
     const resolvedCred = credentialId || localStorage.getItem('credentialId') || localStorage.getItem('webauthn-cred-id') || null;
 
-    // derive userId via multiple fallbacks (explicit arg > cached global > localStorage userData > try getSession)
     let resolvedUser = userId || window.__webauthn_userId || deriveUserIdFromLocalStorage();
     if (!resolvedUser) {
       __webauthn_log.d('No userId yet, attempting short getSession wait');
@@ -5706,7 +5085,6 @@ const svgShapes = {
     }
     __webauthn_log.d('Resolved identity', { userId: !!resolvedUser, credentialId: !!resolvedCred });
 
-    // Choose endpoint: prefer options endpoint when we have userId, otherwise try discover endpoint
     let triedDiscoverFallback = false;
     const tryFetch = async (endpoint, body, headers) => {
       const url = `${apiBase}${endpoint}`;
@@ -5721,14 +5099,12 @@ const svgShapes = {
       return { rawRes, text, duration };
     };
 
-    // function that handles response parsing + conversion + cache
     const handleSuccess = (opts) => {
       const converted = convertOptionsFromServer(opts);
       cacheAuthOptions(converted);
       return deepCopyAuthOptions(converted); // ✅ preserves Uint8Array
     };
 
-    // Primary attempt: if we have userId use '/webauthn/auth/options'
     try {
       if (resolvedUser) {
         const body = { credentialId: resolvedCred, userId: resolvedUser };
@@ -5753,7 +5129,6 @@ const svgShapes = {
         __webauthn_log.i('Primary options fetch successful', { allowCount: opts.allowCredentials ? opts.allowCredentials.length : 0 });
         return handleSuccess(opts);
       } else {
-        // No userId: prefer discover endpoint (server supports discover)
         __webauthn_log.i('No userId resolved; calling discover endpoint to avoid Missing userId');
         const { rawRes, text } = await tryFetch('/webauthn/auth/options', { credentialId: resolvedCred });
         if (!rawRes.ok) {
@@ -5766,20 +5141,15 @@ const svgShapes = {
       }
     } catch (err) {
       __webauthn_log.e('getAuthOptionsWithCache error', err);
-      // clear cache on error to avoid stale partial states
       cacheAuthOptions(null);
       throw err;
     }
   });
 
-  // Invalidate helper
   window.invalidateAuthOptionsCache = window.invalidateAuthOptionsCache || function(){ cacheAuthOptions(null); __webauthn_log.d('invalidateAuthOptionsCache called'); };
 
-  // Prefetch helper used by UI (non-blocking)
-  // Prefetch helper used by UI (non-blocking) — patched to respect in-use lock
 if (!window.prefetchAuthOptions) window.prefetchAuthOptions = async function prefetchAuthOptions() {
   try {
-    // If another prefetch is running, or an auth operation is currently using the cached options, skip.
     if (window.__prefetchInFlight) {
       console.debug('[prefetchAuthOptions] abort: prefetch already in flight');
       return;
@@ -5789,7 +5159,6 @@ if (!window.prefetchAuthOptions) window.prefetchAuthOptions = async function pre
       return;
     }
 
-    // If cache is fresh (short TTL) skip; keep your existing cachedOptionsFresh if present
     if (typeof cachedOptionsFresh === 'function' && cachedOptionsFresh()) {
       console.debug('[prefetchAuthOptions] cache fresh, skipping fetch');
       return;
@@ -5841,9 +5210,7 @@ if (!window.prefetchAuthOptions) window.prefetchAuthOptions = async function pre
       console.warn('[prefetchAuthOptions] conversion error', e);
     }
 
-    // store ready-to-use options only if no lock is active (double-check)
     if (window.__cachedAuthOptionsLock) {
-      // Someone started an auth while we fetched; do not overwrite the in-use cached options.
       console.debug('[prefetchAuthOptions] fetched options but lock active — discarding to avoid race');
     } else {
       window.__cachedAuthOptions = publicKey;
@@ -5858,11 +5225,9 @@ if (!window.prefetchAuthOptions) window.prefetchAuthOptions = async function pre
 };
 
 
-  // Wrap existing fetch interception (keeps prior behavior but adds logs)
   if (!window.__webauthnFetchWrapped) {
     window.__webauthnFetchWrapped = true;
     if (typeof window.fetch === 'function') {
-      // preserve original fetch so we can call into it safely
       window.__origFetch = window.fetch.bind(window);
       window.fetch = async function(input, init){
         try {
@@ -5870,7 +5235,6 @@ if (!window.prefetchAuthOptions) window.prefetchAuthOptions = async function pre
           if (url && url.indexOf('/webauthn/auth/options') !== -1) {
             __webauthn_log.d('fetch wrapper intercept', { url, initBody: init && init.body ? (typeof init.body === 'string' ? init.body.slice(0,400) : '[non-string body]') : null });
 
-            // Helper: robust header check (Headers instance / object / array)
             const headerHasBypass = (h) => {
               if (!h) return false;
               try {
@@ -5885,33 +5249,27 @@ if (!window.prefetchAuthOptions) window.prefetchAuthOptions = async function pre
                   for (const k of Object.keys(h)) if (k.toLowerCase() === 'x-bypass-authcache') return true;
                 }
               } catch(e){ /* ignore */ }
-              // also allow a global flag
               if (window.__bypassAuthOptions) return true;
               return false;
             };
 
-            // if caller explicitly asks to bypass the cached options -> do a real network call
             if (init && headerHasBypass(init.headers)) {
               __webauthn_log.i('fetch wrapper bypass header present - calling network directly');
               return window.__origFetch(input, init);
             }
 
-            // otherwise, parse body for credentialId/userId and return cached (fast) options
             let credentialId = null, userId = null;
             try {
               const b = init && init.body ? JSON.parse(init.body) : null;
               if (b && typeof b === 'object') { credentialId = b.credentialId || null; userId = b.userId || null; }
             } catch(e){ __webauthn_log.w('fetch wrapper parse body failed', e); }
 
-            // Try to obtain cached options via the canonical helper (this may fetch if not cached)
             try {
               const opts = await window.getAuthOptionsWithCache({ credentialId, userId });
               __webauthn_log.d('fetch wrapper returning cached options', { cached: !!opts });
-              // Return a sanitized Response so consumers get a normal fetch response shape
               return new Response(JSON.stringify(opts), { status: 200, headers: { 'Content-Type': 'application/json' } });
             } catch (e) {
               __webauthn_log.w('fetch wrapper getAuthOptionsWithCache failed, falling back to network', e);
-              // fallback to real network call
               return window.__origFetch(input, init);
             }
           }
@@ -5923,22 +5281,18 @@ if (!window.prefetchAuthOptions) window.prefetchAuthOptions = async function pre
 
 })();
 
-// STRICT active state management for shortcuts
 let currentActiveShortcut = 'data'; // Always default to Data
 
 function setActiveShortcut(shortcutId) {
-  // Remove active from EVERY item, no exceptions
   document.querySelectorAll('.short-item').forEach(item => {
     item.classList.remove('active');
   });
 
-  // ONLY allow active state on items that are NOT .coming-soon
   const target = document.querySelector(`.short-item[data-shortcut="${shortcutId}"]:not(.coming-soon)`);
   if (target) {
     target.classList.add('active');
     currentActiveShortcut = shortcutId;
   } else {
-    // If someone tries to activate a coming-soon item, force it back to Data
     const dataItem = document.querySelector('.short-item[data-shortcut="data"]');
     if (dataItem) {
       dataItem.classList.add('active');
@@ -5947,12 +5301,10 @@ function setActiveShortcut(shortcutId) {
   }
 }
 
-// Force Data to be active on page load
 document.addEventListener('DOMContentLoaded', () => {
   setActiveShortcut('data');
 });
 
-// Real (non-coming-soon) shortcuts — can become active
 document.querySelectorAll('.short-item:not(.coming-soon)').forEach(item => {
   const id = item.dataset.shortcut;
 
@@ -5961,7 +5313,6 @@ document.querySelectorAll('.short-item:not(.coming-soon)').forEach(item => {
 
     if (id === 'data') {
       console.log('Opening Data purchase...');
-      // openDataModal(); // your real function
     }
   };
 
@@ -5974,7 +5325,6 @@ document.querySelectorAll('.short-item:not(.coming-soon)').forEach(item => {
   });
 });
 
-// Coming-soon items — show toast, NEVER activate
 document.querySelectorAll('.short-item.coming-soon').forEach(item => {
   const showComingSoon = (e) => {
     if (e) {
@@ -5983,7 +5333,6 @@ document.querySelectorAll('.short-item.coming-soon').forEach(item => {
     }
     showToast('This service is coming soon!', 'info');
 
-    // Critical: Force active state back to Data if it somehow changed
     if (currentActiveShortcut !== 'data') {
       setActiveShortcut('data');
     }
@@ -6013,7 +5362,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const pullHandle = allPlansModal.querySelector('.pull-handle');
   const slider = document.querySelector('.provider-grid .slider');
 
-  // --- DEBOUNCE FUNCTION ---
   function debounce(func, wait) {
     let timeout;
     return function (...args) {
@@ -6022,7 +5370,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-  // --- PROVIDER DETECTION ---
   const providerPrefixes = {
     MTN:       ['0702','0703','0704','0706','0707','0803','0806','0810','0813','0814','0816','0903','0906','0913','0916'],
     GLO:       ['0705','0805','0807','0811','0815','0905','0915'],
@@ -6043,9 +5390,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   window.detectProvider = window.detectProvider || detectProvider;
 
-  // --- PHONE NUMBER FORMATTING ---
-  // --- PHONE NUMBER FORMATTING ---
-// --- PHONE NUMBER FORMATTING ---
 function formatNigeriaNumber(phone, isInitialDigit = false, isPaste = false) {
   try {
     if (!phone) {
@@ -6063,7 +5407,6 @@ function formatNigeriaNumber(phone, isInitialDigit = false, isPaste = false) {
     }
     if (cleaned.length > 11) cleaned = cleaned.slice(0, 11);
 
-    // ALWAYS produce progressive formatting
     let formatted;
     if (cleaned.length <= 4) formatted = cleaned;
     else if (cleaned.length <= 7) formatted = `${cleaned.slice(0,4)} ${cleaned.slice(4)}`;
@@ -6080,7 +5423,6 @@ function formatNigeriaNumber(phone, isInitialDigit = false, isPaste = false) {
 window.formatNigeriaNumber = window.formatNigeriaNumber || formatNigeriaNumber;
 
 
-  // --- VALIDATION HELPERS ---
   function isNigeriaMobile(val) {
     const cleaned = val.replace(/\s/g, '');
     const prefix = cleaned.slice(0, 4);
@@ -6126,7 +5468,6 @@ window.formatNigeriaNumber = window.formatNigeriaNumber || formatNigeriaNumber;
 window.saveUserState = window.saveUserState || saveUserState;
 
 
-  // --- CUSTOM SMOOTH SCROLL ---
   function smoothScroll(element, target, duration) {
     const start = element.scrollLeft;
     const change = target - start;
@@ -6145,7 +5486,6 @@ window.saveUserState = window.saveUserState || saveUserState;
     requestAnimationFrame(animateScroll);
   }
 
-  // --- SLIDER MOVEMENT ---
   function moveSliderTo(box) {
     const boxRect = box.getBoundingClientRect();
     const gridRect = box.parentElement.getBoundingClientRect();
@@ -6171,7 +5511,6 @@ window.saveUserState = window.saveUserState || saveUserState;
     });
   }
 
-  // --- HANDLE RESIZE ---
   function handleResize() {
     const activeProvider = document.querySelector('.provider-box.active');
     if (activeProvider) {
@@ -6183,7 +5522,6 @@ window.saveUserState = window.saveUserState || saveUserState;
   const debouncedHandleResize = debounce(handleResize, 100);
   window.addEventListener('resize', debouncedHandleResize);
 
-  // --- PROVIDER SELECTION ---
   let providerTransitioning = false;
   let pendingProvider = null;
 
@@ -6280,16 +5618,12 @@ window.saveUserState = window.saveUserState || saveUserState;
 
 
 
-// ==========================================
-// FIXED loadAllPlansOnce — ALWAYS USES FRESHEST DATA
-// ==========================================
 let __allPlansCache = [];
 let __plansLoaded = false;
 
 async function loadAllPlansOnce() {
   const CACHE_KEY = 'cached_data_plans_v12';
 
-  // 1️⃣ Always hydrate from localStorage (fast UI)
   try {
     const saved = localStorage.getItem(CACHE_KEY);
     if (saved) {
@@ -6300,23 +5634,19 @@ async function loadAllPlansOnce() {
     }
   } catch {}
 
-  // 2️⃣ If reauth locked → NEVER fetch
   if (window.__REAUTH_LOCKED__ === true) {
     return __allPlansCache;
   }
 
-  // 3️⃣ Fetch ONLY if not already loaded
   if (!__plansLoaded) {
     try {
       const res = await fetchPlans();
 
-      // ✅ Only mark loaded if server truly responded
       if (Array.isArray(res) && res.length > 0) {
         __allPlansCache = res;
         __plansLoaded = true;
       }
     } catch {
-      // ❌ Do nothing — do NOT mark loaded
     }
   }
 
@@ -6334,7 +5664,6 @@ function syncSpecialPlanGradientState() {
     const isSelected = plan.classList.contains('selected');
     console.log(`[GRADIENT SYNC] Plan ${plan.dataset.id} - Selected: ${isSelected}`);
     
-    // Remove existing style to start fresh
     const existingStyle = plan.querySelector('style');
     if (existingStyle) {
       existingStyle.remove();
@@ -6342,8 +5671,6 @@ function syncSpecialPlanGradientState() {
     
     const gradientStyle = document.createElement('style');
     
-    // ALWAYS include the FULL gradient definition
-    // Only change opacity/animation based on selected state
     gradientStyle.textContent = `
       .plan-box.mtn.special-plan[data-id="${plan.dataset.id}"]::before {
         content: '';
@@ -6394,10 +5721,8 @@ function attach9mobileModalListeners() {
   );
 
   modalPlans.forEach(plan => {
-    // Remove old listener if exists
     plan.removeEventListener('click', plan._forcedClickListener);
 
-    // Define new listener
     const listener = e => {
       console.log('[9MOBILE CLICK] Modal plan clicked', {
         id: plan.dataset.id,
@@ -6405,7 +5730,6 @@ function attach9mobileModalListeners() {
         classes: plan.className
       });
 
-      // Trigger existing plan handler
       if (typeof window.handlePlanClick === 'function') {
         handlePlanClick(e);
       }
@@ -6419,10 +5743,8 @@ function attach9mobileModalListeners() {
 }
 
 window.attach9mobileModalListeners = window.attach9mobileModalListeners || attach9mobileModalListeners;
-// dashboard.js - UPDATED FUNCTIONS (REPLACE EXISTING)
 
 function updateSpecialRemainingCount(plan) {
-  // Only MTN SPECIAL plans
   if (
     plan.category?.toUpperCase() !== 'SPECIAL' ||
     plan.provider?.toLowerCase() !== 'mtn'
@@ -6433,7 +5755,6 @@ function updateSpecialRemainingCount(plan) {
   );
 
   boxes.forEach(box => {
-    // Use the real daily_available_slots from DB, fallback to 0
     const remaining = Number(plan.daily_available_slots) || 0;
 
     let el = box.querySelector('.remaining-count');
@@ -6452,7 +5773,6 @@ function updateSpecialRemainingCount(plan) {
       el.classList.add('sold-out');
     }
 
-    // Optionally block clicks if sold out
     if (remaining <= 0) {
       box.classList.add('sold-out');
       box.style.pointerEvents = 'none';
@@ -6465,9 +5785,6 @@ function updateSpecialRemainingCount(plan) {
 
 window.updateSpecialRemainingCount = window.updateSpecialRemainingCount || updateSpecialRemainingCount;
 
-// ==========================================
-// FIXED renderDashboardPlans - HIDES SOLD OUT SPECIAL PLANS
-// ==========================================
 async function renderDashboardPlans(provider) {
   console.log('%c[RENDER] Starting renderDashboardPlans for:', 'color:cyan;font-weight:bold', provider);
 
@@ -6477,7 +5794,6 @@ async function renderDashboardPlans(provider) {
     return;
   }
 
-  // Clear old plans
   plansRow.querySelectorAll('.plan-box').forEach(p => p.remove());
   console.log('[RENDER] Cleared old plans');
 
@@ -6493,7 +5809,6 @@ async function renderDashboardPlans(provider) {
   let plansToShow = [];
 
   if (provider === 'ninemobile') {
-    // 🔥 NEW: Take first 2 plans sorted by price
     const sortedPlans = [...providerPlans].sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
     plansToShow = sortedPlans.slice(0, 2);
     console.log('[RENDER] 9mobile → showing first 2 plans by price');
@@ -6510,12 +5825,10 @@ async function renderDashboardPlans(provider) {
       special: special.length 
     });
 
-    // AIRTEL: First AWOOF + First CG
     if (provider === 'airtel') {
       if (awoof.length > 0) plansToShow.push(awoof[0]);
       if (cg.length > 0) plansToShow.push(cg[0]);
     }
-    // GLO: First CG (or AWOOF if no CG) + First GIFTING
     else if (provider === 'glo') {
       if (cg.length > 0) {
         plansToShow.push(cg[0]);
@@ -6524,11 +5837,9 @@ async function renderDashboardPlans(provider) {
       }
       if (gifting.length > 0) plansToShow.push(gifting[0]);
     }
-    // MTN: SPECIAL (if not sold out) + First AWOOF or GIFTING
     else if (provider === 'mtn') {
       let specialAvailable = false;
       
-      // 🔥 NEW: Only show special if NOT sold out
       if (special.length > 0) {
         const firstSpecial = special[0];
         const remaining = Number(firstSpecial.daily_available_slots) || 0;
@@ -6542,10 +5853,7 @@ async function renderDashboardPlans(provider) {
         }
       }
       
-      // 🔥 FIXED: If special is sold out, show first AWOOF + first GIFTING
-      // If special is available, show only one more plan
       if (!specialAvailable) {
-        // Special sold out → show first AWOOF and first GIFTING
         if (awoof.length > 0) {
           plansToShow.push(awoof[0]);
           console.log('[RENDER] Added first AWOOF (position 1 - special sold out)');
@@ -6555,7 +5863,6 @@ async function renderDashboardPlans(provider) {
           console.log('[RENDER] Added first GIFTING (position 2 - special sold out)');
         }
       } else {
-        // Special available → show one more plan (AWOOF or GIFTING)
         if (awoof.length > 0) {
           plansToShow.push(awoof[0]);
           console.log('[RENDER] Added first AWOOF as second');
@@ -6660,9 +5967,6 @@ async function renderDashboardPlans(provider) {
   console.log('%c[RENDER] Dashboard complete', 'color:lime;font-weight:bold');
 }
 
-// ==========================================
-// FIXED renderModalPlans - ADDS SPECIAL SECTION FOR MTN
-// ==========================================
 async function renderModalPlans(provider) {
   console.log('%c[RENDER MODAL] Starting for:', 'color:purple;font-weight:bold', provider);
   
@@ -6678,7 +5982,6 @@ async function renderModalPlans(provider) {
     p.active === true
   );
 
-  // 🔒 REMOVE SPECIAL SECTION FOR NON-MTN PROVIDERS
 const existingSpecialSection = modal.querySelector('.plan-section.special-section');
 
 if (provider !== 'mtn' && existingSpecialSection) {
@@ -6687,7 +5990,6 @@ if (provider !== 'mtn' && existingSpecialSection) {
 }
 
 
-  // Helper function to sort plans by price (smallest to biggest)
   const sortByPrice = (planArray) => {
     return planArray.sort((a, b) => {
       const priceA = parseFloat(a.price) || 0;
@@ -6696,7 +5998,6 @@ if (provider !== 'mtn' && existingSpecialSection) {
     });
   };
 
-  // 9MOBILE - Show all plans in first section
   if (provider === 'ninemobile') {
     if (awoofSection) {
       const sortedPlans = sortByPrice([...providerPlans]);
@@ -6712,12 +6013,10 @@ if (provider !== 'mtn' && existingSpecialSection) {
     return;
   }
 
-  // Filter plans by category (normalize case)
   const awoofPlans = sortByPrice(providerPlans.filter(p => p.category.toUpperCase() === 'AWOOF'));
   const cgPlans = sortByPrice(providerPlans.filter(p => p.category.toUpperCase() === 'CG'));
   const giftingPlans = sortByPrice(providerPlans.filter(p => p.category.toUpperCase() === 'GIFTING'));
   
-  // 🔥 FIXED: Normalize category case for special
   const specialPlans = sortByPrice(providerPlans.filter(p => p.category.toUpperCase() === 'SPECIAL'));
 
   console.log(`[RENDER MODAL] ${provider.toUpperCase()} categories:`, {
@@ -6727,9 +6026,7 @@ if (provider !== 'mtn' && existingSpecialSection) {
     special: specialPlans.length
   });
 
-  // MTN: SPECIAL + AWOOF + GIFTING
   if (provider === 'mtn') {
-    // 🔥 NEW: Add special section for MTN (clone awoof and modify)
     let specialSection = modal.querySelector('.plan-section.special-section');
     if (!specialSection && specialPlans.length > 0) {
       specialSection = awoofSection.cloneNode(true);
@@ -6774,7 +6071,6 @@ if (provider !== 'mtn' && existingSpecialSection) {
       }
     }
   }
-  // AIRTEL: AWOOF + CG
   else if (provider === 'airtel') {
     if (awoofSection) {
       if (awoofPlans.length > 0) {
@@ -6798,7 +6094,6 @@ if (provider !== 'mtn' && existingSpecialSection) {
       }
     }
   }
-  // GLO: CG + GIFTING
   else if (provider === 'glo') {
     if (awoofSection) {
       if (cgPlans.length > 0) {
@@ -6835,9 +6130,6 @@ if (provider !== 'mtn' && existingSpecialSection) {
 }
 window.renderModalPlans = window.renderModalPlans || renderModalPlans;
 
-// ==========================================
-// FIXED fillPlanSection - DISABLES SOLD OUT SPECIAL PLANS IN MODAL
-// ==========================================
 function fillPlanSection(sectionEl, provider, subType, plans, title, svg) {
   sectionEl.setAttribute('data-provider', provider);
   const grid = sectionEl.querySelector('.plans-grid');
@@ -6853,7 +6145,6 @@ function fillPlanSection(sectionEl, provider, subType, plans, title, svg) {
 
     const categoryUpper = plan.category ? plan.category.toUpperCase() : '';
     
-    // 🔥 NEW: Check if special plan is sold out
     const isSoldOut = categoryUpper === 'SPECIAL' && 
                       provider === 'mtn' && 
                       (Number(plan.daily_available_slots) || 0) <= 0;
@@ -6893,7 +6184,6 @@ function fillPlanSection(sectionEl, provider, subType, plans, title, svg) {
       box.style.position = 'relative';
       box.style.overflow = 'hidden';
       
-      // 🔥 NEW: Disable clicks if sold out
       if (isSoldOut) {
         box.classList.add('sold-out');
         box.style.pointerEvents = 'none';
@@ -6943,7 +6233,6 @@ function fillPlanSection(sectionEl, provider, subType, plans, title, svg) {
   console.log(`[FILL SECTION] ${title}: ${plans.length} plans added`);
 }
 
-// Make functions globally available
 window.renderDashboardPlans = renderDashboardPlans;
 window.fillPlanSection = fillPlanSection;
 
@@ -6954,12 +6243,9 @@ console.log('%c✅ First plan of each category shows on dashboard', 'color:lime;
 
 
 
-// Preload plans on page load → switching becomes INSTANT
 document.addEventListener('DOMContentLoaded', () => {
   loadAllPlansOnce();
 });
-// helper: fill a modal section
-// --- FILL PLAN SECTION (FIXED) ---
 const seeAllBtn = document.querySelector('.see-all-plans');
 if (seeAllBtn) {
   seeAllBtn.addEventListener('click', () => {
@@ -6977,21 +6263,17 @@ if (seeAllBtn) {
       if (giftingSection) giftingSection.style.display = activeProvider === 'ninemobile' ? 'none' : 'block';
       if (awoofSection) awoofSection.style.display = 'block';
 
-      // Highlight selected plan in modal
       if (dashSelected) {
         const id = dashSelected.getAttribute('data-id');
         
-        // Clear all modal selections first
         allPlansModal.querySelectorAll('.plan-box.selected').forEach(p => {
           p.classList.remove('selected', ...providerClasses);
         });
         
-        // Find and select in modal
         const modalPlan = allPlansModal.querySelector(`.plan-box[data-id="${id}"]`);
         if (modalPlan) {
           modalPlan.classList.add('selected', activeProvider);
           
-          // Auto-scroll to selected plan
           setTimeout(() => {
             modalPlan.scrollIntoView({ 
               behavior: 'smooth', 
@@ -7006,7 +6288,6 @@ if (seeAllBtn) {
     }, 300);
   });
 }
-  // --- LOG PLAN IDs ---
   function logPlanIDs() {
     const dashboardPlanIDs = Array.from(plansRow.querySelectorAll('.plan-box')).map(p => p.getAttribute('data-id'));
     const modalPlanIDs = Array.from(allPlansModal.querySelectorAll('.plan-box')).map(p => p.getAttribute('data-id'));
@@ -7015,7 +6296,6 @@ if (seeAllBtn) {
   }
   window.logPlanIDs = window.logPlanIDs || logPlanIDs;
 
-  // Track last selected plan per provider
 const selectedPlanByProvider = {};
 
 function selectPlanById(id) {
@@ -7028,7 +6308,6 @@ function selectPlanById(id) {
 
   console.log('%c[SELECT] START', 'color:blue;font-weight:bold', { id, activeProvider });
 
-  // Clear previous selection (same provider only)
   document.querySelectorAll(`.plan-box.selected[data-provider="${activeProvider}"]`)
     .forEach(p => {
       p.classList.remove('selected');
@@ -7037,7 +6316,6 @@ function selectPlanById(id) {
 
   selectedPlanByProvider[activeProvider] = id;
 
-  // Try to get the real plan object from cache (preferred)
   let selectedPlanObj = null;
   if (window.cachedPlans && Array.isArray(window.cachedPlans)) {
     selectedPlanObj = window.cachedPlans.find(p => 
@@ -7049,7 +6327,6 @@ function selectPlanById(id) {
   let planToSave;
 
   if (selectedPlanObj) {
-    // ── Best case: use real data from loaded plans ──
     console.log('[SELECT] Using cached plan object for:', id);
 
     planToSave = {
@@ -7060,12 +6337,8 @@ function selectPlanById(id) {
       type:       selectedPlanObj.planType || selectedPlanObj.category || "STANDARD",
       category:   selectedPlanObj.category || "NORMAL",
       daily_purchase_count: Number(selectedPlanObj.daily_purchase_count) || 0,
-      // Add more fields if your app needs them later
-      // e.g. provider: selectedPlanObj.provider,
-      //      planName: selectedPlanObj.planName,
     };
   } else {
-    // ── Fallback: parse from dashboard DOM (what you had before) ──
     console.warn('[SELECT] No cached plan found → falling back to DOM parsing');
 
     const dashPlan = plansRow.querySelector(`.plan-box[data-id="${id}"][data-provider="${activeProvider}"]`);
@@ -7093,7 +6366,6 @@ function selectPlanById(id) {
     };
   }
 
-  // ── Save to localStorage ───────────────────────────────
   let state = {};
   try {
     state = JSON.parse(localStorage.getItem('userState') || '{}');
@@ -7105,19 +6377,16 @@ function selectPlanById(id) {
 
   console.log('%c[SELECT] Full plan saved!', 'color:lime;font-weight:bold', planToSave);
 
-  // ── Visual updates ─────────────────────────────────────
   const dashPlan = plansRow.querySelector(`.plan-box[data-id="${id}"][data-provider="${activeProvider}"]`);
   if (dashPlan) {
     dashPlan.classList.add('selected');
   }
 
-  // Modal sync
   const modalPlan = allPlansModal.querySelector(`.plan-box[data-id="${id}"][data-provider="${activeProvider}"]`);
   if (modalPlan) {
     modalPlan.classList.add('selected');
   }
 
-  // Price styling
   document.querySelectorAll('.plan-box').forEach(p => {
     const amount = p.querySelector('.plan-amount');
     if (!amount) return;
@@ -7140,7 +6409,6 @@ function selectPlanById(id) {
 }
 /* ---------- ATTACH PLAN LISTENERS (MOBILE-FRIENDLY) ---------- */
 
-  // --- ATTACH PLAN LISTENERS ---
   function attachPlanListeners() {
     document.querySelectorAll('.plan-box').forEach(p => {
       p.removeEventListener('click', handlePlanClick);
@@ -7149,7 +6417,6 @@ function selectPlanById(id) {
   }
   window.attachPlanListeners = window.attachPlanListeners || attachPlanListeners;
 
-  // --- PLAN CLICK HANDLER ---
 function handlePlanClick(e) {
   const plan =
     e.currentTarget?.classList?.contains('plan-box')
@@ -7166,7 +6433,6 @@ function handlePlanClick(e) {
 
   const isModalClick = !!plan.closest('.plan-modal-content');
 
-  // 🔥 PROVIDER-AWARE dashboard lookup
   const dashPlan = Array.from(
     plansRow.querySelectorAll('.plan-box')
   ).find(p =>
@@ -7203,12 +6469,10 @@ function handlePlanClick(e) {
     if (!sameAsFirst) {
       const cloneForDashboard = plan.cloneNode(true);
 
-      // clean provider classes
       cloneForDashboard.classList.remove(...providerClasses);
       cloneForDashboard.classList.add(activeProvider);
       cloneForDashboard.dataset.provider = activeProvider;
 
-      // subtype tags (skip ninemobile)
       let subType = '';
       if (activeProvider === 'mtn')
         subType = id.includes('awoof') ? 'awoof' : id.includes('gifting') ? 'gifting' : '';
@@ -7255,8 +6519,6 @@ function handlePlanClick(e) {
 
 window.handlePlanClick = window.handlePlanClick || handlePlanClick;
 
-// 🔥 REMOVED GLOBAL LISTENER - This was causing duplicate clicks
-// The individual plan listeners (attached via attachPlanListeners) are sufficient
 
 
 /* ---------- RE-ATTACH LISTENERS AFTER RENDERS ---------- */
@@ -7284,7 +6546,6 @@ selectProvider = function (providerClass) {
 
 attachPlanListeners();
 
-  // --- UPDATE CONTACT/CANCEL BUTTON ---
   function updateContactOrCancel() {
     if (phoneInput.value.length > 0) {
       contactBtn.innerHTML = cancelSVG;
@@ -7310,7 +6571,6 @@ attachPlanListeners();
   }
   window.updateContactOrCancel = window.updateContactOrCancel || updateContactOrCancel;
 
-  // --- UPDATE CONTINUE BUTTON ---
   function updateContinueState() {
     const phoneValid = isValidPhone(phoneInput.value);
     if (phoneValid && isProviderSelected() && isPlanSelected()) {
@@ -7336,12 +6596,9 @@ async function findPlanById(planId, provider) {
 
 
 
-  // --- INITIAL PROVIDER SETUP ---
-  // REPLACE your current initializeProviderFromState() with this version
 function initializeProviderAndPlans() {
   let providerToUse = null;
 
-  // 1. Try to restore from saved state
   if (history.state?.selectedProvider) {
     providerToUse = history.state.selectedProvider;
   } else if (sessionStorage.getItem('__fg_app_state_v2')) {
@@ -7356,7 +6613,6 @@ function initializeProviderAndPlans() {
     } catch (e) {}
   }
 
-  // 2. If NOTHING was restored → default to MTN (exactly like your old function did)
   if (!providerToUse) {
     providerToUse = 'mtn';
     console.log('[INIT] No saved provider → defaulting to MTN (first visit)');
@@ -7364,18 +6620,15 @@ function initializeProviderAndPlans() {
     console.log('[INIT] Restored provider from state:', providerToUse);
   }
 
-  // 3. Now do the FULL initialization — same as your old setProviderOnLoad()
   const providerBox = document.querySelector(`.provider-box.${providerToUse}`);
   if (!providerBox) {
     console.error('[INIT] Provider box not found for:', providerToUse);
     return;
   }
 
-  // Clear any existing active state
   providers.forEach(p => p.classList.remove('active'));
   providerBox.classList.add('active');
 
-  // Update slider
   slider.className = `slider ${providerToUse}`;
   slider.innerHTML = `
     <img src="${svgPaths[providerToUse]}" alt="${providerToUse.toUpperCase()}" class="provider-icon" />
@@ -7383,16 +6636,13 @@ function initializeProviderAndPlans() {
   `;
   moveSliderTo(providerBox);
 
-  // Update plans row
   providerClasses.forEach(cls => plansRow.classList.remove(cls));
   plansRow.classList.add(providerToUse);
 
-  // Clear old selections
   plansRow.querySelectorAll('.plan-box').forEach(plan =>
     plan.classList.remove('selected', ...providerClasses)
   );
 
-  // Render plans & modal
   renderDashboardPlans(providerToUse);
   renderModalPlans(providerToUse);
   attachPlanListeners();
@@ -7405,7 +6655,6 @@ function restoreEverything() {
   const saved = JSON.parse(sessionStorage.getItem('__fg_app_state_v2') || '{}');
   console.log('[DEBUG] restoreEverything: Starting restore', saved);
 
-  // 1. Restore provider first
   if (saved.selectedProvider) {
     const providerBox = document.querySelector(`.provider-box.${saved.selectedProvider}`);
     if (providerBox && !providerBox.classList.contains('active')) {
@@ -7413,26 +6662,21 @@ function restoreEverything() {
     }
   }
 
-  // 2. Wait for provider transition + DOM to settle
   setTimeout(() => {
     const activeProvider = saved.selectedProvider || 'mtn';
     const plansRow = document.querySelector('.plans-row');
     const seeAllBtn = plansRow?.querySelector('.see-all-plans');
     if (!plansRow || !seeAllBtn) {
-      // Still restore phone even if plans fail
       restorePhoneNumber(saved);
       updateContinueState();
       return;
     }
 
-    // Plan restoration (as before)
     if (saved.selectedPlanId) {
-      // ... (keep the entire plan restoration block from previous version)
       renderModalPlans(activeProvider);
 
       const modalPlan = document.querySelector(`#allPlansModal .plan-box[data-id="${saved.selectedPlanId}"]`);
       if (modalPlan) {
-        // Clear selections...
         document.querySelectorAll('.plan-box.selected').forEach(p => {
           p.classList.remove('selected', ...providerClasses);
         });
@@ -7452,7 +6696,6 @@ function restoreEverything() {
         newFirstPlan.classList.remove(...providerClasses);
         newFirstPlan.classList.add(activeProvider, 'selected');
 
-        // Add sub-type tag logic (as before)
         const planId = saved.selectedPlanId;
         let subType = '';
         if (activeProvider === 'mtn') {
@@ -7464,7 +6707,6 @@ function restoreEverything() {
         }
 
         if (subType && activeProvider !== 'ninemobile') {
-          // Remove existing tag if any (modal clone might have it wrong)
           const existingTag = newFirstPlan.querySelector('.plan-type-tag');
           if (existingTag) existingTag.remove();
           
@@ -7474,13 +6716,10 @@ function restoreEverything() {
           newFirstPlan.appendChild(tag);
         }
 
-        // Insert as NEW #1 (before original #1)
         plansRow.insertBefore(newFirstPlan, originalFirstPlan);
 
-        // Mark modal
         modalPlan.classList.add('selected', activeProvider);
 
-        // Re-attach
         attachPlanListeners();
 
         console.log(`[restoreEverything] Plan restored to #1: ${saved.selectedPlanId}`);
@@ -7489,10 +6728,8 @@ function restoreEverything() {
       }
     }
 
-    // 3. Restore PHONE NUMBER (key fix here)
     restorePhoneNumber(saved);
 
-    // 4. Final updates
     attachPlanListeners(); // Safe to call again
     updateContactOrCancel(); // Update cancel button based on phone
     updateContinueState(); // Enable/disable continue
@@ -7503,7 +6740,6 @@ function restoreEverything() {
   }, 650);
 }
 
-// NEW HELPER: Dedicated phone restoration (handles formatting + events)
 function restorePhoneNumber(saved) {
   if (!saved.phoneNumber) return;
 
@@ -7513,26 +6749,21 @@ function restorePhoneNumber(saved) {
     return;
   }
 
-  // Normalize saved (in case it's raw) and re-format
   let rawNumber = normalizePhone(saved.phoneNumber); // Assume normalizePhone exists; define if not
   const formatted = formatNigeriaNumber(rawNumber, false, false).value;
 
   phoneInput.value = formatted;
   console.log('[restorePhoneNumber] Set formatted value:', formatted, 'Raw:', rawNumber);
 
-  // Trigger input event to update UI (contact/cancel button, validation)
   phoneInput.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
 
-  // Manual updates as backup
   updateContactOrCancel();
   updateContinueState();
 
-  // Validate & log
   const isValid = isValidPhone(formatted);
   console.log('[restorePhoneNumber] Validation:', isValid ? 'PASS' : 'FAIL', 'Length:', rawNumber.length);
 }
 
-// If normalizePhone is missing, add this:
 function normalizePhone(formatted) {
   if (!formatted) return '';
   return formatted.replace(/\s/g, '').replace(/[^0-9]/g, '').slice(0, 11);
@@ -7542,7 +6773,6 @@ function normalizePhone(formatted) {
 initializeProviderAndPlans();
 restoreEverything(); 
 updateContinueState();
-  // --- PROVIDER BOX CLICK ---
   let touchStartX = 0, touchStartY = 0, isScrolling = false;
 
   const debouncedSelectProvider = debounce((providerClass) => {
@@ -7593,7 +6823,6 @@ updateContinueState();
     });
   });
 
-  // --- PHONE INPUT HANDLING ---
   phoneInput.addEventListener('keypress', (e) => {
     if (e.key === '+') {
       e.preventDefault();
@@ -7725,7 +6954,6 @@ updateContinueState();
     return;
   }
 
-  // Enforce 11-digit limit after normalization
   let finalNormalized = normalized;
   if (normalized.length > 11) {
     finalNormalized = normalized.slice(0, 11);
@@ -7771,13 +6999,11 @@ updateContinueState();
 }, 50));
 phoneInput.maxLength = 13;  // 11 digits + 2 spaces in formatted value
 
-  // --- CONTINUE BUTTON CLICK ---
   continueBtn.addEventListener('click', async () => {
   if (continueBtn.disabled) return;
 
   console.log('%c[CHECKOUT] Continue clicked — preparing data', 'color:cyan;font-weight:bold');
 
-  // 1. Get active provider
   const activeProviderClass = providerClasses.find(cls => slider.classList.contains(cls));
   if (!activeProviderClass) {
     showToast('Please select a network provider', 'error');
@@ -7786,7 +7012,6 @@ phoneInput.maxLength = 13;  // 11 digits + 2 spaces in formatted value
 
   const providerDisplay = activeProviderClass === 'ninemobile' ? '9MOBILE' : activeProviderClass.toUpperCase();
 
-  // 2. Get selected plan
   const selectedPlanBox = plansRow.querySelector('.plan-box.selected');
   if (!selectedPlanBox) {
     showToast('Please select a data plan', 'error');
@@ -7799,7 +7024,6 @@ phoneInput.maxLength = 13;  // 11 digits + 2 spaces in formatted value
     return;
   }
 
-  // 3. Get phone number
   const rawPhone = normalizePhone(phoneInput.value);
   if (!rawPhone || rawPhone.length !== 11) {
     showToast('Please enter a valid phone number', 'error');
@@ -7808,7 +7032,6 @@ phoneInput.maxLength = 13;  // 11 digits + 2 spaces in formatted value
 
   const formattedPhone = formatNigeriaNumber(rawPhone).value;
 
-  // 4. Find full plan details from cache
   const allPlans = await loadAllPlansOnce();
   const fullPlan = allPlans.find(p => 
     p.plan_id === planId && 
@@ -7821,7 +7044,6 @@ phoneInput.maxLength = 13;  // 11 digits + 2 spaces in formatted value
     return;
   }
 
-  // 5. Build complete checkout data
   const checkoutData = {
     provider: providerDisplay,
     planId: fullPlan.plan_id,
@@ -7838,11 +7060,9 @@ phoneInput.maxLength = 13;  // 11 digits + 2 spaces in formatted value
 
 
 
-  // 7. Open modal with data → most reliable path
   window.openCheckoutModal(checkoutData);
 });
 
-  // --- MODAL EVENT LISTENERS ---
  
 
   let startY = 0, currentY = 0, translateY = 0, dragging = false;
@@ -7864,8 +7084,6 @@ function handleTouchMove(e) {
     let resistance = diff < 60 ? 1 : diff < 120 ? 0.8 : 0.6;
     translateY = diff * resistance;
     allPlansModalContent.style.transform = `translateY(${translateY}px)`;
-    // Remove this line if you have it:
-    // allPlansModalContent.style.opacity = Math.max(1 - translateY / 500, 0.3);
     e.preventDefault();
   }
 }
@@ -7874,18 +7092,14 @@ function handleTouchEnd() {
   if (!dragging) return;
   dragging = false;
 
-  // Always reset transition so ModalManager can control it
   allPlansModalContent.style.transition = '';
 
   if (translateY > pullThreshold) {
-    // Let ModalManager handle the close + animation + cleanup
     ModalManager.closeModal('allPlansModal');
   } else {
-    // Just snap back — ModalManager will handle the rest
     allPlansModalContent.style.transform = 'translateY(0)';
   }
 
-  // CRITICAL: Reset any inline styles that might linger
   setTimeout(() => {
     allPlansModalContent.style.opacity = '';
     allPlansModalContent.style.transform = '';
@@ -7893,7 +7107,6 @@ function handleTouchEnd() {
   }, 100);
 }
 
-// Re-attach (in case ModalManager re-renders)
 pullHandle?.addEventListener('touchstart', handleTouchStart);
 pullHandle?.addEventListener('touchmove', handleTouchMove, { passive: false });
 pullHandle?.addEventListener('touchend', handleTouchEnd);
@@ -7905,11 +7118,9 @@ allPlansModalContent.addEventListener('touchend', handleTouchEnd);
 
 
 
-  // --- CONTACT/CANCEL BUTTON ICONS ---
   const contactSVG = `<img src="/frontend/svg/contact-icon.svg" alt="Contact Icon" class="contact-btn contact-btn-svg" />`;
   const cancelSVG = `<button class="cancel-btn" type="button" aria-label="Clear number" tabindex="0" style="background: none; border: none; padding: 0; margin: 0;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#bfc7d3"/><path d="M8 8l8 8M16 8l-8 8" stroke="#021827" stroke-width="2" stroke-linecap="round"/></svg></button>`;
 
-  // --- CONTACT PICKER API HANDLER ---
   contactBtn.addEventListener('click', async (e) => {
     e.preventDefault();
 
@@ -8058,7 +7269,6 @@ allPlansModalContent.addEventListener('touchend', handleTouchEnd);
 
 
 
-// Prevent double execution on reload / duplicate includes
 if (window.__recentTxInitialized) {
   console.log('[recent-tx] Already initialized — skipping');
 } else {
@@ -8073,7 +7283,6 @@ if (window.__recentTxInitialized) {
       return;
     }
 
-    // === FORCE YOUR 28px svgShapes GLOBALLY ===
     window.svgShapes = {
       mtn: `<svg class="yellow-circle-icon" width="28" height="28" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#FFD700"/></svg>`,
       airtel: `<svg class="airtel-rect-icon" width="28" height="28" viewBox="0 0 24 24" fill="none"><rect x="4" y="6" width="20" height="12" rx="4" fill="#e4012b"/></svg>`,
@@ -8082,7 +7291,6 @@ if (window.__recentTxInitialized) {
       receive: `<svg class="bank-icon" width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M4 9v9h16V9l-8-5-8 5zm4 4h8v2H8v-2zm0 4h4v2H8v-2z" fill="#00cc00" stroke="#fff" stroke-width="1"/></svg>`
     };
 
-    // Helper to normalize phone numbers (for dedupe)
     function normalizePhone(phone) {
       return phone?.replace(/\s+/g, '').replace(/^0/, '+234') || '';
     }
@@ -8097,7 +7305,6 @@ if (window.__recentTxInitialized) {
 
 window.toLocalPhone = toLocalPhone; // Expose globally if needed
 
-    // --- PERMANENT RENDER FUNCTION ---
     function renderRecentTransactions(transactions = []) {
       recentTransactionsList.innerHTML = '';
 
@@ -8106,7 +7313,6 @@ window.toLocalPhone = toLocalPhone; // Expose globally if needed
         return;
       }
 
-      // Filter to data purchases + successes only
       const dataSuccessTxs = transactions.filter(tx => {
   const status = (tx.status || '').toLowerCase();
   const hasPhone = !!(tx.phone?.trim());
@@ -8132,7 +7338,6 @@ window.toLocalPhone = toLocalPhone; // Expose globally if needed
             ? tx.provider.charAt(0).toUpperCase() + tx.provider.slice(1).toLowerCase()
             : 'Unknown';
 
-        // Priority 1: Use clean column from transactions table
         let dataAmount = tx.data_amount || tx.dataAmount || '';
 
 if (!dataAmount && tx.description) {
@@ -8189,17 +7394,14 @@ phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
       console.log('[recent-tx] Rendered', dataSuccessTxs.length, 'successful data transactions');
     }
 
-    // === LOAD FROM recentDataTx (SESSION) FIRST, API AS FALLBACK ===
     let recentTransactions = [];
 
-    // Priority 1: Use server-embedded recentDataTx (instant, no fetch needed)
     const serverRecent = window.__SERVER_USER_DATA__?.recentDataTx || [];
 
     if (serverRecent.length) {
       recentTransactions = serverRecent;
       console.log('[recent-tx] Using server-embedded recentDataTx:', recentTransactions.length, 'items');
     } else {
-      // Priority 2: localStorage cache
       try {
         const stored = localStorage.getItem('recentDataTx');
         if (stored) {
@@ -8212,7 +7414,6 @@ phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
       }
     }
 
-    // Priority 3: Only fetch from API if we have nothing at all
     if (!recentTransactions.length) {
       try {
         const res = await fetch(`${window.__SEC_API_BASE}/api/transactions?limit=50`, {
@@ -8251,9 +7452,7 @@ phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
    PIN modal — unified keypad + keyboard input + toast system
    =========================================================== */
 (function () {
-  // Init once DOM is ready
   function init() {
-    // -- Elements (graceful guards) --
     const setupPinBtn = document.querySelector('.card.pin'); // Dashboard pin card
     const pinModal = document.getElementById('pinModal');
     const closePinModal = document.getElementById('closePinModal');
@@ -8269,12 +7468,10 @@ phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
     const keypadButtons = Array.from(document.querySelectorAll('.pin-keypad button'));
     const deleteKey = document.getElementById('deleteKey');
 
-    // If key elements missing, warn but continue if possible
     if (!pinTitleEl || !pinSubtitleEl || pinInputs.length === 0) {
       console.warn('[PIN] Some modal sub-elements are missing. Check selectors.');
     }
 
-    // -- State --
     let currentPin = "";
     let firstPin = "";
     let step = "create"; // "create" | "confirm" | "reauth"
@@ -8354,10 +7551,8 @@ function showToast(message, type = 'success', duration = 3000) {
   container.appendChild(toast);
   activeToast = toast;
 
-  // animate in
   requestAnimationFrame(() => toast.classList.add('show'));
 
-  // start fresh timer ONLY for this toast
   activeTimer = setTimeout(() => {
     toast.classList.remove('show');
     setTimeout(() => {
@@ -8367,7 +7562,6 @@ function showToast(message, type = 'success', duration = 3000) {
     activeTimer = null;
   }, duration);
 
-  // click to dismiss
   toast.onclick = () => {
     if (activeTimer) {
       clearTimeout(activeTimer);
@@ -8383,9 +7577,6 @@ window.showToast = showToast;
 
 
 
-    // ---------------------
-    // Helpers for input UI
-    // ---------------------
     function updatePinInputs() {
       pinInputs.forEach((inp, idx) => {
         if (idx < currentPin.length) {
@@ -8414,9 +7605,6 @@ window.showToast = showToast;
       resetInputs();
     }
 
-    // ---------------------
-    // Server/Session helper
-    // ---------------------
     async function openPinModalForReauth() {
       try {
         const res = await fetch('https://api.flexgig.com.ng/api/session', {
@@ -8448,9 +7636,6 @@ window.showToast = showToast;
       }
     }
 
-    // ---------------------
-    // Close/back button
-    // ---------------------
     if (closePinModal) {
       closePinModal.addEventListener('click', () => {
         if (step === 'confirm') {
@@ -8466,9 +7651,6 @@ window.showToast = showToast;
       });
     }
 
-    // ---------------------
-    // Input actions
-    // ---------------------
     function inputDigit(digit) {
       if (processing) return;
       if (!/^[0-9]$/.test(digit)) return;
@@ -8487,9 +7669,6 @@ window.showToast = showToast;
       updatePinInputs();
     }
 
-    // ---------------------
-    // Completion logic
-    // ---------------------
   async function handlePinCompletion() {
   if (processing) return;
   if (currentPin.length !== 4) return;
@@ -8518,10 +7697,8 @@ window.showToast = showToast;
     processing = true;
     return withLoader(async () => {
       try {
-        // --- Build headers ---
         const headers = { 'Content-Type': 'application/json' };
 
-        // Only include reset token if it exists AND is a reset flow
         const resetToken = (window.__rp_handlers && typeof window.__rp_handlers.getResetToken === 'function')
           ? window.__rp_handlers.getResetToken()
           : (window.__rp_reset_token || null);
@@ -8529,7 +7706,6 @@ window.showToast = showToast;
         if (resetToken && step === 'confirmReset') { 
           headers['x-reset-token'] = resetToken; // only for reset PIN flow
         } else {
-          // normal flow: use Authorization Bearer token if logged in
           const token = localStorage.getItem('token');
           if (token) headers['Authorization'] = `Bearer ${token}`;
         }
@@ -8546,7 +7722,6 @@ window.showToast = showToast;
         console.log('[dashboard.js] PIN setup successfully');
         localStorage.setItem('hasPin', 'true'); // PIN successfully set
 
-        // --- CLEAR short-lived reset token ---
         try {
           if (window.__rp_reset_token) {
             delete window.__rp_reset_token;
@@ -8597,15 +7772,12 @@ window.showToast = showToast;
 
       if (!res.ok) throw new Error('Invalid PIN');
 
-      // Parse minimal payload only (server should return minimal user summary)
       const payload = await res.json(); // ideally: { user: { username, fullName, ... } }
       const user = payload.user || {};
 
-      // Hide modal immediately for snappy UX
       if (pinModal) pinModal.classList.add('hidden');
       resetInputs();
 
-      // Prepare userData from minimal payload, avoid extra fetches when possible
       const userData = {
         email: user.email || '',
         firstName: user.fullName?.split(' ')[0] || '',
@@ -8615,13 +7787,11 @@ window.showToast = showToast;
         profilePicture: user.profilePicture || '',
       };
 
-      // Fire non-blocking UI updates in parallel — don't await them before continuing
       Promise.allSettled([
         (typeof updateGreetingAndAvatar === 'function') ? updateGreetingAndAvatar(userData.username, userData.firstName) : Promise.resolve(),
         (typeof loadUserProfile === 'function') ? loadUserProfile(userData) : Promise.resolve(),
         (typeof updateBalanceDisplay === 'function') ? updateBalanceDisplay() : Promise.resolve()
       ]).then(results => {
-        // log any failures but don't block user
         results.forEach((r, idx) => {
           if (r.status === 'rejected') {
             console.warn('[reauth] background update failed', idx, r.reason);
@@ -8646,7 +7816,6 @@ window.showToast = showToast;
 function onPinSetupSuccess() {
   console.log('[PIN Setup] Success - updating flags and UI');
 
-  // First: clear any short-lived reset token (idempotent safety-net)
   try {
     if (window.__rp_reset_token) {
       delete window.__rp_reset_token;
@@ -8659,27 +7828,22 @@ function onPinSetupSuccess() {
     console.debug('onPinSetupSuccess: error clearing __rp_reset_token', e);
   }
 
-  // Update localStorage (instant + persistent)
   localStorage.setItem('hasPin', 'true');
 
-  // Dispatch custom event so other components can react
   window.dispatchEvent(new CustomEvent('pin-status-changed', {
     detail: { hasPin: true }
   }));
 
-  // Hide the dashboard Setup Pin card immediately
   const pinCard = document.getElementById('dashboardPinCard');
   if (pinCard) {
     pinCard.style.display = 'none';
   }
 
-  // Update Account PIN status in security modal
   const accountPinStatusEl = document.getElementById('accountPinStatus');
   if (accountPinStatusEl) {
     accountPinStatusEl.textContent = 'PIN set. You can change your PIN here';
   }
 
-  // Optionally notify user
   if (typeof notify === 'function') {
     notify('PIN set up successfully!', 'success');
   }
@@ -8688,9 +7852,6 @@ function onPinSetupSuccess() {
 
 
 
-    // ---------------------
-    // Wire keypad buttons
-    // ---------------------
     keypadButtons.forEach(btn => {
       btn.addEventListener('click', () => {
         const raw = (btn.dataset.value ?? btn.textContent).trim().toLowerCase();
@@ -8708,9 +7869,6 @@ function onPinSetupSuccess() {
       deleteKey.addEventListener('click', handleDelete);
     }
 
-    // ---------------------
-    // Keyboard handler
-    // ---------------------
     document.addEventListener('keydown', (e) => {
       if (pinModal.classList.contains('hidden')) return;
 
@@ -8723,9 +7881,6 @@ function onPinSetupSuccess() {
       }
     });
 
-    // ---------------------
-    // Open modal from dashboard card
-    // ---------------------
     if (setupPinBtn) {
       setupPinBtn.addEventListener('click', openModalAsCreate);
     }
@@ -8733,7 +7888,6 @@ function onPinSetupSuccess() {
     console.log('[PIN] initialized — modal found, inputs:', pinInputs.length, 'keypad buttons:', keypadButtons.length);
   } // end init()
 
-  // Run init
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
@@ -8752,13 +7906,7 @@ function __fg_pin_clearAllInputs() {
 
 
 
-// --- SECURITY PIN MODAL (integrated, strict, Supabase-aware, auto-jump & auto-submit) ---
-// --- SECURITY PIN MODAL (integrated, strict, Supabase-aware, auto-jump & auto-submit) ---
-// --- SECURITY PIN MODAL (integrated, strict, Supabase-aware, auto-jump & auto-submit) ---
-// --- SECURITY PIN MODAL (integrated, strict, Supabase-aware, auto-jump & auto-submit) ---
-// --- SECURITY PIN MODAL (integrated, strict, Supabase-aware, auto-jump & auto-submit) ---
 (() => {
-  // Local logger (keeps messages compact)
   const __fg_pin_log = {
     d: (...a) => console.debug('[PIN][debug]', ...a),
     i: (...a) => console.info('[PIN][info]', ...a),
@@ -8766,7 +7914,6 @@ function __fg_pin_clearAllInputs() {
     e: (...a) => console.error('[PIN][error]', ...a),
   };
 
-  // Elements (IDs must exist in DOM)
   const __fg_pin_securityPinModal = document.getElementById('securityPinModal');
   const __fg_pin_changePinForm = document.getElementById('changePinForm');
   const __fg_pin_resetPinBtn = document.getElementById('resetPinBtn');
@@ -8774,7 +7921,6 @@ function __fg_pin_clearAllInputs() {
   const __fg_pin_inputNewEl = document.getElementById('newPin');
   const __fg_pin_inputConfirmEl = document.getElementById('confirmPin');
 
-  // Timing variables
   const __fg_pin_nextFocusDelay = 60; // ms delay before focusing next input after auto-jump
   const __fg_pin_autoSubmitBlurDelay = 80; // ms delay after blur before auto-submitting
 
@@ -8790,7 +7936,6 @@ function __fg_pin_clearAllInputs() {
     }
   }
 
-  // Inline field error helper
   function __fg_pin_showFieldError(field, message) {
     if (!field) return;
     __fg_pin_hideFieldError(field);
@@ -8824,7 +7969,6 @@ function __fg_pin_clearAllInputs() {
     );
   }
 
-  // Utility to get current signed-in uid
   async function __fg_pin_getCurrentUid() {
   try {
     if (typeof window.getSession === 'function') {
@@ -8832,8 +7976,6 @@ function __fg_pin_clearAllInputs() {
       __fg_pin_log.d('getSession result', s);
       if (s && s.user && s.user.uid) return { uid: s.user.uid, session: s };
     }
-    // Removed: localStorage fallbacks for authTokenData and user
-    // Fetch UID from server-side session endpoint as a fallback
     const res = await fetch('https://api.flexgig.com.ng/api/session', {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
@@ -8856,7 +7998,6 @@ function __fg_pin_clearAllInputs() {
   }
 }
 
-  // Find stored PIN value in Supabase
   const __fg_pin_TRY_TABLES = ['profiles', 'users', 'accounts'];
   const __fg_pin_TRY_COLUMNS = [
     'pin',
@@ -8877,7 +8018,6 @@ function __fg_pin_clearAllInputs() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
-        // Removed Authorization
       },
       credentials: 'include',
       body: JSON.stringify({ userId: uid })  // Pass for verification
@@ -8900,7 +8040,6 @@ function __fg_pin_clearAllInputs() {
 }
 
 
-  // Update stored PIN in Supabase
   async function __fg_pin_updateStoredPin(uid, table, column, newPin) {
   if (table !== 'users' || column !== 'pin') {
     __fg_pin_log.e('Invalid updateStoredPin params', { table, column });
@@ -8923,7 +8062,6 @@ function __fg_pin_clearAllInputs() {
     }
     __fg_pin_log.i('PIN updated successfully');
 
-    // --- persist hasPin locally & reinit inactivity ---
     try {
       localStorage.setItem('hasPin', 'true');
       if (typeof setupInactivity === 'function') setupInactivity();
@@ -8939,7 +8077,6 @@ function __fg_pin_clearAllInputs() {
   }
 }
 
-  // Strict PIN input restrictions + auto-jump + auto-submit
   function __fg_pin_bindStrictPinInputs() {
     const maxLen = 4;
     const inputs = [
@@ -9040,7 +8177,6 @@ function __fg_pin_clearAllInputs() {
     });
   }
 
-  // Auto-submit if valid
   function __fg_pin_autoSubmitIfValid() {
     if (!__fg_pin_changePinForm) return;
     const cur = String((__fg_pin_inputCurrentEl && __fg_pin_inputCurrentEl.value) || '').trim();
@@ -9091,7 +8227,6 @@ function __fg_pin_clearAllInputs() {
     }, __fg_pin_autoSubmitBlurDelay);
   }
 
-  // Main change PIN handler
   if (__fg_pin_changePinForm) {
   __fg_pin_changePinForm.addEventListener(
     'submit',
@@ -9151,12 +8286,10 @@ function __fg_pin_clearAllInputs() {
             'error'
           );
           setTimeout(() => {
-            //window.location.href = '/reset-pin.html';
           }, 1200);
           return;
         }
 
-        // Verify current PIN using /api/verify-pin
         try {
           const verifyRes = await fetch('https://api.flexgig.com.ng/api/verify-pin', {
             method: 'POST',
@@ -9201,7 +8334,6 @@ function __fg_pin_clearAllInputs() {
           if (__fg_pin_inputCurrentEl) __fg_pin_inputCurrentEl.value = '';
           if (__fg_pin_inputNewEl) __fg_pin_inputNewEl.value = '';
           if (__fg_pin_inputConfirmEl) __fg_pin_inputConfirmEl.value = '';
-          // Close modal using ModalManager
           if (window.ModalManager && typeof window.ModalManager.closeModal === 'function') {
             window.ModalManager.closeModal('securityPinModal');
             __fg_pin_log.i('Closed PIN modal via ModalManager');
@@ -9226,7 +8358,6 @@ function __fg_pin_clearAllInputs() {
     __fg_pin_log.d('changePinForm not present on page yet');
   }
 
-  // Reset PIN action
   if (__fg_pin_resetPinBtn) {
     __fg_pin_resetPinBtn.addEventListener('click', (ev) => {
       ev.preventDefault();
@@ -9235,7 +8366,6 @@ function __fg_pin_clearAllInputs() {
     });
   }
 
-  // Bind strict inputs when modal opens via custom event
   document.addEventListener('security:pin-modal-opened', () => {
     try {
       __fg_pin_bindStrictPinInputs();
@@ -9245,7 +8375,6 @@ function __fg_pin_clearAllInputs() {
     }
   });
 
-  // Expose debug helpers
   window.__fg_debugPinModule = {
     __fg_pin_findStoredPin,
     __fg_pin_updateStoredPin,
@@ -9260,7 +8389,6 @@ function __fg_pin_clearAllInputs() {
 
 /* Dashboard PIN and Security Integration */
 (function (supabase) {
-  // Debugging setup
   const DEBUG = true;
   const log = {
     d: (...a) => { if (DEBUG) console.debug('[PIN][debug]', ...a); },
@@ -9269,10 +8397,8 @@ function __fg_pin_clearAllInputs() {
     e: (...a) => { if (DEBUG) console.error('[PIN][error]', ...a); },
   };
 
-  // Utility function for querying elements
   const q = (sel, base = document) => base.querySelector(sel);
 
-  // Elements
   const pinModal = q('#pinModal');
   const securityPinModal = q('#securityPinModal');
   const pinForm = q('#pinForm');
@@ -9287,7 +8413,6 @@ function __fg_pin_clearAllInputs() {
   const pinVerifyInputs = pinVerifyModal?.querySelectorAll('input[data-fg-pin]');
   const pinVerifyAlert = q('#pinVerifyAlert');
   const pinVerifyAlertMsg = q('#pinVerifyAlertMsg');
-  // const payBtn = q('#payBtn');
   const inactivityModal = q('#inactivityModal');
   const inactivityConfirmBtn = q('#inactivityConfirmBtn');
 
@@ -9295,7 +8420,6 @@ function __fg_pin_clearAllInputs() {
   let inactivityTimer = null; // Timer for 10-minute inactivity
   let inactivityPopupTimer = null; // Timer for 30-second popup
 
-  // Debounce utility for keyboard flicker fix
   function debounce(fn, ms) {
     let timeout;
     return (...args) => {
@@ -9304,7 +8428,6 @@ function __fg_pin_clearAllInputs() {
     };
   }
 
-  // Notify function for alerts
   function notify(msg, type = 'info', target = pinAlert, msgEl = pinAlertMsg) {
     if (target && msgEl) {
       target.classList.remove('hidden');
@@ -9316,11 +8439,8 @@ function __fg_pin_clearAllInputs() {
   }
   window.notify = window.notify || notify;
 
-  // Get user ID from Supabase
-  // Robust getUid: never throws for "no user yet" — returns null when no signed-in user
 async function getUid({ waitForSession = true, waitMs = 500 } = {}) {
   try {
-    // Prefer safeCall(getSession) if available
     let session = null;
     try {
       session = await safeCall(getSession);
@@ -9328,10 +8448,8 @@ async function getUid({ waitForSession = true, waitMs = 500 } = {}) {
       session = null;
     }
 
-    // If no session and a global session promise exists, await it briefly (helps on first load races)
     if (!session && waitForSession && typeof getOrCreateSessionPromise === 'function') {
       try {
-        // Wait for the global session promise but with a small timeout so we don't hang forever
         const p = getOrCreateSessionPromise();
         session = await Promise.race([
           p,
@@ -9344,13 +8462,11 @@ async function getUid({ waitForSession = true, waitMs = 500 } = {}) {
 
     const uid = session?.user?.uid || session?.user?.id || localStorage.getItem('userId') || null;
     if (!uid) {
-      // Prefer returning null (callers should check) rather than throwing
       console.debug('[PIN] getUid: No user yet — returning null (not throwing).');
       return null;
     }
     return { uid };
   } catch (err) {
-    // Unexpected error — log and return null so callers don't get unhandled rejections
     console.error('[PIN] getUid unexpected error (returning null):', err);
     return null;
   }
@@ -9358,14 +8474,12 @@ async function getUid({ waitForSession = true, waitMs = 500 } = {}) {
 window.getUid = window.getUid || getUid;
 
 
-  // Find stored PIN in Supabase
   async function findStoredPin(uid) {
   try {
     const response = await fetch('https://api.flexgig.com.ng/api/check-pin', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
-        // Removed Authorization
       },
       credentials: 'include',
       body: JSON.stringify({ userId: uid })  // Pass for verification
@@ -9387,8 +8501,6 @@ window.getUid = window.getUid || getUid;
   }
 }
 
-  // Update PIN in Supabase
-  // Update PIN in Supabase
 async function updateStoredPin(uid, newPin) {
   console.log('[DEBUG] updateStoredPin CALLED with uid:', uid, 'pin:', newPin);
   return withLoader(async () => {
@@ -9397,7 +8509,6 @@ async function updateStoredPin(uid, newPin) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
-          // Removed Authorization
         },
         credentials: 'include',
         body: JSON.stringify({ userId: uid, pin: newPin })  // Pass userId
@@ -9423,42 +8534,8 @@ async function updateStoredPin(uid, newPin) {
 }
 
 
-//   // Re-authenticate with PIN
-//   async function reAuthenticateWithPin(uid, pin, callback) {
-//   return withLoader(async () => {
 
-//   try {
-//     const found = await findStoredPin(uid);
-//     if (!found) {
-//       notify('No PIN set. Please set a PIN first.', 'error', pinVerifyAlert, pinVerifyAlertMsg);
-//       return false;
-//     }
-//     const res = await fetch('https://api.flexgig.com.ng/api/verify-pin', {
-//       method: 'POST',
-//       headers: {
-//         'Content-Type': 'application/json'
-//         // Removed Authorization
-//       },
-//       body: JSON.stringify({ userId: uid, pin }),
-//       credentials: 'include',
-//     });
-//     if (!res.ok) {
-//       const { error } = await res.json();
-//       notify(error?.message || 'Incorrect PIN. Try again.', 'error', pinVerifyAlert, pinVerifyAlertMsg);
-//       return false;
-//     }
-//     notify('PIN verified successfully', 'success', pinVerifyAlert, pinVerifyAlertMsg);
-//     callback(true);
-//     return true;
-//   } catch (err) {
-//     log.e('reAuthenticateWithPin error', err);
-//     notify('Error verifying PIN. Please try again.', 'error', pinVerifyAlert, pinVerifyAlertMsg);
-//     return false;
-//   }
-//   });
-// }
 
-  // Reusable PIN check function
   window.checkPinExists = async function (callback, context = null) {
     const info = await getUid();
     if (!info || !info.uid) {
@@ -9479,7 +8556,6 @@ async function updateStoredPin(uid, newPin) {
     return true;
   };
 
-  // Bind PIN inputs for both pinModal and pinVerifyModal
   function bindPinInputs(inputs, form, modal, alert, alertMsg) {
     const maxLen = 1;
     const pinLength = 4;
@@ -9537,7 +8613,6 @@ async function updateStoredPin(uid, newPin) {
       });
     });
 
-    // Keypad buttons
     const keypadButtons = modal.querySelectorAll('.pin-keypad button[data-key]');
     keypadButtons.forEach(button => {
       button.addEventListener('click', () => {
@@ -9564,7 +8639,6 @@ async function updateStoredPin(uid, newPin) {
   }
 
 
-  // Initialize PIN modal
   function initPinModal() {
     if (pinForm && pinInputs.length) {
       bindPinInputs(pinInputs, pinForm, pinModal, pinAlert, pinAlertMsg);
@@ -9602,7 +8676,6 @@ async function updateStoredPin(uid, newPin) {
     }
   }
 
-  // Initialize PIN verification modal
   function initPinVerifyModal() {
     if (pinVerifyForm && pinVerifyInputs.length) {
       bindPinInputs(pinVerifyInputs, pinVerifyForm, pinVerifyModal, pinVerifyAlert, pinVerifyAlertMsg);
@@ -9626,7 +8699,6 @@ async function updateStoredPin(uid, newPin) {
       window.ModalManager.closeModal('pinVerifyModal');
       if (lastModalSource === 'checkout') {
         notify('Payment processing...', 'info');
-        // Add your payment logic here
       }
     } else {
       notify('Incorrect PIN. Please try again.', 'error', pinVerifyAlert, pinVerifyAlertMsg);
@@ -9637,7 +8709,6 @@ async function updateStoredPin(uid, newPin) {
     }
   }
 
-  // Initialize security PIN modal
   function initSecurityPinModal() {
     if (securityPinRow) {
       securityPinRow.addEventListener('click', async () => {
@@ -9686,7 +8757,6 @@ async function updateStoredPin(uid, newPin) {
           notify('Cannot verify PIN. Use Reset PIN.', 'error');
           return;
         }
-        // Note: Assuming backend verify-pin can check currentPin; if found.value is hashed, use reAuthenticateWithPin for current
         await reAuthenticateWithPin(info.uid, currentPin, async (success) => {
           if (!success) {
             console.log('Current PIN is incorrect', 'error');
@@ -9713,14 +8783,12 @@ async function updateStoredPin(uid, newPin) {
     if (resetPinBtn) {
       resetPinBtn.addEventListener('click', () => {
         notify('Redirecting to PIN reset flow', 'info');
-        //window.location.href = '/reset-pin.html';
       });
     }
   }
 
 
 
-  // Initialize on page load
   function boot() {
   log.d('Booting PIN and security module');
   initPinModal();
@@ -9730,34 +8798,8 @@ async function updateStoredPin(uid, newPin) {
     window.__reauth.setupInactivity();
   }
 
-  // 🔹 Delay + await global session before PIN check (eliminates race)
-//   setTimeout(async () => {
-//     try {
-//       console.log('[BOOT] Starting PIN check...');
-//       await getSession();  // Wait for session (global, no duplicate fetches)
       
-//       // Now safe: Wrap with full catch
-//       await new Promise((resolve, reject) => {
-//         window.checkPinExists((hasPin) => {
-//           try {
-//             if (hasPin) {
-//               window.ModalManager.openModal('pinVerifyModal');
-//             }
-//             resolve();
-//           } catch (e) {
-//             reject(e);
-//           }
-//         }, 'load');
-//       }).catch(async (e) => {
-//         console.error('[BOOT] PIN check failed first try:', e);
-//         // No retry needed (global promise ensures session); log & skip
-//       });
       
-//       console.log('[BOOT] PIN check complete');
-//     } catch (e) {
-//       console.error('[BOOT] PIN check error', e);
-//     }
-//   }, 2000);  // 2s buffer (covers everything; adjust down if too slow)
 
  }
 
@@ -9776,9 +8818,6 @@ if (document.readyState === 'loading') {
 
 
 
-// --- UPDATE PROFILE MODAL ---
-// --- UPDATE PROFILE MODAL ---
-// --- UPDATE PROFILE MODAL ---
 const updateProfileBtn = document.getElementById('updateProfileBtn'); // dashboard
 const settingsUpdateBtn = document.getElementById('openUpdateProfile'); // settings
 const updateProfileModal = document.getElementById('updateProfileModal');
@@ -9800,7 +8839,6 @@ let isUsernameAvailable = false;
 let lastModalSource = null; // can be 'dashboard' or 'settings'
 
 
-// Validate DOM elements
 const requiredElements = {
   updateProfileModal,
   updateProfileForm,
@@ -9833,47 +8871,6 @@ if (updateProfileBtn) {
 }
 
 
-// ====== Force Profile Modal Open Above ModalManager ======
-// if (settingsUpdateBtn) {
-//   settingsUpdateBtn.addEventListener(
-//     'click',
-//     (event) => {
-//       event.preventDefault();
-//       event.stopImmediatePropagation();
-//       lastModalSource = 'settings';
-//       if (typeof openUpdateProfileModal === 'function') {
-//         openUpdateProfileModal();
-//         if (updateProfileModal) {
-//           // Force active and remove hidden
-//           updateProfileModal.classList.add('active');
-//           updateProfileModal.classList.remove('hidden');
-//           updateProfileModal.style.display = 'flex';
-//           updateProfileModal.style.opacity = 1;
-//           // CRITICAL: Push proper history state with modalDepth
-//           // Get current depth from ModalManager if available
-//           const currentDepth = window.ModalManager?.getCurrentDepth?.() || 1;
-//           history.pushState(
-//             { 
-//               isModal: true,
-//               modalId: 'updateProfileModal',
-//               modalDepth: currentDepth + 1
-//             }, 
-//             '', 
-//             '#updateProfileModal'
-//           );
-//           console.log('[INFO] updateProfileModal forced visible with history', {
-//             classList: updateProfileModal.className,
-//             display: updateProfileModal.style.display,
-//             modalDepth: currentDepth + 1
-//           });
-//           // Run validation safely
-//           setTimeout(() => validateProfileForm(true), 50);
-//         }
-//       }
-//     },
-//     true
-//   );
-// }
 
 
 
@@ -9886,8 +8883,6 @@ if (updateProfileCard) {
   });
 }
 
-// --- Helper: get file from input safely and ensure FormData has it ---
-// --- Helper: ensure file is in FormData ---
 function ensureFileInFormData(formData, inputEl, fieldName = 'profilePicture') {
   try {
     const existing = formData.get(fieldName);
@@ -9899,9 +8894,7 @@ function ensureFileInFormData(formData, inputEl, fieldName = 'profilePicture') {
   }
 }
 
-// --- SINGLE consolidated submit handler for updateProfileForm ---
 if (updateProfileForm) {
-  // Remove previous listener if any (defensive)
   updateProfileForm.removeEventListener && 
   updateProfileForm.removeEventListener('submit', 
   updateProfileForm.__submitHandler);
@@ -9914,7 +8907,6 @@ if (updateProfileForm) {
       return;
     }
 
-    // Mark fields touched & validate
     Object.keys(fieldTouched).forEach(key => {
       const inputMap = {
         fullName: fullNameInput,
@@ -9924,7 +8916,6 @@ if (updateProfileForm) {
         profilePicture: profilePictureInput
       };
       const el = inputMap[key];
-      // Only mark as touched if element exists and is not disabled.
       fieldTouched[key] = !!(el && !el.disabled);
     });
 
@@ -9940,13 +8931,10 @@ if (updateProfileForm) {
     withLoader(async () => {
 
     try {
-      // Build FormData
       const formData = new FormData(updateProfileForm);
 
-      // Include disabled email field value from localStorage
       formData.set('email', localStorage.getItem('userEmail') || '');
 
-      // Full name & username: prefer input value, otherwise fall back to localStorage
       const fullNameVal = (fullNameInput && fullNameInput.value.trim()) || 
       localStorage.getItem('fullName') || '';
       const usernameVal = (usernameInput && usernameInput.value.trim()) || 
@@ -9954,7 +8942,6 @@ if (updateProfileForm) {
       const addressVal = (addressInput && addressInput.value.trim()) || 
       localStorage.getItem('address') || '';
 
-      // Phone: prefer input value then localStorage; remove formatting spaces
       let phoneRaw = '';
       if (phoneNumberInput && phoneNumberInput.value) phoneRaw = 
       phoneNumberInput.value.replace(/\s/g, '');
@@ -9966,19 +8953,16 @@ if (updateProfileForm) {
       formData.set('address', addressVal);
       formData.set('phoneNumber', phoneRaw);
 
-      // Ensure file is appended even if input[name] missing
       if (profilePictureInput && profilePictureInput.files[0]) {
         formData.set('profilePicture', profilePictureInput.files[0]);
       }
 
-      // Debug: print entries (no binary)
       const debugObj = {};
       for (const [k, v] of formData.entries()) {
         debugObj[k] = v instanceof File ? `File: ${v.name} (${v.type}, ${v.size})` : v;
       }
       console.log('[DEBUG] updateProfileForm: sending', debugObj);
 
-      // POST (do NOT set Content-Type when sending FormData)
       const response = await 
 fetch('https://api.flexgig.com.ng/api/profile/update', {
         method: 'POST',
@@ -9989,8 +8973,6 @@ fetch('https://api.flexgig.com.ng/api/profile/update', {
         credentials: 'include'
       });
 
-      // Parse response safely
-            // Parse response safely
       let rawText = '';
       let parsedData = null;
       try {
@@ -10000,23 +8982,18 @@ fetch('https://api.flexgig.com.ng/api/profile/update', {
         console.warn('[WARN] updateProfileForm: Response is not valid JSON');
       }
 
-      // Normalize server error/message into a readable string
       function extractServerMessage(obj, fallback) {
         if (!obj) return fallback || '';
-        // if it's a string already
         if (typeof obj === 'string') return obj;
-        // common shapes: { error: 'msg' } or { message: 'msg' } or { error: { message: 'msg' } }
         if (typeof obj.error === 'string') return obj.error;
         if (typeof obj.message === 'string') return obj.message;
         if (obj.error && typeof obj.error.message === 'string') return obj.error.message;
         if (obj.message && typeof obj.message === 'object' && typeof obj.message.message === 'string') return obj.message.message;
-        // last resort: try to find a nested message field
         for (const k of ['error', 'errors', 'message', 'detail']) {
           const v = obj[k];
           if (typeof v === 'string') return v;
           if (v && typeof v.message === 'string') return v.message;
         }
-        // nothing obvious — stringify safely (limit length)
         try {
           const s = JSON.stringify(obj);
           return s.length > 300 ? s.slice(0, 300) + '…' : s;
@@ -10028,27 +9005,23 @@ fetch('https://api.flexgig.com.ng/api/profile/update', {
       if (!response.ok) {
         console.error('[ERROR] updateProfileForm: Failed response', response.status, parsedData || rawText);
         const serverMsg = extractServerMessage(parsedData, rawText || `HTTP ${response.status}`);
-        // throw a real Error with a normalized string message
         throw new Error(serverMsg || `HTTP ${response.status}`);
       }
 
 
 
-      // Immediate localStorage and DOM update with submitted values for quick feedback
       localStorage.setItem('fullName', fullNameVal);
       localStorage.setItem('username', usernameVal);
       localStorage.setItem('phoneNumber', phoneRaw);
       localStorage.setItem('address', addressVal);
       localStorage.setItem('firstName', fullNameVal.split(' ')[0] || 'User');
 
-      // If a new picture file was uploaded, temporarily set a local data URI for instant display
       let tempProfilePicture = localStorage.getItem('profilePicture') || '';
       if (profilePictureInput && profilePictureInput.files[0]) {
         tempProfilePicture = URL.createObjectURL(profilePictureInput.files[0]);
         localStorage.setItem('profilePicture', tempProfilePicture); // Temporary; server fetch will overwrite
       }
 
-      // Update DOM immediately
       const firstnameEl = document.getElementById('firstname');
       const avatarEl = document.getElementById('avatar');
       if (firstnameEl && avatarEl) {
@@ -10064,15 +9037,12 @@ fetch('https://api.flexgig.com.ng/api/profile/update', {
         }
       }
 
-      // Show success notification
       const notification = document.getElementById('notification') || document.getElementById('profileUpdateNotification');
       if (notification) {
         notification.textContent = 'Profile updated successfully!';
         onProfileUpdateSuccess();
-        // after upload/update success:
 invalidateProfileCache();             // allow next call to fetch fresh
 loadProfileToSettings(true);          // force fresh fetch & UI update
-// or simply loadProfileToSettings(true).catch(...)
 
         notification.classList.add('active');
         setTimeout(() => notification.classList.remove('active'), 3000);
@@ -10080,12 +9050,10 @@ loadProfileToSettings(true);          // force fresh fetch & UI update
 
       closeUpdateProfileModal();
 
-      // Fetch fresh server data and apply (will overwrite temp values if needed)
       await loadUserProfile(true);
 
         } catch (err) {
       console.error('[ERROR] updateProfileForm:', err);
-      // ensure we have a readable message
       const readable = (err && (err.message || err.toString())) || String(err);
       if (readable.toLowerCase().includes('username')) {
         if (usernameError) {
@@ -10101,7 +9069,6 @@ loadProfileToSettings(true);          // force fresh fetch & UI update
         setTimeout(() => generalError.remove(), 4000);
       }
   } finally {
-      // Always reset button after operation
       saveProfileBtn.disabled = false;
       saveProfileBtn.innerHTML = originalBtnContent; // Restore original content
     }
@@ -10115,22 +9082,18 @@ updateProfileForm.__submitHandler);
 function onProfileUpdateSuccess() {
     console.log('[Profile Update] Success - updating flags and UI');
     
-    // Update localStorage (instant + persistent)
     localStorage.setItem('profileCompleted', 'true');
     
-    // Hide the dashboard Update Profile card immediately
     const profileCard = document.getElementById('dashboardUpdateProfileCard');
     if (profileCard) {
         profileCard.style.display = 'none';
     }
     
-    // Optionally notify user
     if (typeof notify === 'function') {
         notify('Profile updated successfully!', 'success');
     }
 }
 
-// Profile-specific phone number functions
 function isValidPrefixPartial(cleaned) {
   if (!cleaned) return true;
   const allPrefixes = Object.values(providerPrefixes || {}).flat();
@@ -10148,7 +9111,6 @@ function isValidPrefixPartial(cleaned) {
   return true;
 }
 
-// Stronger final mobile check: requires 11 digits, starts 0[7|8|9], and 4-digit prefix exist
 function isNigeriaMobileProfile(phone) {
   const cleaned = (phone || '').replace(/\s/g, '');
   if (!/^\d{11}$/.test(cleaned)) return false;
@@ -10158,7 +9120,6 @@ function isNigeriaMobileProfile(phone) {
   return allPrefixes.includes(prefix4);
 }
 
-// Normalizes various inputs to local 0-prefixed form where appropriate
 function normalizePhoneProfile(input) {
   if (!input) return '';
   const digits = input.replace(/\D/g, '');
@@ -10167,7 +9128,6 @@ function normalizePhoneProfile(input) {
   return digits;
 }
 
-// Formatting: "0XXX XXXX XXXX" (with spaces)
 function formatNigeriaNumberProfile(input, isInitialDigit = false, isPaste = false) {
   const normalized = normalizePhoneProfile(input);
   if (!normalized) return { value: '', cursorOffset: 0 };
@@ -10181,32 +9141,23 @@ function formatNigeriaNumberProfile(input, isInitialDigit = false, isPaste = fal
   return { value: parts.slice(0, 4) + ' ' + parts.slice(4, 8) + ' ' + parts.slice(8), cursorOffset: isPaste ? parts.length + 2 : 0 };
 }
 
-// Validate phone number field but only show length/prefix errors if touched or blurred
 function validatePhoneNumberField(inputElement, errorElement) {
   const raw = (inputElement.value || '').replace(/\s/g, '');
   let error = '';
 
-  // show final (length/prefix) errors only when touched or on blur (not while actively typing)
   const showFinalErrors = !!fieldTouched.phoneNumber || document.activeElement !== inputElement;
 
-  // quick non-digit guard
   if (raw && !/^\d*$/.test(raw)) {
     error = 'Phone number must contain only digits';
   } else {
-    // If the input starts with the country code "234"
     const startsWith234 = raw.startsWith('234');
 
-    // If the user only typed "234" (country code alone), treat it as allowed while typing
     if (startsWith234 && raw.length === 3) {
-      // Clear UI and return valid (do not mark touched)
       if (errorElement) { errorElement.textContent = ''; errorElement.classList.remove('active'); }
       if (inputElement) inputElement.classList.remove('invalid');
       return true;
     }
 
-    // Build normalized value for checks:
-    // - If startsWith234 and has more chars, normalize to local "0..." form
-    // - Otherwise, use raw as-is (local form or partial)
     let normalizedForChecks = raw;
     if (startsWith234 && raw.length > 3) {
       normalizedForChecks = '0' + raw.slice(3); // e.g. 234803... -> 0803...
@@ -10215,14 +9166,11 @@ function validatePhoneNumberField(inputElement, errorElement) {
     const normLen = normalizedForChecks.length;
     const rawLen = raw.length;
 
-    // 1) Specific immediate single-digit starts (exact messages)
     if (rawLen === 1 && /^[1456]$/.test(raw)) {
       error = `Phone number cannot start with ${raw}`;
     } else if (startsWith234 && rawLen >= 4 && /^[1456]$/.test(normalizedForChecks[1])) {
-      // normalizedForChecks[1] is the local first digit (normalized begins with '0')
       error = `Phone number cannot start with ${normalizedForChecks[1]}`;
     } else {
-      // For normal local input (not country-code), check "0[1456]" pattern as soon as second char exists
       if (!startsWith234) {
         if (normLen >= 2 && /^0[1456]/.test(normalizedForChecks)) {
           error = `Phone number cannot start with ${normalizedForChecks[1]}`;
@@ -10230,9 +9178,7 @@ function validatePhoneNumberField(inputElement, errorElement) {
       }
     }
 
-    // 2) Prefix validity using normalizedForChecks (but only when we have enough digits)
     if (!error) {
-      // Only run partial/full prefix checks if we have at least 3 normalized digits (or 4 to be strict)
       if (normLen >= 3 && !isValidPrefixPartial(normalizedForChecks)) {
         if (showFinalErrors || normLen >= 4) {
           error = 'Invalid Nigerian phone number prefix';
@@ -10240,20 +9186,17 @@ function validatePhoneNumberField(inputElement, errorElement) {
       }
     }
 
-    // 3) Length error: only show after touched or blur
     if (!error && showFinalErrors) {
       if (normLen > 0 && normLen < 11) {
         error = 'Phone number must be 11 digits';
       }
     }
 
-    // 4) Full-length final validity check
     if (!error && normLen === 11 && !isNigeriaMobileProfile(normalizedForChecks)) {
       error = 'Invalid Nigerian phone number';
     }
   }
 
-  // Render UI
   if (errorElement) {
     errorElement.textContent = error;
     errorElement.classList.toggle('active', !!error);
@@ -10267,8 +9210,6 @@ function validatePhoneNumberField(inputElement, errorElement) {
 
 
 
-// Debounce function
-// Debounce (kept simple)
 function debounce(func, wait) {
   let timeout;
   return function (...args) {
@@ -10277,7 +9218,6 @@ function debounce(func, wait) {
   };
 }
 
-// keep a module-level AbortController reference to cancel previous checks
 let __usernameAvailabilityController = null;
 
 /**
@@ -10285,13 +9225,11 @@ let __usernameAvailabilityController = null;
  * returns boolean
  */
 async function checkUsernameAvailability(username, signal = undefined) {
-  // Only accept validated username strings of 3..15 chars and allowed chars
   if (!username || !/^[a-zA-Z0-9_]{3,15}$/.test(username)) {
     isUsernameAvailable = false;
     return false;
   }
 
-  // Cancel previous inflight request
   try { if (__usernameAvailabilityController) __usernameAvailabilityController.abort(); } catch (e) { /* ignore */ }
   __usernameAvailabilityController = new AbortController();
   const controller = __usernameAvailabilityController;
@@ -10324,14 +9262,12 @@ async function checkUsernameAvailability(username, signal = undefined) {
     return available;
   } catch (err) {
     if (err && err.name === 'AbortError') {
-      // aborted — that's fine
       return false;
     }
     console.error('[ERROR] checkUsernameAvailability:', err && err.message ? err.message : err);
     isUsernameAvailable = false;
     return false;
   } finally {
-    // if this controller is the current one, clear it (so next call creates a new controller)
     if (controller === __usernameAvailabilityController) __usernameAvailabilityController = null;
   }
 }
@@ -10346,8 +9282,6 @@ const fieldTouched = {
 };
 
 function validateProfileForm(showErrors = true) {
-  // Guard: Skip if modal is not active
-  // Only skip if ModalManager doesn't know about it
   
 
   const isFullNameValid = !fieldTouched.fullName || validateField('fullName');
@@ -10365,7 +9299,6 @@ function validateProfileForm(showErrors = true) {
 }
 
 function validateField(field) {
-  // Map of inputs and error elements
   const inputMap = {
     fullName: fullNameInput,
     username: usernameInput,
@@ -10381,15 +9314,12 @@ function validateField(field) {
     profilePicture: profilePictureError
   };
 
-  // If the field hasn't been touched, consider it valid
   if (!fieldTouched[field]) return true;
 
   const inputElement = inputMap[field];
   const errorElement = errorMap[field];
 
-  // NEW: If input element is disabled (locked by server rules), skip validation and treat as valid
   if (inputElement && inputElement.disabled) {
-    // Clear any previous errors just in case
     if (errorElement) {
       errorElement.textContent = '';
       errorElement.classList.remove('active');
@@ -10398,7 +9328,6 @@ function validateField(field) {
     return true;
   }
 
-  // Safeguard: Skip if elements missing (modal may not be open)
   if (!inputElement || !errorElement) {
     console.warn(`[WARN] validateField: Skipping validation for ${field} - elements not found (modal may not be open)`);
     return true;
@@ -10406,20 +9335,14 @@ function validateField(field) {
 
   const value = inputElement?.value || '';
 
-  // FIX: Declare and initialize isValid here to avoid ReferenceError.
-  // Default to true (valid) unless proven otherwise in the switch cases.
   let isValid = true;
 
-  // ... continue with your existing switch (fullName, username, phoneNumber, address, profilePicture) ...
 
   switch (field) {
-    // inside validateField(field) -> switch(field) { ... }
 case 'fullName': {
-  // value trimmed for validation (we don't mutate the input here)
   const trimmed = (inputElement.value || '').trim();
   let error = '';
 
-  // If empty -> no error (hide errors while empty)
   if (!trimmed) {
     errorElement.textContent = '';
     errorElement.classList.remove('active');
@@ -10427,11 +9350,9 @@ case 'fullName': {
     break;
   }
 
-  // Immediate: invalid characters show right away
   if (!/^[a-zA-Z\s'-]+$/.test(trimmed)) {
     error = 'Full name must contain only letters';
   }
-  // Length: show only after blur/submit or if input is not active
   else if (
     trimmed.length > 0 &&
     trimmed.length < 2 &&
@@ -10461,7 +9382,6 @@ case 'fullName': {
   const value = raw.trim(); // validation uses trimmed form
   let err = '';
 
-  // If empty -> no error (errors appear on blur/submit or if invalid immediate)
   if (!value) {
     errorElement.textContent = '';
     errorElement.classList.remove('active', 'error', 'available');
@@ -10470,7 +9390,6 @@ case 'fullName': {
     break;
   }
 
-  // Permanent lock: cannot change username after initial setup
   const lastUpdate = localStorage.getItem('lastUsernameUpdate');
   const currentUsername = localStorage.getItem('username') || '';
   if (value !== currentUsername && lastUpdate) {
@@ -10482,7 +9401,6 @@ case 'fullName': {
     break;
   }
 
-  // Immediate client-side checks: (rest of your existing code unchanged)
   if (/^\d/.test(value)) {
     err = 'Username cannot start with a number';
   } else if (/^_/.test(value)) {
@@ -10492,7 +9410,6 @@ case 'fullName': {
   } else if (value.length > 15) {
     err = 'Username cannot exceed 15 characters';
   } else if (value.length < 3 && (fieldTouched.username || document.activeElement !== inputElement)) {
-    // Minimum length only shown on blur/submit (or if already marked touched)
     err = 'Username must be at least 3 characters';
   }
 
@@ -10504,10 +9421,7 @@ case 'fullName': {
     break;
   }
 
-  // Passed client-side syntactic checks — now consider availability state
-  // (rest of your existing availability check code unchanged)
   if (value === currentUsername) {
-    // unchanged username -> treat as available
     errorElement.textContent = '';
     errorElement.classList.remove('active', 'error', 'available');
     inputElement.classList.remove('invalid');
@@ -10520,17 +9434,14 @@ case 'fullName': {
       inputElement.classList.remove('invalid');
       isValid = true;
     } else if (isUsernameAvailable === false) {
-      // known not available
       errorElement.textContent = `${value} is already taken`;
       errorElement.classList.add('active', 'error');
       inputElement.classList.add('invalid');
       isValid = false;
     } else {
-      // unknown availability (inflight or not checked yet) -> clear availability UI
       errorElement.textContent = '';
       errorElement.classList.remove('active', 'error', 'available', 'checking');
       inputElement.classList.remove('invalid');
-      // do not flip isValid here — keep as true for the syntactic checks (so form enabling depends on full validation later)
       isValid = true;
     }
   }
@@ -10566,27 +9477,22 @@ case 'fullName': {
   const trimmed = raw.trim();
   const showFinalErrors = !!fieldTouched.address || document.activeElement !== inputElement;
 
-  // Allowed chars: letters, numbers, spaces, comma, dot, dash, hash
   const allowedRe = /^[a-zA-Z0-9\s,.\-#]*$/;
 
   let error = '';
 
-  // 1) Reject space as first character
   if (raw.startsWith(' ')) {
     error = 'Address cannot start with a space';
   }
-  // 2) Invalid characters (specific list)
   else if (raw && !allowedRe.test(raw)) {
     const invalid = raw.split('').filter(ch => !/[a-zA-Z0-9\s,.\-#]/.test(ch));
     const uniq = [...new Set(invalid)];
     error = `Address contains invalid character${uniq.length > 1 ? 's' : ''}: ${uniq.join('')}`;
   }
-  // 3) Length check (after blur/submit only)
   else if (showFinalErrors && trimmed && trimmed.length < 5) {
     error = 'Address must be at least 5 characters long';
   }
 
-  // Render result
   if (error) {
     errorElement.textContent = error;
     errorElement.classList.add('active');
@@ -10603,7 +9509,6 @@ case 'fullName': {
 
 
     case 'profilePicture':
-      // DP is optional: only validate if a file was selected
       if (inputElement.files && inputElement.files.length > 0) {
         const file = inputElement.files[0];
         if (!file.type.startsWith('image/')) {
@@ -10619,7 +9524,6 @@ case 'fullName': {
           errorElement.classList.add('hidden');
         }
       } else {
-        // No new file selected → still valid
         errorElement.textContent = '';
         errorElement.classList.add('hidden');
       }
@@ -10628,7 +9532,6 @@ case 'fullName': {
   return isValid;
 }
 
-// --- Helpers: attach / detach profile modal listeners ---
 function detachProfileListeners() {
   const inputs = [fullNameInput, usernameInput, phoneNumberInput, addressInput /* profilePictureInput not included because you have a global change handler */];
   inputs.forEach((el) => {
@@ -10644,8 +9547,6 @@ function detachProfileListeners() {
     el.__profileHandlers = {}; // reset
   });
 
-  // If you ever attach a submit handler specifically for the modal and stored it,
-  // remove it the same way. (Your form submit handler is already stored as updateProfileForm.__submitHandler elsewhere.)
   if (updateProfileForm && updateProfileForm.__submitHandlerAttached) {
     updateProfileForm.removeEventListener('submit', updateProfileForm.__submitHandler);
     updateProfileForm.__submitHandlerAttached = false;
@@ -10653,14 +9554,9 @@ function detachProfileListeners() {
 }
 
 function attachProfileListeners() {
-  // Defensive: ensure duplicates are removed before re-attaching.
   detachProfileListeners();
 
-  // --- fullName ---
-  // --- fullName (attachProfileListeners) ---
-// --- fullName (attachProfileListeners) ---
 if (fullNameInput && !fullNameInput.disabled) {
-  // Input handler — show only character-related errors while typing
 
   try {
     const prev = fullNameInput.__profileHandlers || {};
@@ -10669,7 +9565,6 @@ if (fullNameInput && !fullNameInput.disabled) {
   } catch (e) { /* ignore */ }
   
   const fullNameInputHandler = () => {
-    // Strip leading spaces while preserving caret
     const before = fullNameInput.value || '';
     if (/^\s+/.test(before)) {
       const caret = fullNameInput.selectionStart || 0;
@@ -10682,19 +9577,16 @@ if (fullNameInput && !fullNameInput.disabled) {
 
     const trimmed = (fullNameInput.value || '').trim();
 
-    // If empty -> clear errors and class (no validation while empty)
     if (!trimmed) {
       if (fullNameError) {
         fullNameError.textContent = '';
         fullNameError.classList.remove('active');
       }
       fullNameInput.classList.remove('invalid');
-      // Do not set fieldTouched here (we want blur/submit to mark it)
       validateProfileForm(false);
       return;
     }
 
-    // Live character rule
     if (!/^[a-zA-Z\s'-]+$/.test(trimmed)) {
       if (fullNameError) {
         fullNameError.textContent = 'Full name must contain only letters';
@@ -10702,7 +9594,6 @@ if (fullNameInput && !fullNameInput.disabled) {
       }
       fullNameInput.classList.add('invalid');
     } else {
-      // Clear live char error; length error will be checked on blur/submit
       if (fullNameError && !fieldTouched.fullName) {
         fullNameError.textContent = '';
         fullNameError.classList.remove('active');
@@ -10713,11 +9604,8 @@ if (fullNameInput && !fullNameInput.disabled) {
     validateProfileForm(false);
   };
 
-  // Blur handler — mark touched and run full validation (including length)
   const fullNameBlurHandler = () => {
-    // On blur we mark touched and run the full validation (including length)
     fieldTouched.fullName = true;
-    // Also trim the input value (so we store clean data)
     fullNameInput.value = (fullNameInput.value || '').trim();
     validateField('fullName');
     validateProfileForm(true);
@@ -10735,12 +9623,7 @@ if (fullNameInput && !fullNameInput.disabled) {
 
 
 
-  // --- username (debounced availability check) ---
-  // --- username (attachProfileListeners) ---
-// --- username (attachProfileListeners) ---
-// --- username (attachProfileListeners) ---
 if (usernameInput && !usernameInput.disabled) {
-  // Defensive cleanup of any previous handlers
   try {
     const prev = usernameInput.__profileHandlers || {};
     if (prev.input) usernameInput.removeEventListener('input', prev.input);
@@ -10748,18 +9631,15 @@ if (usernameInput && !usernameInput.disabled) {
     if (prev.focus) usernameInput.removeEventListener('focus', prev.focus);
   } catch (e) { /* ignore */ }
 
-  // Ensure max length attribute (prevents most over-length typing)
   try { usernameInput.maxLength = 15; } catch (e) {}
 
   const errEl = usernameError;
   let pendingSeq = 0; // incremental sequence to ignore stale responses
 
-  // Helper to cancel pending checks (by bumping sequence)
   function cancelPendingCheck() {
     pendingSeq++;
   }
 
-  // Helper to show "Checking..." UI immediately
   function showCheckingUI() {
     if (!errEl) return;
     errEl.textContent = 'Checking availability...';
@@ -10769,15 +9649,12 @@ if (usernameInput && !usernameInput.disabled) {
     isUsernameAvailable = null;
   }
 
-  // Debounced availability check — will ignore stale responses using sequence id
   const runAvailabilityCheck = debounce(async () => {
     const mySeq = ++pendingSeq; // this run's id
     const valueNow = (usernameInput.value || '').trim();
 
-    // Safety: if empty or too short, don't call backend
     if (!valueNow || valueNow.length < 3) return;
 
-    // If somehow length > 15 (paste scenario), treat as immediate error and don't call backend
     if (valueNow.length > 15) {
       cancelPendingCheck();
       if (errEl) {
@@ -10790,7 +9667,6 @@ if (usernameInput && !usernameInput.disabled) {
       return;
     }
 
-    // Call your existing helper to check availability
     let ok = false;
     try {
       ok = await checkUsernameAvailability(valueNow);
@@ -10798,7 +9674,6 @@ if (usernameInput && !usernameInput.disabled) {
       ok = false;
     }
 
-    // If input changed (or another check started), ignore this result
     if (mySeq !== pendingSeq) return;
 
     if (ok) {
@@ -10824,9 +9699,7 @@ if (usernameInput && !usernameInput.disabled) {
     validateProfileForm(false);
   }, 300); // tweak debounce delay as desired
 
-  // Immediate input handler: runs on each keystroke (no debounce)
   const usernameImmediateHandler = (e) => {
-    // strip leading spaces while preserving caret
     const before = usernameInput.value || '';
     if (/^\s+/.test(before)) {
       const caret = usernameInput.selectionStart || 0;
@@ -10840,10 +9713,8 @@ if (usernameInput && !usernameInput.disabled) {
     const raw = usernameInput.value || '';
     const val = raw.trim();
 
-    // Reset status classes (we will re-add below as needed)
     if (errEl) errEl.classList.remove('error', 'checking', 'available');
 
-    // empty -> clear UI and cancel checks
     if (!val) {
       cancelPendingCheck();
       if (errEl) { errEl.textContent = ''; errEl.classList.remove('active'); }
@@ -10853,7 +9724,6 @@ if (usernameInput && !usernameInput.disabled) {
       return;
     }
 
-    // PRIORITY: length > 15 should win immediately (cancel backend)
     if (val.length > 15) {
       cancelPendingCheck();
       if (errEl) {
@@ -10867,7 +9737,6 @@ if (usernameInput && !usernameInput.disabled) {
       return;
     }
 
-    // Immediate syntactic rules (these also cancel backend checks)
     if (/^\d/.test(val)) {
       cancelPendingCheck();
       if (errEl) { errEl.textContent = 'Username cannot start with a number'; errEl.classList.add('active', 'error'); }
@@ -10893,9 +9762,7 @@ if (usernameInput && !usernameInput.disabled) {
       return;
     }
 
-    // Min-length: only show on blur/submit. While typing, we don't show "too short" messages.
     if (val.length < 3 && !(fieldTouched.username || document.activeElement !== usernameInput)) {
-      // hide min-length message while still focused & not touched
       if (errEl) { errEl.textContent = ''; errEl.classList.remove('active', 'error'); }
       usernameInput.classList.remove('invalid');
       isUsernameAvailable = null;
@@ -10904,16 +9771,12 @@ if (usernameInput && !usernameInput.disabled) {
       return;
     }
 
-    // Passed client-side syntactic checks and within length:
-    // Show "Checking availability..." immediately and schedule backend check (debounced).
     showCheckingUI();
     runAvailabilityCheck();
   };
 
-  // Attach handlers
   usernameInput.addEventListener('input', usernameImmediateHandler);
 
-  // focus: show helper note (optional)
   usernameInput.addEventListener('focus', () => {
     const note = document.getElementById('usernameNote');
     if (note) {
@@ -10922,7 +9785,6 @@ if (usernameInput && !usernameInput.disabled) {
     }
   });
 
-  // blur: mark touched and run final validation + availability check (if value >= 3)
   usernameInput.addEventListener('blur', async () => {
     fieldTouched.username = true;
     validateField('username'); // will show min-length error if needed
@@ -10931,7 +9793,6 @@ if (usernameInput && !usernameInput.disabled) {
     const currentUsername = localStorage.getItem('username') || '';
 
     if (val && /^[a-zA-Z0-9_]{3,15}$/.test(val) && val !== currentUsername) {
-      // run a final immediate availability check (no debounce)
       const mySeq = ++pendingSeq;
       let ok = false;
       try {
@@ -10963,11 +9824,7 @@ if (usernameInput && !usernameInput.disabled) {
 
 
 
-  // --- phone number: paste + input handlers (same logic you had inline) ---
-  // --- phone number: paste + input handlers ---
-// --- phone number: paste + input handlers ---
 if (phoneNumberInput && !phoneNumberInput.disabled) {
-  // paste handler: normalize, set value, mark touched (pastes are likely final), validate and optionally blur
   const phonePasteHandler = (ev) => {
     ev.preventDefault();
     const pasted = (ev.clipboardData || window.clipboardData).getData('text') || '';
@@ -10988,12 +9845,10 @@ if (phoneNumberInput && !phoneNumberInput.disabled) {
     }
   };
 
-  // input handler (debounced) — does NOT set touched; doesn't show length error while typing
   const phoneInputHandler = debounce((e) => {
     const rawNoSpaces = (phoneNumberInput.value || '').replace(/\s/g, '');
     const isDelete = e && (e.inputType === 'deleteContentBackward' || e.inputType === 'deleteContentForward');
 
-    // If completely empty, clear UI and return
     if (!rawNoSpaces) {
       phoneNumberInput.classList.remove('invalid');
       if (phoneNumberError) { phoneNumberError.textContent = ''; phoneNumberError.classList.remove('active'); }
@@ -11001,7 +9856,6 @@ if (phoneNumberInput && !phoneNumberInput.disabled) {
       return;
     }
 
-    // Immediate, specific single-digit start errors for 1/4/5/6
     if (/^[1456]$/.test(rawNoSpaces)) {
       phoneNumberInput.classList.add('invalid');
       if (phoneNumberError) {
@@ -11012,16 +9866,13 @@ if (phoneNumberInput && !phoneNumberInput.disabled) {
       return;
     }
 
-    // Normalize and cap to 11 digits for display
     const normalized = normalizePhoneProfile(rawNoSpaces) || rawNoSpaces;
     const finalNormalized = normalized.slice(0, 11);
     const formatted = formatNigeriaNumberProfile(finalNormalized, /^[789]$/.test(rawNoSpaces), false).value;
 
-    // Preserve caret reasonably: set to end (simpler & robust for most edits)
     phoneNumberInput.value = formatted;
     phoneNumberInput.setSelectionRange(formatted.length, formatted.length);
 
-    // If there's a clear prefix mismatch at 3+ or 4 digits, show prefix error (but avoid length error here)
     if (finalNormalized.length >= 3 && !isValidPrefixPartial(finalNormalized)) {
       phoneNumberInput.classList.add('invalid');
       if (phoneNumberError) {
@@ -11032,11 +9883,9 @@ if (phoneNumberInput && !phoneNumberInput.disabled) {
       return;
     }
 
-    // Clear errors while user is typing (no forced length error)
     phoneNumberInput.classList.remove('invalid');
     if (phoneNumberError) { phoneNumberError.textContent = ''; phoneNumberError.classList.remove('active'); }
 
-    // If user finished typing 11 digits, run final validation and mark touched
     if (finalNormalized.length === 11) {
       fieldTouched.phoneNumber = true;
       validatePhoneNumberField(phoneNumberInput, phoneNumberError);
@@ -11045,12 +9894,10 @@ if (phoneNumberInput && !phoneNumberInput.disabled) {
         phoneNumberInput.blur();
       }
     } else {
-      // Not final yet — don't mark touched; keep quiet about length
       validateProfileForm(false);
     }
   }, 60);
 
-  // restrict non-digits (but allow leading + for paste handling)
   const phoneBeforeInput = (e) => {
     if (e.data && !/^\d$/.test(e.data)) {
       if (!(e.data === '+' && phoneNumberInput.selectionStart === 0)) {
@@ -11069,11 +9916,9 @@ if (phoneNumberInput && !phoneNumberInput.disabled) {
       'Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'
     ];
     if ((e.ctrlKey || e.metaKey) && ['a', 'c', 'v'].includes(e.key.toLowerCase())) return;
-    // numeric keys are allowed naturally; block other non-control keys
     if (!allowed.includes(e.key) && !/^\d$/.test(e.key)) e.preventDefault();
   };
 
-  // wire handlers
   phoneNumberInput.addEventListener('beforeinput', phoneBeforeInput);
   phoneNumberInput.addEventListener('keydown', phoneKeydown);
   phoneNumberInput.addEventListener('paste', phonePasteHandler);
@@ -11084,7 +9929,6 @@ if (phoneNumberInput && !phoneNumberInput.disabled) {
     validateProfileForm(true);
   });
 
-  // for detachProfileListeners mapping
   phoneNumberInput.__profileHandlers = {
     beforeinput: phoneBeforeInput,
     keydown: phoneKeydown,
@@ -11096,9 +9940,6 @@ if (phoneNumberInput && !phoneNumberInput.disabled) {
   phoneNumberInput.maxLength = 13; // allow for spaces in formatting
 }
 
-  // --- address (simple debounce validation) ---
-  // --- address (live character check; length only on blur/submit) ---
-// --- address (live char + no leading space; length only on blur/submit) ---
 if (addressInput && !addressInput.disabled) {
   const liveHandler = () => {
     const v = addressInput.value || '';
@@ -11150,9 +9991,6 @@ if (addressInput && !addressInput.disabled) {
 
 
 
-  // Note: There's a global profilePicture change handler already wired outside the modal.
-  // See your global handler at the bottom of the file — if you move that into this attach function,
-  // remove the global one to avoid duplication. (Global handler location: see file). :contentReference[oaicite:1]{index=1}
 }
 
 
@@ -11162,7 +10000,6 @@ function openUpdateProfileModal(profile = {}) {
     return;
   }
  
-  // show modal
   updateProfileModal.style.display = 'block';
   setTimeout(() => {
     updateProfileModal.classList.add('active');
@@ -11170,7 +10007,6 @@ function openUpdateProfileModal(profile = {}) {
     document.body.classList.add('modal-open');
   }, 10);
  
-  // --- Populate form fields (prefer provided profile, then localStorage as fallback) ---
   const fullName = profile?.fullName || localStorage.getItem('fullName') || (localStorage.getItem('userEmail') || '').split('@')[0] || '';
   const username = profile?.username || localStorage.getItem('username') || '';
   const phoneNumber = profile?.phoneNumber || localStorage.getItem('phoneNumber') || '';
@@ -11183,14 +10019,12 @@ function openUpdateProfileModal(profile = {}) {
   if (emailInput) emailInput.value = email;
   if (addressInput) addressInput.value = address;
  
-  // --- Field enable/disable rules (server-driven) ---
   if (fullNameInput) fullNameInput.disabled = localStorage.getItem('fullNameEdited') === 'true';
   if (phoneNumberInput) phoneNumberInput.disabled = !!phoneNumber;
   if (emailInput) emailInput.disabled = true;
   if (addressInput) addressInput.disabled = !!(profile?.address || localStorage.getItem('address')?.trim());
   if (profilePictureInput) profilePictureInput.disabled = false; // always editable
  
-  // --- Avatar / preview ---
   const profilePicture = localStorage.getItem('profilePicture') || '';
   const isValidProfilePicture = !!profilePicture && /^(data:image\/|https?:\/\/|\/|blob:)/i.test(profilePicture);
   const displayName = username || (fullName.split(' ')[0] || 'User');
@@ -11204,7 +10038,6 @@ function openUpdateProfileModal(profile = {}) {
     }
   }
  
-  // --- Reset error UI, invalid classes and touched flags ---
   [fullNameError, usernameError, phoneNumberError, addressError, profilePictureError].forEach(errEl => {
     if (errEl) {
       errEl.textContent = '';
@@ -11218,16 +10051,10 @@ function openUpdateProfileModal(profile = {}) {
  
   Object.keys(fieldTouched).forEach(k => fieldTouched[k] = false);
  
-  // --- Ensure no duplicate listeners: detach previous, then attach fresh handlers ---
   detachProfileListeners();
   attachProfileListeners(); // attachProfileListeners should add input/blur/paste handlers for fullName/username/phone/address/profilePicture
  
-  // NOTE: Do NOT add inline input listeners for validation here.
-  // The attachProfileListeners() function is the single source of truth and
-  // is responsible for adding the input + blur handlers that follow the
-  // "live rules vs blur-on-length" pattern (so length errors only show on blur/submit).
  
-  // Re-run initial validation to set the save button state correctly
   validateProfileForm(false);
  
   console.log('[DEBUG] openUpdateProfileModal: Modal opened', { fullName, username, phoneNumber, email });
@@ -11237,13 +10064,10 @@ window.openUpdateProfileModal = openUpdateProfileModal;
 function closeUpdateProfileModal() {
     detachProfileListeners();
 
-    // 1️⃣ Ask the ModalManager what the previous modal is BEFORE closing
     const previousModal = ModalManager.getPreviousModal('updateProfileModal');
 
-    // 2️⃣ Close the current modal
     ModalManager.closeModal('updateProfileModal');
 
-    // 3️⃣ If a previous modal exists and is not already open, restore it
     if (previousModal) {
         console.log('[DEBUG] Restoring previous modal:', previousModal);
         ModalManager.openModal(previousModal);
@@ -11301,11 +10125,9 @@ if (profilePictureInput && profilePicturePreview) {
   });
 }
 
-// --- Profile Update Form Submission ---
 
 
 
-    // --- SVG INJECTION FOR ICONS ---
     document.querySelectorAll('.svg-inject').forEach(el =>
     fetch(el.src)
       .then(r => r.text())
@@ -11314,7 +10136,6 @@ if (profilePictureInput && profilePicturePreview) {
       })
     );
 
-// ---------- Settings modal behavior ----------
 (function () {
   const settingsBtn = document.getElementById('settingsBtn');
   const settingsModal = document.getElementById('settingsModal');
@@ -11331,7 +10152,6 @@ if (profilePictureInput && profilePicturePreview) {
 
   if (!settingsModal) return;
 
-  // open/close helpers
   function showModal() {
     settingsModal.style.display = 'flex';
     document.documentElement.style.overflow = 'hidden';
@@ -11352,25 +10172,20 @@ if (profilePictureInput && profilePicturePreview) {
 }
 
 
-  // button → open
   if (settingsBtn) settingsBtn.addEventListener('click', showModal);
 
-  // close buttons
   if (settingsBack) settingsBack.addEventListener('click', hideModal);
   if (closeSettings) closeSettings.addEventListener('click', hideModal);
 
-  // prevent closing when clicking inside modal content
   const settingsModalContent = settingsModal.querySelector('.settings-content');
   if (settingsModalContent) {
     settingsModalContent.addEventListener('click', (e) => e.stopPropagation());
   }
 
-  // close on outside click
   settingsModal.addEventListener('click', (e) => {
     if (e.target === settingsModal) hideModal();
   });
 
-  // Ensure scroll is restored if modal is hidden by external means (e.g., modalManager.js)
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
       if (
@@ -11387,7 +10202,6 @@ if (profilePictureInput && profilePicturePreview) {
   });
   observer.observe(settingsModal, { attributes: true, attributeFilter: ['style'] });
 
-  // Handle browser back button or modalManager.js closing
   window.addEventListener('popstate', () => {
     if (settingsModal.style.display === 'flex') {
       hideModal();
@@ -11395,10 +10209,8 @@ if (profilePictureInput && profilePicturePreview) {
     }
   });
 
-  // helper to update avatar without flicker
 function updateAvatar(el, newUrl, fallbackLetter) {
   if (!isValidImageSource(newUrl)) {
-    // Only update if content is different
     if (el.innerHTML !== fallbackLetter) {
       el.innerHTML = fallbackLetter;
       el.classList.add('fade-in');
@@ -11406,7 +10218,6 @@ function updateAvatar(el, newUrl, fallbackLetter) {
     return;
   }
 
-  // Check if same image already loaded (normalize URLs for comparison)
   const currentImg = el.querySelector('img');
   if (currentImg) {
     const currentSrc = currentImg.src.split('?')[0]; // Remove query params
@@ -11418,7 +10229,6 @@ function updateAvatar(el, newUrl, fallbackLetter) {
     }
   }
 
-  // Preload new image
   const img = new Image();
   img.src = newUrl.startsWith('/')
     ? `${location.protocol}//${location.host}${newUrl}`
@@ -11444,10 +10254,8 @@ function updateAvatar(el, newUrl, fallbackLetter) {
   };
 }
 
-// In-memory cache for profile to avoid multiple server calls
 let _cachedProfilePromise = null;
 
-// small helper to force browsers to re-request the avatar image
 function addCacheBuster(url) {
   if (!url) return url;
   try {
@@ -11455,28 +10263,22 @@ function addCacheBuster(url) {
     u.searchParams.set('cb', Date.now().toString());
     return u.toString();
   } catch (e) {
-    // non-absolute URL fallback
     return url + (url.includes('?') ? '&' : '?') + 'cb=' + Date.now();
   }
 }
 
-// Call this when you want to force next call to fetch fresh data
 function invalidateProfileCache() {
   _cachedProfilePromise = null;
 }
 window.invalidateProfileCache =  window.invalidateProfileCache || invalidateProfileCache;
 
-// other tabs notify us when profile changed there
 window.addEventListener('storage', (ev) => {
   if (ev.key === 'profile_refreshed_at') {
-    // another tab updated profile -> invalidate and refresh silently
     invalidateProfileCache();
-    // don't await here; just refresh in background
     loadProfileToSettings().catch(() => {});
   }
 });
 
-// At module level
 let _profileLoadInProgress = false;
 let _lastProfileLoadTime = 0;
 const PROFILE_LOAD_COOLDOWN = 1000; // Don't reload within 1 second
@@ -11491,7 +10293,6 @@ async function loadProfileToSettings(force = false) {
     return;
   }
 
-  // Prevent rapid successive calls
   const now = Date.now();
   if (!force && _profileLoadInProgress) {
     console.log('[loadProfileToSettings] Already loading, skipping');
@@ -11507,7 +10308,6 @@ async function loadProfileToSettings(force = false) {
   _lastProfileLoadTime = now;
 
   try {
-    // Read cached profile from localStorage
     const localProfile = {
       profilePicture: localStorage.getItem('profilePicture') || '',
       username: localStorage.getItem('username') || '',
@@ -11518,7 +10318,6 @@ async function loadProfileToSettings(force = false) {
 
     const hasUsefulCache = !!(localProfile.profilePicture || localProfile.username || localProfile.fullName || localProfile.email);
 
-    // Helper to update UI - only update if values actually changed
     const updateUI = (profile, useCacheBuster = false) => {
       const displayName =
         profile.username ||
@@ -11529,13 +10328,11 @@ async function loadProfileToSettings(force = false) {
       const fallbackLetter = (displayName.charAt(0) || 'U').toUpperCase();
       const finalAvatarUrl = useCacheBuster ? addCacheBuster(avatarUrl) : avatarUrl;
 
-      // Only update if changed to prevent unnecessary re-renders
       const currentUsername = settingsUsername.textContent;
       const currentEmail = settingsEmail.textContent;
 
       if (currentUsername !== displayName) {
         settingsUsername.textContent = displayName;
-        // Only add fade-in if this is first load or actual change
         if (currentUsername && currentUsername !== 'Loading...') {
           settingsUsername.classList.add('fade-in');
         }
@@ -11548,21 +10345,17 @@ async function loadProfileToSettings(force = false) {
         }
       }
 
-      // Update avatar (this function already has duplicate check)
       updateAvatar(settingsAvatar, finalAvatarUrl, fallbackLetter);
     };
 
-    // Render from cache immediately if available
     if (hasUsefulCache) {
       updateUI(localProfile, false);
     }
 
-    // If forced, clear cache
     if (force) {
       _cachedProfilePromise = null;
     }
 
-    // Only fetch if no cache or forced
     if (!hasUsefulCache || force) {
       if (!_cachedProfilePromise || force) {
         _cachedProfilePromise = (async () => {
@@ -11595,13 +10388,11 @@ async function loadProfileToSettings(force = false) {
               email: serverProfile.email || '',
             };
 
-            // Sync hasPin
             const serverHasPin = serverProfile.hasPin ?? serverProfile.has_pin ?? serverProfile.hasPIN ?? null;
             if (serverHasPin !== null) {
               localStorage.setItem('hasPin', serverHasPin ? 'true' : 'false');
             }
 
-            // Save to localStorage
             try {
               if (mergedProfile.profilePicture) localStorage.setItem('profilePicture', mergedProfile.profilePicture);
               if (mergedProfile.username) localStorage.setItem('username', mergedProfile.username);
@@ -11625,13 +10416,11 @@ async function loadProfileToSettings(force = false) {
 
       const finalProfile = await _cachedProfilePromise;
 
-      // Verify DOM elements still exist
       if (!document.getElementById('settingsAvatar')) {
         console.warn('[loadProfileToSettings] DOM removed during fetch');
         return finalProfile;
       }
 
-      // Update with fresh data
       updateUI(finalProfile, true);
 
       return finalProfile;
@@ -11648,12 +10437,10 @@ async function loadProfileToSettings(force = false) {
 window.loadProfileToSettings = window.loadProfileToSettings || loadProfileToSettings;
 
 
-// initial load (safe to call multiple times)
 loadProfileToSettings().catch(e => console.warn('loadProfileToSettings failed', e));
 
 
 
-  // Edit profile action
   if (openUpdateProfile) {
     openUpdateProfile.addEventListener('click', () => {
       lastModalSource = 'settings';
@@ -11662,7 +10449,6 @@ loadProfileToSettings().catch(e => console.warn('loadProfileToSettings failed', 
     });
   }
 
-  // Get the profile open button and update profile modal
   const profileOpenBtn = document.getElementById('profileopenbtn');
   if (profileOpenBtn) {
     const updateProfileModal = new bootstrap.Modal(
@@ -11676,12 +10462,10 @@ loadProfileToSettings().catch(e => console.warn('loadProfileToSettings failed', 
 
 
 
-// ✅ IMPROVED: Logout button handler with better UX
 if (logoutBtnModal) {
   logoutBtnModal.addEventListener('click', async (e) => {
     e.preventDefault();
     
-    // Prevent double-clicks
     if (logoutBtnModal.disabled) return;
     logoutBtnModal.disabled = true;
     
@@ -11691,31 +10475,23 @@ if (logoutBtnModal) {
     showLoader();
 
     try {
-      // Wait for full logout (server + client cleanup)
       await fullClientLogout();
-      // Note: This line won't execute due to redirect, but kept for clarity
     } catch (err) {
       console.error('[modal logout] Full logout failed:', err);
-      // Ensure we still redirect even if something breaks
       window.location.replace('/');
     } finally {
-      // These won't execute due to redirect, but included for safety
-      // in case redirect somehow fails
       try { 
         hideModal(); 
         hideLoader();
         logoutBtnModal.disabled = false;
         logoutBtnModal.textContent = originalText;
       } catch (_) {
-        // Ignore cleanup errors
       }
     }
   });
 }
 
-// ✅ OPTIONAL: Add logout on window unload for extra security (optional)
 window.addEventListener('beforeunload', () => {
-  // Clear sensitive data even if user closes tab
   try {
     window.currentUser = null;
     window.currentEmail = null;
@@ -11723,9 +10499,7 @@ window.addEventListener('beforeunload', () => {
   } catch (e) {}
 });
 
-// ✅ OPTIONAL: Auto-logout on token expiration (if you detect it elsewhere)
 window.addEventListener('storage', (e) => {
-  // If another tab cleared storage (logged out), logout this tab too
   if (e.key === null || e.key === 'token' || e.key === 'user') {
     if (!e.newValue && e.oldValue) {
       console.log('[storage event] Detected logout from another tab');
@@ -11736,7 +10510,6 @@ window.addEventListener('storage', (e) => {
 
 
 
-  // Theme toggle
   function setDarkMode(enabled) {
     if (enabled) document.documentElement.classList.add('dark-mode');
     else document.documentElement.classList.remove('dark-mode');
@@ -11754,14 +10527,11 @@ window.addEventListener('storage', (e) => {
     });
   }
 
-  // Update the MutationObserver to debounce
 let _modalOpenTimer = null;
 const obs = new MutationObserver(() => {
   if (settingsModal.style.display === 'flex') {
-    // Clear any pending timer
     if (_modalOpenTimer) clearTimeout(_modalOpenTimer);
     
-    // Only load after modal is fully open (debounced)
     _modalOpenTimer = setTimeout(() => {
       loadProfileToSettings();
     }, 100); // Small delay to let modal finish opening
@@ -11770,7 +10540,6 @@ const obs = new MutationObserver(() => {
 obs.observe(settingsModal, { attributes: true, attributeFilter: ['style'] });
 })();
 
-// ---------- Help & Support (inside settings modal) ----------
 const helpSupportBtn = document.getElementById('helpSupportBtn');
 const helpSupportModal = document.getElementById('helpSupportModal');
 const helpCloseBtn = helpSupportModal?.querySelector('.help-modal-close');
@@ -11780,34 +10549,29 @@ if (helpSupportBtn && helpSupportModal) {
   helpSupportBtn.addEventListener('click', () => {
     console.log('Help & Support clicked');
 
-    // show help modal with animation
     helpSupportModal.classList.add('active');
     document.body.classList.add('modal-open');
   });
 }
 
-// close help modal
 if (helpCloseBtn) {
   helpCloseBtn.addEventListener('click', () => {
     console.log('Help & Support closed');
     helpSupportModal.classList.remove('active');
     document.body.classList.remove('modal-open');
 
-    // re-show settings modal
     if (settingsModal) {
       settingsModal.style.display = 'flex';
     }
   });
 }
 
-// optional: click background to close
 helpSupportModal?.addEventListener('click', (e) => {
   if (e.target === helpSupportModal) {
     helpCloseBtn?.click();
   }
 });
 
-// disable right-click on contact boxes
 document.querySelectorAll('.contact-box').forEach((box) => {
   box.addEventListener('contextmenu', (e) => e.preventDefault());
 });
@@ -11875,23 +10639,18 @@ document.querySelectorAll('.contact-box').forEach((box) => {
   window.__sec_KEYS = window.__sec_KEYS || __sec_KEYS; // expose for debugging
 
   /* Helpers */
-  // Replace existing __sec_setChecked with this
-// Replace existing __sec_setChecked with this improved version
 const __sec_setChecked = (el, v) => {
   __sec_log.d('setChecked called for el:', el?.id || 'unknown', 'value:', v);
   if (!el) return;
   try {
     const boolV = !!v;
 
-    // If it's a native input checkbox/radio, keep the native checked property in sync
     if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
       try { el.checked = boolV; } catch (err) { __sec_log.w('setChecked: failed to set .checked', err); }
     }
 
-    // aria state
     try { el.setAttribute('aria-checked', boolV ? 'true' : 'false'); } catch (err) { __sec_log.w('setChecked: aria set failed', err); }
 
-    // Visual classes expected elsewhere ('active' / 'inactive')
     try {
       if (boolV) {
         el.classList.add('active');
@@ -11900,7 +10659,6 @@ const __sec_setChecked = (el, v) => {
         el.classList.add('inactive');
         el.classList.remove('active');
       }
-      // also maintain dataset flag for other code paths
       el.dataset.active = boolV ? 'true' : 'false';
     } catch (err) {
       __sec_log.w('setChecked: class toggling failed', err);
@@ -11917,25 +10675,20 @@ const __sec_setChecked = (el, v) => {
 };
 
 
-  // Replace existing __sec_isChecked with this robust reader
-// Replace existing __sec_isChecked with this robust reader
 const __sec_isChecked = (el) => {
   if (!el) return false;
   try {
-    // Prefer native checked for inputs
     if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
       const c = !!el.checked;
       __sec_log.d('isChecked (input) for', el.id || 'unknown', c);
       return c;
     }
-    // Fallback: aria-checked attribute
     const aria = el.getAttribute && el.getAttribute('aria-checked');
     if (aria === 'true' || aria === 'false') {
       const c = aria === 'true';
       __sec_log.d('isChecked (aria) for', el.id || 'unknown', c);
       return c;
     }
-    // Last fallback: CSS class presence
     const hasActive = el.classList && el.classList.contains && el.classList.contains('active');
     __sec_log.d('isChecked (class fallback) for', el.id || 'unknown', hasActive);
     return !!hasActive;
@@ -11946,8 +10699,6 @@ const __sec_isChecked = (el) => {
 };
 
 
-  // Replace existing __sec_toggleSwitch with this
-// Replace existing __sec_toggleSwitch with this
 function __sec_toggleSwitch(el, forced) {
   __sec_log.d('toggleSwitch entry:', { el: el?.id || 'unknown', forced });
   if (!el) { 
@@ -11957,10 +10708,8 @@ function __sec_toggleSwitch(el, forced) {
   try {
     const cur = __sec_isChecked(el);
     const next = (typeof forced === 'boolean') ? forced : !cur;
-    // Apply the visual + attribute change
     __sec_setChecked(el, next);
     __sec_log.d('toggleSwitch exit:', { cur, next });
-    // emit a small custom event so any other listeners update too (defensive)
     try {
       const ev = new CustomEvent('sec:switch-change', { detail: { id: el.id, checked: next } });
       el.dispatchEvent(ev);
@@ -12174,21 +10923,16 @@ function __sec_setBiometrics(parentOn, animate = true) {
     return; 
   }
 
-  // Update UI
   __sec_setChecked(__sec_parentSwitch, parentOn);
 
-  // Persist to both key namespaces (new secure keys + legacy keys used elsewhere)
   try {
-    // new namespaced keys (existing)
     localStorage.setItem(__sec_KEYS.biom, parentOn ? '1' : '0');
-    // legacy boolean flags (used by other code paths)
     localStorage.setItem('biometricsEnabled', parentOn ? 'true' : 'false');
     __sec_log.d('setBiometrics: stored keys', { [__sec_KEYS.biom]: parentOn ? '1' : '0', biometricsEnabled: parentOn ? 'true' : 'false' });
   } catch (e) {
     __sec_log.e('setBiometrics: storage error', e);
   }
 
-  // Force children when parent activated
   if (parentOn) {
     if (__sec_bioLogin) {
       __sec_setChecked(__sec_bioLogin, true);
@@ -12199,19 +10943,15 @@ function __sec_setBiometrics(parentOn, animate = true) {
       try { localStorage.setItem(__sec_KEYS.bioTx, '1'); localStorage.setItem('biometricForTx', 'true'); } catch(e){ __sec_log.e('setBiometrics: bioTx storage', e); }
     }
     if (__sec_bioOptions) {
-  // Reveal child rows and ensure options container visible (no external dependency)
   __sec_revealChildrenNoAnimate();
 
   try {
     __sec_bioOptions.classList.add('show');
     __sec_bioOptions.hidden = false;
-    // If original implementation used inline display style:
     __sec_bioOptions.style.display = '';
-    // Make children rows visible similarly to reveal function (defensive)
     const rows = Array.from(__sec_bioOptions.querySelectorAll('.setting-row'));
     rows.forEach(r => {
       r.classList.add('visible');
-      // clear any stray transition delays when toggling programmatically
       r.style.transitionDelay = '';
     });
   } catch (e) {
@@ -12222,7 +10962,6 @@ function __sec_setBiometrics(parentOn, animate = true) {
 
     __sec_log.i('biom ON', { animate });
   } else {
-    // Turn children off too
     if (__sec_bioLogin) {
       __sec_setChecked(__sec_bioLogin, false);
       try { localStorage.setItem(__sec_KEYS.bioLogin, '0'); localStorage.setItem('biometricForLogin', 'false'); } catch(e){ __sec_log.e('setBiometrics: bioLogin storage', e); }
@@ -12245,9 +10984,6 @@ function __sec_setBiometrics(parentOn, animate = true) {
 
 
 /* If both child switches are off, turn the parent off */
-// ----------------- Debounced __sec_beDisableParentIfChildrenOff (drop-in) -----------------
-// Replace existing __sec_maybeDisableParentIfChildrenOff with this debounced version
-// Replace existing __sec_maybeDisableParentIfChildrenOff with this debounced version
 let __sec_maybeDisableTimer = null;
 function __sec_maybeDisableParentIfChildrenOff() {
   __sec_log.d('maybeDisableParentIfChildrenOff entry (debounced)');
@@ -12270,7 +11006,6 @@ function __sec_maybeDisableParentIfChildrenOff() {
       const txOn = __sec_isChecked(__sec_bioTx);
       __sec_log.d('maybeDisableParentIfChildrenOff: children state', { loginOn, txOn });
 
-      // If both children OFF and parent currently ON => flip parent OFF
       if (!loginOn && !txOn && __sec_isChecked(__sec_parentSwitch)) {
         __sec_log.i('Both biometric children off — turning parent OFF (debounced)');
         if (typeof __sec_setBiometrics === 'function') {
@@ -12278,7 +11013,6 @@ function __sec_maybeDisableParentIfChildrenOff() {
             __sec_setBiometrics(false, true);
           } catch (e) {
             __sec_log.e('maybeDisableParentIfChildrenOff: __sec_setBiometrics threw', e);
-            // fallback: update storage + UI
             try {
               localStorage.setItem(__sec_KEYS.biom, '0');
               localStorage.setItem('biometricsEnabled', 'false');
@@ -12287,7 +11021,6 @@ function __sec_maybeDisableParentIfChildrenOff() {
             if (__sec_bioOptions) { __sec_bioOptions.classList.remove('show'); __sec_bioOptions.hidden = true; }
           }
         } else {
-          // fallback: update storage + UI
           try {
             localStorage.setItem(__sec_KEYS.biom, '0');
             localStorage.setItem('biometricsEnabled', 'false');
@@ -12311,7 +11044,6 @@ function __sec_maybeDisableParentIfChildrenOff() {
 async function reconcileBiometricState() {
   __sec_log.d('reconcileBiometricState entry');
 
-  // find a credentialId if present (several possible keys)
   const cred = (
     localStorage.getItem('credentialId') ||
     localStorage.getItem('webauthn-cred-id') ||
@@ -12320,7 +11052,6 @@ async function reconcileBiometricState() {
     ''
   );
 
-  // Quick local-only rule: if no local credential at all, treat as NOT available.
   if (!cred) {
     __sec_log.i('reconcile: no local credential found — clearing biometric flags');
     try {
@@ -12331,17 +11062,14 @@ async function reconcileBiometricState() {
       localStorage.setItem('biometricForLogin', 'false');
       localStorage.setItem('biometricForTx', 'false');
     } catch (e) { __sec_log.e('reconcile: local clear failed', e); }
-    // Update UI to off
     if (__sec_parentSwitch) __sec_setChecked(__sec_parentSwitch, false);
     if (__sec_bioOptions) { __sec_bioOptions.classList.remove('show'); __sec_bioOptions.hidden = true; }
     return;
   }
 
-  // If we have a local credential, confirm server still recognizes it
   try {
     __sec_log.d('reconcile: have local cred, will check server only if we can resolve userId', { credentialIdSample: (cred && cred.slice ? cred.slice(0,20) : cred) });
 
-    // Helper: safely call getSession with timeout
     const safeGetSessionUserId = async (timeoutMs = 800) => {
       if (typeof getSession !== 'function') return null;
       try {
@@ -12359,14 +11087,10 @@ async function reconcileBiometricState() {
       }
     };
 
-    // Try to obtain userId (short wait). If none, do NOT call server.
     const resolvedUserId = await getOrCreateSessionPromise(); // wait up to 4000ms for session
     if (!resolvedUserId) {
-      // 🔥 FIX: Don't clear flags when userId unavailable - it's just a timing issue!
-      // The user's biometric settings should persist across reloads.
       __sec_log.i('reconcile: no userId available after short wait — skipping server check but preserving existing flags');
       
-      // Just restore the UI from existing localStorage (don't modify flags)
       try {
         const existingBiomEnabled = localStorage.getItem('biometricsEnabled') === 'true';
         const existingBioLogin = localStorage.getItem('biometricForLogin') === 'true';
@@ -12378,7 +11102,6 @@ async function reconcileBiometricState() {
           existingBioTx 
         });
         
-        // Restore UI based on existing flags
         if (existingBiomEnabled && (existingBioLogin || existingBioTx)) {
           if (__sec_parentSwitch) __sec_setChecked(__sec_parentSwitch, true);
           if (__sec_bioOptions) {
@@ -12400,7 +11123,6 @@ async function reconcileBiometricState() {
       return; // skip server call (will validate on next attempt when userId is available)
     }
 
-    // We have a userId — call the server with both credentialId and userId
     __sec_log.d('reconcile: resolved userId, calling /webauthn/auth/options', { userIdSample: resolvedUserId && resolvedUserId.slice ? resolvedUserId.slice(0,12) : resolvedUserId });
     const apiBase = (window.__SEC_API_BASE || (typeof API_BASE !== 'undefined' ? API_BASE : ''));
     const res = await (typeof window.__origFetch !== 'undefined' ? window.__origFetch : fetch)(apiBase + '/webauthn/auth/options', {
@@ -12412,7 +11134,6 @@ async function reconcileBiometricState() {
     const text = await res.text().catch(()=> '');
     if (!res.ok) {
       __sec_log.w('reconcile: /webauthn/auth/options returned non-ok — clearing flags', { status: res.status, textSample: (text||'').slice(0,300) });
-      // Clear local flags and UI (server rejected the credential)
       try {
         localStorage.setItem(__sec_KEYS.biom, '0');
         localStorage.setItem('biometricsEnabled', 'false');
@@ -12423,11 +11144,9 @@ async function reconcileBiometricState() {
       } catch (e) { __sec_log.e('reconcile: persist clear failed', e); }
       if (__sec_parentSwitch) __sec_setChecked(__sec_parentSwitch, false);
       if (__sec_bioOptions) { __sec_bioOptions.classList.remove('show'); __sec_bioOptions.hidden = true; }
-      // If server gave useful JSON error, rethrow for logging; otherwise throw generic error
       try { throw new Error(text || `HTTP ${res.status}`); } catch(e) { throw e; }
     }
 
-    // success -> server validated credential: mark enabled
     const opts = text ? JSON.parse(text) : {};
     __sec_log.i('reconcile: server confirmed credential - marking biometrics enabled', { allowCount: opts.allowCredentials ? opts.allowCredentials.length : 0 });
     try {
@@ -12438,8 +11157,6 @@ async function reconcileBiometricState() {
         safeCall(notify, 'Fingerprint set up successfully!', 'success');
       }
       
-      // 🔥 FIX: Only set children to 'true' if they're currently unset (null)
-      // Don't override explicit user choices!
       const currentLogin = localStorage.getItem('biometricForLogin');
       const currentTx = localStorage.getItem('biometricForTx');
       
@@ -12461,7 +11178,6 @@ async function reconcileBiometricState() {
     }
   } catch (err) {
     __sec_log.w('reconcileBiometricState error', err);
-    // flags/UI already cleared in error flows above
   }
 }
 
@@ -12470,7 +11186,6 @@ async function reconcileBiometricState() {
 async function __sec_initFromStorage() {
   __sec_log.d('initFromStorage entry (reconciled)');
   try {
-    // read both key namespaces
     const rawBiom = localStorage.getItem(__sec_KEYS.biom); // '1' | '0' | null
     const rawLogin = localStorage.getItem(__sec_KEYS.bioLogin);
     const rawTx = localStorage.getItem(__sec_KEYS.bioTx);
@@ -12479,14 +11194,12 @@ async function __sec_initFromStorage() {
     const legacyLogin = localStorage.getItem('biometricForLogin');
     const legacyTx = localStorage.getItem('biometricForTx');
 
-    // Normalize - prefer explicit '1' or 'true' where present
     const biomStored = (rawBiom === '1') || (legacyBiom === 'true');
     const loginStored = (rawLogin === '1') || (legacyLogin === 'true');
     const txStored = (rawTx === '1') || (legacyTx === 'true');
 
     __sec_log.d('initFromStorage parsed:', { rawBiom, legacyBiom, rawLogin, legacyLogin, rawTx, legacyTx });
 
-    // Apply UI per local preferred state (we will reconcile with server next)
     if (__sec_parentSwitch) { __sec_setChecked(__sec_parentSwitch, !!biomStored); }
     if (__sec_bioOptions) {
       if (biomStored) {
@@ -12501,7 +11214,6 @@ async function __sec_initFromStorage() {
       }
     }
 
-    // Reconcile with server / local credential id to avoid stale mismatch
     try {
       await reconcileBiometricState(); // defined next — updates both key namespaces and UI
     } catch (re) {
@@ -12573,7 +11285,6 @@ window.showSlideNotification = window.showSlideNotification || showSlideNotifica
    PIN Submodule (integrated)
    ========================= */
 
-  // Elements for PIN modal (IDs from your top-of-script)
   const __sec_PIN_ROW        = __sec_q('#securityPinRow');
   const __sec_PIN_MODAL      = __sec_q('#securityPinModal');
   const __sec_PIN_CLOSE_BTN  = __sec_q('#securityPinCloseBtn');
@@ -12583,17 +11294,11 @@ window.showSlideNotification = window.showSlideNotification || showSlideNotifica
   const __sec_PIN_NEW        = __sec_q('#newPin');
   const __sec_PIN_CONFIRM    = __sec_q('#confirmPin');
 
-  // notify helper (prefer slide notification)
-  // Robust notify: always deliver a plain string to UI and log raw input for debugging.
-// Keeps slide/toast preferences but normalizes message shape.
-// Replace existing __sec_pin_notify with this robust version.
-// Paste this into the same scope as other helpers.
 const PIN_DEBUG = true; // set false when done debugging
 
 function __sec_pin_notify(raw, type = 'info', duration = (type === 'error' ? 4000 : 2000)) {
   function dlog(...args) { if (!PIN_DEBUG) return; try { console.debug('[pin-notify]', ...args); } catch(_){} }
 
-  // 1) Normalize raw -> msg (plain string)
   let msg = '';
   try {
     if (raw instanceof Error) msg = raw.message || String(raw);
@@ -12613,7 +11318,6 @@ function __sec_pin_notify(raw, type = 'info', duration = (type === 'error' ? 400
     msg = 'An error occurred. Try again.';
   }
 
-  // unwrap one level of double-encoded JSON strings like '{"error":{"message":"Invalid PIN"}}'
   try {
     const t = (typeof msg === 'string' ? msg.trim() : msg);
     if (t && (t.startsWith('{') || t.startsWith('[') || (t.startsWith('"') && t.endsWith('"')))) {
@@ -12630,13 +11334,11 @@ function __sec_pin_notify(raw, type = 'info', duration = (type === 'error' ? 400
     }
   } catch (e) { /* ignore */ }
 
-  // final cleanup
   msg = (typeof msg === 'string' ? msg.trim() : String(msg));
   if (!msg) msg = (type === 'error' ? 'An error occurred. Try again.' : '');
 
   dlog('__sec_pin_notify: normalized msg:', msg, 'type:', type, 'duration:', duration, 'rawPreview:', raw);
 
-  // 2) Gentle cleanup of non-sticky old toasts (do not aggressively remove sticky server banners)
   try {
     const container = document.querySelector('#flexgig_slide_container') || document.querySelector('#toast_container');
     if (container) {
@@ -12645,7 +11347,6 @@ function __sec_pin_notify(raw, type = 'info', duration = (type === 'error' ? 400
         if (!isSticky) try { el.remove(); } catch (e) { dlog('failed to remove toast child', e); }
       });
     } else {
-      // minimal fallback: remove some known transient classes
       document.querySelectorAll('.flexgig-toast, .toast, .slide-notification').forEach(el => {
         if (!el.classList.contains('sticky')) try { el.remove(); } catch(e) { dlog('removal fallback failed', e); }
       });
@@ -12654,11 +11355,8 @@ function __sec_pin_notify(raw, type = 'info', duration = (type === 'error' ? 400
     dlog('notify cleanup error', e);
   }
 
-  // 3) Deliver to UI: try safe signatures for both slide and toast helpers.
-  // We'll attempt message-first signature first because that's common, then object-style.
   let delivered = false;
 
-  // Helper to try a call and catch failures
   function tryCall(fn, args, label) {
     try {
       fn.apply(null, args);
@@ -12670,33 +11368,26 @@ function __sec_pin_notify(raw, type = 'info', duration = (type === 'error' ? 400
     }
   }
 
-  // Try slide notification (message-first signature)
   try {
     if (typeof showSlideNotification === 'function') {
-      // attempt common signature: (message, type, duration, opts)
       delivered = tryCall(showSlideNotification, [msg, type, duration, { position: 'top-right' }], 'showSlideNotification(message, type, duration, opts)');
       if (!delivered) {
-        // attempt object signature: ({ message, type, duration, position })
         delivered = tryCall(showSlideNotification, [{ message: msg, type, duration, position: 'top-right' }], 'showSlideNotification({message,...})');
       }
       if (delivered) return;
     }
   } catch (e) { dlog('showSlideNotification path error', e); }
 
-  // Try toast helper
   try {
     if (typeof showToast === 'function') {
-      // try common signature (message, type, duration)
       delivered = tryCall(showToast, [msg, type, duration], 'showToast(message, type, duration)');
       if (!delivered) {
-        // try object style
         delivered = tryCall(showToast, [{ message: msg, type, duration }], 'showToast({message,...})');
       }
       if (delivered) return;
     }
   } catch (e) { dlog('showToast path error', e); }
 
-  // 4) Final fallback: build a simple DOM toast inline (guarantee string usage)
   try {
     const fallbackId = '__fg_notify_fallback';
     let fallbackContainer = document.getElementById(fallbackId);
@@ -12724,7 +11415,6 @@ function __sec_pin_notify(raw, type = 'info', duration = (type === 'error' ? 400
     dlog('notify: used fallback DOM toast');
     return;
   } catch (e) {
-    // last resort: console
     console[type === 'error' ? 'error' : 'log'](msg);
     dlog('notify fallback to console, msg:', msg, 'error:', e);
     return;
@@ -12732,7 +11422,6 @@ function __sec_pin_notify(raw, type = 'info', duration = (type === 'error' ? 400
 }
 
 
-  // small helper: get uid from session or local storage
   async function __sec_pin_getUid() {
     try {
       if (typeof window.getSession === 'function') {
@@ -12752,7 +11441,6 @@ function __sec_pin_notify(raw, type = 'info', duration = (type === 'error' ? 400
     }
   }
 
-  // Common tables/columns to try (safe client read only when plain digits)
   const __sec_PIN_TRY_TABLES  = ['profiles','users','accounts'];
   const __sec_PIN_TRY_COLUMNS = ['pin','account_pin','accountPin','pinCode','pin_hash','pin_hash_text'];
 
@@ -12801,7 +11489,6 @@ function __sec_pin_notify(raw, type = 'info', duration = (type === 'error' ? 400
   }
 }
 
-  // Strict pin input binding (digit-only, length 4)
   function __sec_pin_bindStrictInputs() {
     try {
       const maxLen = 4;
@@ -12861,8 +11548,6 @@ function __sec_pin_notify(raw, type = 'info', duration = (type === 'error' ? 400
     }
   }
 
-  // Hardened token helper (does NOT log the token)
-// ===== Helper: hardened token lookup + fetchWithAuth (add once globally, near top of file) =====
 function getAuthToken() {
   try {
     if (typeof window.__SEC_AUTH_TOKEN === 'string' && window.__SEC_AUTH_TOKEN) return window.__SEC_AUTH_TOKEN;
@@ -12884,7 +11569,6 @@ function getAuthToken() {
 }
 
 async function fetchWithAuth(url, opts = {}) {
-  // Try cookie-based first (safer)
   const baseOpts = Object.assign({}, opts, { credentials: 'include' });
   let res = await fetch(url, baseOpts);
   if (res.status === 401 || res.status === 403) {
@@ -12896,7 +11580,6 @@ async function fetchWithAuth(url, opts = {}) {
   return res;
 }
 
-// ===== Replacement: Pin modal wiring (use named handlers so we can remove them safely) =====
 function __sec_pin_wireHandlers() {
   const __sec_CHANGE_FORM   = __sec_q('#changePinForm');
   const __sec_RESET_BTN     = __sec_q('#resetPinBtn');
@@ -12911,7 +11594,6 @@ function __sec_pin_wireHandlers() {
 
   __sec_pin_bindStrictInputs();
 
-  // Named handler for confirm input (so it can be removed later)
   let confirmDebounceId = null;
   function confirmInputHandler(e) {
     if (confirmDebounceId) clearTimeout(confirmDebounceId);
@@ -12924,7 +11606,6 @@ function __sec_pin_wireHandlers() {
   }
   __sec_PIN_CONFIRM.addEventListener('input', confirmInputHandler);
 
-  // Named submit handler so we can remove if modal closed/cleanup required
   async function onChangePinSubmit(e) {
     e.preventDefault();
     e.stopPropagation();
@@ -12937,7 +11618,6 @@ function __sec_pin_wireHandlers() {
 
     try {
       await withLoader(async () => {
-        // sync validation
         if (!/^\d{4}$/.test(currentPin) || !/^\d{4}$/.test(newPin) || !/^\d{4}$/.test(confirmPin)) {
           throw new Error('All fields must be exactly 4 digits.');
         }
@@ -12947,8 +11627,6 @@ function __sec_pin_wireHandlers() {
         const uid = await __sec_pin_getUid();
         if (!uid) throw new Error('Unable to retrieve account. Please refresh.');
 
-        // use fetchWithAuth to avoid missing auth header/cookies
-        // verify current PIN
 const verifyRes = await fetchWithAuth(`${window.__SEC_API_BASE}/api/verify-pin`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -12956,24 +11634,18 @@ const verifyRes = await fetchWithAuth(`${window.__SEC_API_BASE}/api/verify-pin`,
 });
 if (!verifyRes.ok) {
   const body = await parseErrorResponse(verifyRes);
-  // Log structured server reason for debugging
   console.warn('[PIN][warn] current PIN verification failed', body);
 
-  // Notify user with server-provided message if available
   __sec_pin_notify('Current PIN is incorrect. Try again.', 'error');
 
-  // clear inputs safely (uses the fallback or your existing helper)
   try { window.__fg_pin_clearAllInputs(); } catch (_) { 
-    // final fallback local reset
     document.querySelectorAll('#currentPin, #newPin, #confirmPin').forEach(el => { try { el.value = ''; } catch(_){} });
     const first = document.querySelector('#currentPin'); if (first) try { first.focus(); } catch(_){} 
   }
 
-  // throw to stop the success path and let outer catch handle logs/state
   throw new Error(body.message || `Verify PIN failed (${verifyRes.status})`);
 }
 
-// save new PIN
 const saveRes = await fetchWithAuth(`${window.__SEC_API_BASE}/api/save-pin`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -12987,17 +11659,14 @@ if (!saveRes.ok) {
 }
 
 
-        // Success: update state
         localStorage.setItem('hasPin', 'true');
         window.dispatchEvent(new CustomEvent('pin-status-changed'));
 
-        // Reset input fields
         __sec_PIN_CURRENT.value = '';
         __sec_PIN_NEW.value = '';
         __sec_PIN_CONFIRM.value = '';
         __sec_PIN_CURRENT.focus();
 
-        // Close modal using ModalManager if available (keeps a11y & state consistent)
         try {
           if (typeof ModalManager !== 'undefined' && typeof ModalManager.closeModal === 'function') {
             ModalManager.closeModal('securityPinModal');
@@ -13007,19 +11676,16 @@ if (!saveRes.ok) {
             if (modal) modal.style.display = 'none';
           }
         } catch (e) {
-          // swallow – don't block success UX
           __sec_log.d('[PinModal] close modal fallback used', e);
           const modal = __sec_q('#securityPinModal');
           if (modal) modal.style.display = 'none';
         }
 
-        // Show success notify after we gave the browser a frame to paint (modal hidden)
         requestAnimationFrame(() => {
           console.log('PIN updated successfully!', 'success');
         });
       });
     } catch (error) {
-      // friendly error mapping
       console.error('PIN change error:', error);
       let msg = error.message || 'Failed to change PIN.';
       if (/incorrect/i.test(msg) || msg.includes('INCORRECT_PIN')) {
@@ -13030,7 +11696,6 @@ if (!saveRes.ok) {
       }
       __sec_pin_notify(msg, 'error');
 
-      // small shake on inputs
       document.querySelectorAll('#currentPin, #newPin, #confirmPin').forEach(el => {
         el.classList.add('shake');
         setTimeout(() => el.classList.remove('shake'), 300);
@@ -13041,19 +11706,14 @@ if (!saveRes.ok) {
     }
   }
 
-  // Attach the named submit handler
   __sec_CHANGE_FORM.addEventListener('submit', onChangePinSubmit);
 
-  // Reset button wiring
   if (__sec_RESET_BTN) {
     __sec_RESET_BTN.addEventListener('click', (ev) => {
       ev.preventDefault();
-      //window.location.href = '/reset-pin.html';
     });
   }
 
-  // Cleanup hook: if you want to remove listeners when modal fully closed, provide a cleanup function
-  // (optional; call this when modal destroyed to avoid duplicate listeners if modal is reopened)
   __sec_pin_wireHandlers.cleanup = function cleanupPinHandlers() {
     try {
       __sec_PIN_CONFIRM.removeEventListener('input', confirmInputHandler);
@@ -13094,17 +11754,14 @@ function __sec_convertRowsToChevron() {
 async function __sec_boot() {
   try {
     __sec_log.d('Booting security module');
-    // Ensure session is available before wiring things that rely on it
     if (typeof window.getSession === 'function') {
       try { await window.getSession(); } catch (e) { __sec_log.d('getSession during boot failed', e); }
     }
 
-    // Wire UI pieces
     __sec_convertRowsToChevron();
     __sec_initFromStorage();
     __sec_wireEvents();
 
-    // PIN submodule bindings (now safe—no 'e' arg)
     __sec_pin_bindStrictInputs();
     __sec_pin_wireHandlers();  // Wires listeners without error
 
@@ -13112,7 +11769,6 @@ async function __sec_boot() {
   } catch (err) {
     __sec_log.e('boot error', err);
   }
-  // ... other wiring ...
 initializeSmartAccountPinButton();  // ← This line exists (or add if missing)
 }
 
@@ -13166,7 +11822,6 @@ function uuidToArrayBuffer(uuid) {
 async function startRegistration(userId, username, displayName) {
   __sec_log.d('startRegistration entry', { userId, username, displayName });
   try {
-    // Get user for UID (no token needed)
     const currentUser = await __sec_getCurrentUser();
     __sec_log.d('startRegistration: Retrieved currentUser', { hasUser: !!currentUser?.user });
     if (!currentUser || !currentUser.user || !currentUser.user.uid) {
@@ -13191,12 +11846,10 @@ async function startRegistration(userId, username, displayName) {
     const options = JSON.parse(optRaw);
     __sec_log.d('startRegistration: Parsed options', options);
 
-    // Convert challenge
     __sec_log.d('startRegistration: Converting challenge');
     options.challenge = new Uint8Array(base64urlToArrayBuffer(options.challenge));
     __sec_log.d('startRegistration: Challenge converted', { challengeLength: options.challenge.length });
 
-    // Convert user.id (server might send uuid or base64url)
     if (options.user?.id) {
       __sec_log.d('startRegistration: Converting user.id');
       try {
@@ -13227,7 +11880,6 @@ async function startRegistration(userId, username, displayName) {
       excludeCount: options.excludeCredentials?.length || 0
     });
 
-    // Create credential
     __sec_log.i('startRegistration: Calling navigator.credentials.create');
     const cred = await navigator.credentials.create({ publicKey: options });
     __sec_log.d('startRegistration: Credential created', { id: cred?.id, type: cred?.type });
@@ -13242,7 +11894,6 @@ async function startRegistration(userId, username, displayName) {
 
     if (!cred) throw new Error('No credential returned');
 
-    // Build prepared credential for server
     const credential = {
       id: cred.id,
       rawId: arrayBufferToBase64url(cred.rawId),
@@ -13255,22 +11906,18 @@ async function startRegistration(userId, username, displayName) {
     };
     __sec_log.d('startRegistration: Prepared credential for verify', { id: credential.id, rawIdLength: credential.rawId.length });
 
-    // --- IMMEDIATE LOCAL PERSIST (pre-verify fallback) ---
     try {
-      // Save the rawId fallback immediately so reloads/unloads won't lose it
       localStorage.setItem('credentialId', credential.rawId);
       localStorage.setItem('credentialSavedAt', new Date().toISOString());
       console.log('[CRED DEBUG] pre-verify setItem credentialId ->', localStorage.getItem('credentialId'));
       console.log('[CRED DEBUG] origin/domain:', location.origin, document.domain);
       console.trace('[CRED DEBUG] pre-verify write trace');
-      // sanity assert
       console.assert(localStorage.getItem('credentialId') === credential.rawId, 'Pre-verify credentialId not persisted!');
       __sec_log.d('startRegistration: Pre-verify credentialId saved to localStorage', { rawIdLen: credential.rawId.length });
     } catch (e) {
       __sec_log.e('startRegistration: Failed to persist pre-verify credentialId to localStorage', { error: (e && e.message) || e });
     }
 
-    // Send to server for canonical verify
     const verifyUrl = `${apiBase}/webauthn/register/verify`;
     __sec_log.d('startRegistration: Verifying at', verifyUrl);
     const verifyRes = await fetch(verifyUrl, {
@@ -13283,7 +11930,6 @@ async function startRegistration(userId, username, displayName) {
     const verifyRaw = await verifyRes.text();
     __sec_log.d('startRegistration: Verify response', { status: verifyRes.status, ok: verifyRes.ok, raw: verifyRaw });
     if (!verifyRes.ok) {
-      // If server verify fails, keep the pre-verify fallback in storage for debugging
       __sec_log.e('startRegistration: Verify failed — pre-verify value retained for inspection', { preverify: localStorage.getItem('credentialId') });
       throw new Error(`Verify failed: ${verifyRaw}`);
     }
@@ -13291,7 +11937,6 @@ async function startRegistration(userId, username, displayName) {
     const verifyResult = JSON.parse(verifyRaw);
     __sec_log.i('startRegistration: Verify success', verifyResult);
 
-    // Overwrite local storage with canonical server credentialId if present
     try {
       const serverId = verifyResult?.credentialId;
       if (serverId) {
@@ -13316,7 +11961,6 @@ async function startRegistration(userId, username, displayName) {
       userId,
       username
     });
-    // Ensure we still surface the pre-verify fallback for debugging
     try {
       const fallback = localStorage.getItem('credentialId');
       __sec_log.d('startRegistration: fallback credentialId (from localStorage) after error', { fallback });
@@ -13333,7 +11977,6 @@ async function startRegistration(userId, username, displayName) {
 async function startAuthentication(userId, action = 'reauth') {
   __sec_log.d('startAuthentication entry', { userId });
   try {
-    // Get user for UID (no token needed)
     const currentUser = await __sec_getCurrentUser();
     __sec_log.d('startAuthentication: Retrieved currentUser', { hasUser: !!currentUser?.user });
     if (!currentUser || !currentUser.user || !currentUser.user.uid) {
@@ -13353,14 +11996,12 @@ async function startAuthentication(userId, action = 'reauth') {
   const txt = await optRes.text().catch(()=>'');
   __sec_log.w('verifyBiometrics: auth/options returned non-ok', { status: optRes.status, txtSample: (txt||'').slice(0,300) });
   if (optRes.status === 404 || /no authenticators found/i.test(txt || '')) {
-    // clear local flags (mirror reconcile logic)
     localStorage.setItem(__sec_KEYS.biom, '0');
     localStorage.setItem('biometricsEnabled', 'false');
     localStorage.setItem(__sec_KEYS.bioLogin, '0');
     localStorage.setItem(__sec_KEYS.bioTx, '0');
     localStorage.setItem('biometricForLogin', 'false');
     localStorage.setItem('biometricForTx', 'false');
-    // set UI off
     if (__sec_parentSwitch) __sec_setChecked(__sec_parentSwitch, false);
     if (__sec_bioOptions) { __sec_bioOptions.classList.remove('show'); __sec_bioOptions.hidden = true; }
   }
@@ -13383,15 +12024,11 @@ async function startAuthentication(userId, action = 'reauth') {
   if (val && typeof val === 'object') {
     const keys = Object.keys(val);
     if (keys.length > 0 && !isNaN(Number(keys[0]))) {
-      // Numeric-keyed object — reconstruct as Uint8Array
       const max = Math.max(...keys.map(Number));
       const arr = new Uint8Array(max + 1);
       for (const k of keys) arr[Number(k)] = val[k];
       return arr;
     }
-    // ✅ Non-numeric object (e.g. a parsed JSON object passed by mistake)
-    // Attempting String(val) would produce '[object Object]' and break atob.
-    // Clear the corrupt cache and throw so the caller falls back to PIN.
     console.warn('[safeToUint8] Received non-decodable object, clearing biometric cache:', val);
     try {
       localStorage.removeItem('__cachedAuthOptions');
@@ -13400,8 +12037,6 @@ async function startAuthentication(userId, action = 'reauth') {
     } catch (e) {}
     throw new Error(`Failed to decode base64url: expected string but got object (${JSON.stringify(val)?.slice(0, 80)})`);
   }
-  // ✅ Last resort: only call String(val) if val is a primitive (number, boolean)
-  // Never on objects — already handled above
   if (val == null) throw new Error('Failed to decode base64url: value is null/undefined');
   return new Uint8Array(base64urlToArrayBuffer(String(val)));
 }
@@ -13467,7 +12102,6 @@ async function startAuthentication(userId, action = 'reauth') {
   __sec_log.d('startAuthentication exit');
 }
 
-// expose for other modules that call startAuthentication()
 window.startAuthentication = window.startAuthentication || startAuthentication;
 
 
@@ -13591,16 +12225,12 @@ function __sec_wireEvents() {
 
     if (__sec_parentSwitch) {
       __sec_log.d('wireEvents: Wiring parent switch (#biometricsSwitch)');
-      // Replace the original __sec_parentHandler definition with this one
 const __sec_parentHandler = async () => {
   __sec_log.d('__sec_parentHandler: Starting');
 
   return withLoader(async () => {
-    // mark busy spinner on the control
     try { __sec_setBusy(__sec_parentSwitch, true); } catch (e) { __sec_log.w('setBusy failed', e); }
 
-    // Determine desired state (we DO NOT flip UI yet)
-    // Use __sec_isChecked (exists in your code) to read current checked state
     let wantOn = true;
     try {
       const currentlyChecked = !!(__sec_parentSwitch && __sec_isChecked(__sec_parentSwitch));
@@ -13611,7 +12241,6 @@ const __sec_parentHandler = async () => {
       wantOn = true;
     }
 
-    // Ensure valid session / user exists before continuing
     const currentUser = await __sec_getCurrentUser();
     __sec_log.d('__sec_parentHandler: Retrieved currentUser', { hasUser: !!currentUser?.user });
 
@@ -13627,33 +12256,27 @@ const __sec_parentHandler = async () => {
     const { user } = currentUser;
     __sec_log.d('__sec_parentHandler: Extracted user', { userId: user.uid });
 
-    // If user requested turning ON, require PIN BEFORE doing any UI changes or network work
     if (wantOn) {
-      // Check localStorage first for quick live response; fall back to server session flag if present
       let hasPin = false;
       try {
         hasPin = localStorage.getItem('hasPin') === 'true';
       } catch (e) { __sec_log.w('localStorage.hasPin read failed', e); }
 
-      // fallback to server-side session user flag if local false/undefined
       if (!hasPin && (user && (user.hasPin || user.pin))) {
         hasPin = true;
       }
 
       if (!hasPin) {
         __sec_log.i('__sec_parentHandler: PIN not present, blocking biometric enable');
-        // Notify user, keep switch visually off and clear busy state
         try { showSlideNotification('Please set a PIN first before enabling biometrics', 'info'); } catch(e){}
         try { __sec_setChecked(__sec_parentSwitch, false); } catch (e) {}
         try { __sec_setBusy(__sec_parentSwitch, false); } catch (e) {}
         return; // abort early — no flinch, no network calls
       }
 
-      // At this point: PIN present; proceed to revoke existing authenticators and register new one
       __sec_log.i('Parent toggle ON requested — will revoke existing authenticators (best-effort) then register new');
 
       try {
-        // Try to revoke all existing authenticators (best-effort)
         const auths = await __sec_listAuthenticators(user.uid).catch(err => {
           __sec_log.w('__sec_parentHandler: listAuthenticators failed', err);
           return [];
@@ -13676,7 +12299,6 @@ const __sec_parentHandler = async () => {
             }
           }
         } else {
-          // still call revoke endpoint (server may have stale entries) — pass null credential id to request full reset
           try {
             await __sec_revokeAuthenticator(user.uid, null);
             __sec_log.i('__sec_parentHandler: called revoke with null to ensure server reset');
@@ -13688,13 +12310,11 @@ const __sec_parentHandler = async () => {
         __sec_log.w('__sec_parentHandler: failed listing/revoking pre-existing authenticators (non-fatal)', err);
       }
 
-      // Now proceed to registration flow (always attempt to register fresh)
       try {
         __sec_log.i('Starting fresh registration flow after revoke');
         const regResult = await startRegistration(user.uid, user.email || user.username || user.uid, user.fullName || user.email || user.uid);
         __sec_log.d('__sec_parentHandler: Registration result', regResult);
 
-        // Only after successful registration set biometrics on and UI checked
         __sec_setBiometrics(true, true);
 
         try { __sec_setChecked(__sec_parentSwitch, true); } catch(e){}
@@ -13709,18 +12329,15 @@ const __sec_parentHandler = async () => {
       }
 
     } else {
-      // wantOn === false -> disabling
       __sec_log.i('Parent toggle OFF requested — revoking and disabling biometrics');
 
       try {
-        // call revoke (await) — if it throws we'll still clean up locally
         try {
           await __sec_revokeAuthenticator(user.uid, null);
         } catch (e) {
           __sec_log.w('__sec_parentHandler: revoke during disable returned error', e);
         }
 
-        // update state locally
         __sec_setBiometrics(false, false);
         try { __sec_setChecked(__sec_parentSwitch, false); } catch(e){}
         try { localStorage.removeItem('credentialId'); } catch(e){}
@@ -13874,18 +12491,15 @@ const __sec_parentHandler = async () => {
         e.preventDefault();
         e.stopImmediatePropagation(); // ensure we stop other handlers
       } catch (err) {}
-      // keep switch visually OFF
       try { __sec_setChecked(__sec_parentSwitch, false); } catch (err) {}
       try { showSlideNotification(msg || 'Please set a PIN first before enabling biometrics', 'info'); } catch (err) { console.log(msg || 'Please set a PIN first before enabling biometrics'); }
       return false;
     }
 
-    // Parent switch: capture-phase guard
     __sec_parentSwitch.addEventListener('click', function (e) {
       if (!hasPin()) {
         return blockAndNotify(e, 'Please set a PIN first before enabling biometrics.');
       }
-      // else allow normal flow to continue
     }, { capture: true, passive: false });
 
     __sec_parentSwitch.addEventListener('keydown', function (e) {
@@ -13896,12 +12510,10 @@ const __sec_parentHandler = async () => {
       }
     }, { capture: true, passive: false });
 
-    // Child switches: prevent them from calling the parent handler (they attempted to auto-enable)
     const childGuards = [__sec_bioLogin, __sec_bioTx].filter(Boolean);
     childGuards.forEach((childEl) => {
       childEl.addEventListener('click', function (e) {
         try {
-          // if parent is not checked and no pin -> block and notify
           const parentChecked = __sec_parentSwitch && __sec_isChecked && __sec_isChecked(__sec_parentSwitch);
           if (!parentChecked && !hasPin()) {
             return blockAndNotify(e, 'Please set a PIN first to enable biometric options.');
@@ -13982,12 +12594,10 @@ function ensureTopNotifier() {
   return el;
 }
 
-// make sure message is a string (safe)
 function stringifyMessage(m) {
   if (m == null) return '';
   if (typeof m === 'string') return m;
   try {
-    // If it's an object with useful fields, show them nicely
     if (m.message || m.error) return (m.message || m.error) + (m.meta ? ` — ${JSON.stringify(m.meta)}` : '');
     return typeof m.toString === 'function' ? m.toString() : JSON.stringify(m);
   } catch (e) {
@@ -14019,7 +12629,6 @@ function hideTopNotifier() {
   const n = document.getElementById('fg-top-notifier');
   if (!n) return;
   n.classList.remove('show');
-  // stop ticker if any
   if (window.__fg_top_notifier_interval) {
     clearInterval(window.__fg_top_notifier_interval);
     window.__fg_top_notifier_interval = null;
@@ -14043,7 +12652,6 @@ function updateCountdownDisplay(el, untilIso) {
 }
 
 function startGlobalLockoutTicker(countdownEl, untilIso) {
-  // clear previous
   if (window.__fg_top_notifier_interval) {
     clearInterval(window.__fg_top_notifier_interval);
   }
@@ -14053,9 +12661,7 @@ function startGlobalLockoutTicker(countdownEl, untilIso) {
       clearInterval(window.__fg_top_notifier_interval);
       window.__fg_top_notifier_interval = null;
       hideTopNotifier();
-      // remove persisted lockout
       try { localStorage.removeItem('pin_lockout_until'); } catch(e){}
-      // Re-enable inputs if you stored a disabling state
       enableReauthInputs(true);
     }
   }, 1000);
@@ -14085,7 +12691,6 @@ function resumeLockoutIfAny() {
     if (!untilIso) return;
     const until = new Date(untilIso);
     if (until > new Date()) {
-      // show notifier and disable inputs
       disableReauthInputs(true);
       showTopNotifier('Too many incorrect PINs — locked until', 'error', { autoHide: false, countdownUntil: untilIso });
     } else {
@@ -14098,19 +12703,16 @@ function resumeLockoutIfAny() {
 /* Open Forget PIN flow (send OTP first, then open Reset PIN modal) */
 async function openForgetPinFlow() {
   try {
-    // 1️⃣ Preferred: delegate to resetPin.js if loaded
     if (window.__rp_handlers && typeof window.__rp_handlers.onTrigger === 'function') {
       await window.__rp_handlers.onTrigger();
       return;
     }
 
-    // 2️⃣ Alternative handler name
     if (window.__rp_handlers && typeof window.__rp_handlers.onTriggerClicked === 'function') {
       await window.__rp_handlers.onTriggerClicked();
       return;
     }
 
-    // 3️⃣ Manual fallback — replicate resend-OTP then open modal
     const email = (window.currentUser?.email) ||
                   localStorage.getItem('userEmail') ||
                   prompt('Enter your account email to receive OTP:');
@@ -14129,11 +12731,9 @@ async function openForgetPinFlow() {
     const body = await resp.json();
     if (!resp.ok) throw new Error(body.error?.message || body.message || 'Failed to send OTP');
 
-    // Notify success
     if (window.notify) window.notify('success', `OTP sent to ${email}`, { title: 'OTP sent' });
     else alert(`OTP sent to ${email}`);
 
-    // 4️⃣ Open the Reset PIN modal
     if (window.ModalManager && typeof window.ModalManager.openModal === 'function') {
       ModalManager.openModal('resetPinModal');
       return;
@@ -14169,7 +12769,6 @@ async function openForgetPinFlow() {
    - Backend-aligned fetches (userId body)
 ----------------------------- */
 (function () {
-  // Safe wrappers
   function safeQuery(id) {
     try {
       return document.getElementById(id);
@@ -14190,7 +12789,6 @@ async function openForgetPinFlow() {
   }
   window.safeCall = window.safeCall || safeCall; // expose globally if needed
 
-  // Cached DOM refs — (re)cached when needed
 let reauthModal,
     biometricView,
     pinView,
@@ -14209,14 +12807,12 @@ let reauthModal,
     promptModal,
     yesBtn;
 
-// --- PIN globals (added) ---
 let __fg_pin_securityPinModal = null;
 let __fg_pin_changePinForm = null;
 let __fg_pin_resetPinBtn = null;
 let __fg_pin_inputCurrentEl = null;
 let __fg_pin_inputNewEl = null;
 let __fg_pin_inputConfirmEl = null;
-// -----------------------------
 
 function cacheDomRefs() {
   console.log('cacheDomRefs called');
@@ -14238,15 +12834,12 @@ function cacheDomRefs() {
   promptModal = safeQuery('inactivityPrompt');
   yesBtn = safeQuery('yesActiveBtn');
 
-  // ---- PIN-specific refs (new) ----
-  // Uses safeQuery so missing elements won't throw.
   __fg_pin_securityPinModal = safeQuery('securityPinModal');
   __fg_pin_changePinForm   = safeQuery('changePinForm');
   __fg_pin_resetPinBtn      = safeQuery('resetPinBtn');
   __fg_pin_inputCurrentEl   = safeQuery('currentPin');
   __fg_pin_inputNewEl       = safeQuery('newPin');
   __fg_pin_inputConfirmEl   = safeQuery('confirmPin');
-  // ----------------------------------
 
   console.log(
     'Cached refs - pinView:', !!pinView,
@@ -14258,9 +12851,6 @@ function cacheDomRefs() {
 window.cacheDomRefs = window.cacheDomRefs || cacheDomRefs; // expose if needed
 
 
-    // --------------------
-  // PIN state (shared)
-  // --------------------
   let currentPin = '';     // Optional global used by some PIN handlers
   let firstPin = '';
   let step = 'reauth';     // 'create' | 'confirm' | 'reauth'
@@ -14270,7 +12860,6 @@ window.cacheDomRefs = window.cacheDomRefs || cacheDomRefs; // expose if needed
     function getReauthInputs() {
     console.log('getReauthInputs called');
     try {
-      // Use the inputs under .reauthpin-inputs (you said you won't change HTML)
       if (pinView && pinView.querySelectorAll) {
         const inputs = Array.from(pinView.querySelectorAll('.reauthpin-inputs input'));
         console.log('Found inputs:', inputs.length);
@@ -14283,7 +12872,6 @@ window.cacheDomRefs = window.cacheDomRefs || cacheDomRefs; // expose if needed
     return [];
   }
 
-  // Helper: Safely disable/enable keypad during processing
     const keypadButtons = Array.from(document.querySelectorAll('.pin-keypad button'));
 function toggleKeypadProcessing(disabled) {
   console.log('toggleKeypadProcessing:', disabled);
@@ -14294,15 +12882,9 @@ function toggleKeypadProcessing(disabled) {
 }
 window.toggleKeypadProcessing = window.toggleKeypadProcessing || toggleKeypadProcessing; // expose if needed
 
-// PIN completion handler (server verification)
-// ----- Updated implementation with proper reauth flow -----
-// ----------------------
-// Replace your existing handlePinCompletion with this function
-// ----------------------
 async function handlePinCompletion() {
   console.log('handlePinCompletion started (new robust flow)');
 
-  // Prevent duplicate processing
   if (processing) {
     console.log('Already processing — ignoring');
     return;
@@ -14315,11 +12897,9 @@ async function handlePinCompletion() {
     return;
   }
 
-  // Fast client-side grace path (UX-only, short window)
   if (inGraceWindow()) {
     console.log('Using local reauth grace window — skipping server round-trip');
     try {
-      // run the same success UI flow but mark origin as 'local-grace'
       if (typeof onSuccessfulReauth === 'function') {
         await onSuccessfulReauth({ code: 'SUCCESS', token: null, meta: { method: 'pin', grace: true } });
       }
@@ -14340,26 +12920,21 @@ async function handlePinCompletion() {
     return;
   }
 
-  // Visual lock + processing flag
   processing = true;
   toggleKeypadProcessing(true); // Disable UI immediately
 
-  // AbortController for fetch and a separate timeout fallback (30s)
   const controller = new AbortController();
   const TIMEOUT_MS = 30000;
   const timeoutId = setTimeout(() => {
     try { controller.abort(); } catch (e) {}
   }, TIMEOUT_MS);
 
-  // Timeout wrapper to keep older logic that shows friendly message on overall timeout
   const timeoutPromise = new Promise((_, reject) =>
     setTimeout(() => reject(new Error('Reauth timeout')), TIMEOUT_MS + 50)
   );
 
-  // Main work wrapped by withLoader to preserve your existing loader UX
   const workPromise = withLoader(async () => {
     try {
-      // Slightly reduced wait for session load for snappier common-case behavior
       const uidInfo = await getUid({ waitForSession: true, waitMs: 500 }) || {};
       const userId = uidInfo?.uid || localStorage.getItem('userId') || null;
       if (!userId) {
@@ -14368,7 +12943,6 @@ async function handlePinCompletion() {
         return; // finally will handle unlock
       }
 
-      // Perform fetch with AbortController
       let res;
       try {
         res = await fetch('https://api.flexgig.com.ng/api/reauth-pin', {
@@ -14383,21 +12957,17 @@ async function handlePinCompletion() {
         });
       } catch (fetchErr) {
         if (fetchErr && fetchErr.name === 'AbortError') {
-          // Timeout / aborted
           throw new Error('Reauth timeout');
         }
         throw fetchErr;
       }
 
-      // Try to parse JSON body if server returned JSON
       let payload = null;
       try { payload = await res.json(); } catch (e) { payload = null; }
 
       if (res.ok) {
-        // Successful path
         console.log('[DEBUG] PIN verification successful');
 
-        // Mark short client-side grace so repeated opens are snappy
         try { setLastPinReauthTs(); } catch (e) { /* ignore */ }
 
         try {
@@ -14419,14 +12989,12 @@ async function handlePinCompletion() {
         return;
       }
 
-      // --- Error handling (structured JSON preferred) ---
       const serverMsg = (payload && (payload.message || payload.error)) || (await res.text().catch(() => '')) || `HTTP ${res.status}`;
       const serverCode = payload && payload.code ? payload.code : null;
       const meta = payload && payload.meta ? payload.meta : {};
 
       console.warn('PIN verify server error', { status: res.status, code: serverCode, msg: serverMsg, meta });
 
-      // Handle server codes similarly to existing logic
       switch (serverCode) {
         case 'INCORRECT_PIN_ATTEMPT': {
           const left = meta?.attemptsLeft ?? null;
@@ -14468,7 +13036,6 @@ async function handlePinCompletion() {
             'error',
             { autoHide: false }
           );
-          // Close the reauth modal — no point keeping it open
           if (typeof guardedHideReauthModal === 'function') {
             await guardedHideReauthModal();
           }
@@ -14479,7 +13046,6 @@ async function handlePinCompletion() {
         }
       }
 
-      // Clear inputs visually so user can try again (but not when locked)
       if (!['TOO_MANY_ATTEMPTS', 'TOO_MANY_ATTEMPTS_EMAIL', 'PIN_ENTRY_LIMIT_EXCEEDED'].includes(serverCode)) {
         if (typeof resetReauthInputs === 'function') resetReauthInputs();
         currentPin = '';
@@ -14490,31 +13056,25 @@ async function handlePinCompletion() {
         }
       }
     } catch (err) {
-      // Network or parsing or explicit timeout
       console.error('handlePinCompletion network/error', err);
       const msg = (err && err.message === 'Reauth timeout') ? 'Request timed out — please try again' : 'Network error. Please try again.';
       showTopNotifier(msg, 'error');
       if (typeof resetReauthInputs === 'function') resetReauthInputs();
       currentPin = '';
     } finally {
-      // Nothing here re: unlocking; top-level finally handles visual unlock
     }
   });
 
-  // Race the work against the timeout Promise so we always run final cleanup
   try {
     await Promise.race([workPromise, timeoutPromise]);
     console.log('handlePinCompletion resolved successfully');
   } catch (err) {
     console.error('handlePinCompletion timed out or errored:', err);
-    // If it was the explicit timeout error, show specific text (we already handle abort inside)
     if (err && err.message === 'Reauth timeout') {
       showTopNotifier('Request timed out — please try again', 'error');
     } else {
-      // other unexpected errors already handled/logged inside workPromise
     }
   } finally {
-    // cleanup
     clearTimeout(timeoutId);
     processing = false;
     toggleKeypadProcessing(false);
@@ -14537,17 +13097,14 @@ async function handlePinCompletion() {
     const keypadButtons = pinView.querySelectorAll('.reauthpin-keypad button');
     console.log('Keypad buttons found:', keypadButtons.length);
     const localDelete = pinView.querySelector('#deleteReauthKey');
-    // after: const localDelete = pinView.querySelector('#deleteReauthKey');
 deleteReauthKey = localDelete; // expose to module/global so other helpers can use it
 
     console.log('Local delete found:', !!localDelete);
 
-    // If already bound, just reset display (no re-binding)
     if (pinView.__keypadBound) {
       console.log('Keypad already bound, resetting');
       try { resetReauthInputs(); } catch (e) {
         console.error('Error resetting in bound check:', e);
-        // fallback: clear inputs UI
         inputs.forEach(i => { i.value = ''; i.classList.remove('filled'); });
       }
       return;
@@ -14555,21 +13112,15 @@ deleteReauthKey = localDelete; // expose to module/global so other helpers can u
     pinView.__keypadBound = true;
     console.log('Binding keypad');
 
-    // Helper: refresh inputs UI from global currentPin (if your code uses it),
-    // or just use inputs' own values (if your handlers update them).
-    // Helper: refresh inputs UI from global currentPin (debounced to avoid spam)
 function refreshInputsUI() {
   console.log('refreshInputsUI called, currentPin:', currentPin, 'inputs length:', inputs.length);
   
-  // DEBOUNCE: Ignore if called <50ms ago (prevents rapid-type spam)
   if (pinView.__lastRefresh && (Date.now() - pinView.__lastRefresh) < 50) {
     console.log('refreshInputsUI debounced (too soon)');
     return;
   }
   pinView.__lastRefresh = Date.now();
 
-  // ALWAYS USE FALLBACK: Ignore existing updatePinInputs() to avoid clearing bug
-  // (If you fix your app's updatePinInputs later, uncomment the if-block below)
   /*
   if (typeof updatePinInputs === 'function') {
     try { 
@@ -14582,7 +13133,6 @@ function refreshInputsUI() {
   }
   */
   
-  // Fallback: draw masked digits from currentPin
   inputs.forEach((inp, idx) => {
     console.log(`Updating input ${idx}: value='${inp.value}', setting to ${currentPin && idx < currentPin.length ? '•' : ''}`);
     if (currentPin && idx < currentPin.length) {
@@ -14596,7 +13146,6 @@ function refreshInputsUI() {
   console.log('UI refreshed for inputs (fallback masking)');
 }
 
-    // Button click wiring (overwrite handlers to avoid stacking)
     keypadButtons.forEach((btn, index) => {
       console.log('Setting up button', index, 'text:', btn.textContent.trim());
       btn.onclick = () => {
@@ -14605,10 +13154,8 @@ function refreshInputsUI() {
         const action = (btn.getAttribute('data-action') || btn.dataset.action || '').trim();
         console.log('Button raw:', raw, 'action:', action);
 
-        // Clear action
         if (action === 'clear' || raw.toLowerCase() === 'c') {
           console.log('Clear action');
-          // prefer existing resetReauthInputs() / resetInputs if available
           if (typeof resetReauthInputs === 'function') {
             try { resetReauthInputs(); } catch (e) {
               console.error('Error in resetReauthInputs:', e);
@@ -14624,7 +13171,6 @@ function refreshInputsUI() {
           return;
         }
 
-        // Back/delete action
         if (action === 'back' || btn.id === 'deleteReauthKey' || raw === '⌫' || raw.toLowerCase() === 'del') {
           console.log('Delete action');
           if (typeof handleDelete === 'function') {
@@ -14632,13 +13178,11 @@ function refreshInputsUI() {
               console.error('Error in handleDelete:', e);
             }
           } else {
-            // fallback: remove last filled input
             if (currentPin && currentPin.length > 0) {
               currentPin = currentPin.slice(0, -1);
               console.log('CurrentPin after delete fallback:', currentPin);
               refreshInputsUI();
             } else {
-              // fallback: clear last non-empty input
               const filled = Array.from(inputs).filter(i => i.value);
               if (filled.length) {
                 const last = filled[filled.length - 1];
@@ -14651,10 +13195,8 @@ function refreshInputsUI() {
           return;
         }
 
-        // Digit pressed
         if (/^[0-9]$/.test(raw)) {
           console.log('Digit pressed:', raw);
-          // If your app exposes inputDigit() (that updates shared currentPin), call it
           if (typeof inputDigit === 'function') {
             try { 
               console.log('Calling existing inputDigit');
@@ -14662,10 +13204,8 @@ function refreshInputsUI() {
             } catch (e) { 
               console.error('Error in inputDigit:', e);
             }
-            // inputDigit should call updatePinInputs() in your app; if not, refresh
             refreshInputsUI();
           } else {
-            // fallback: manage currentPin locally (then try to call completion)
             if (currentPin.length < 4) {
               currentPin += raw;
               console.log('CurrentPin after add fallback:', currentPin);
@@ -14684,7 +13224,6 @@ function refreshInputsUI() {
       };
     });
 
-    // Delete key explicit click (if separate)
     if (deleteReauthKey) {
       console.log('Setting up explicit delete click');
       deleteReauthKey.onclick = () => {
@@ -14703,51 +13242,37 @@ function refreshInputsUI() {
       };
     }
 
-    // Keyboard support: attach once
-    // Keyboard support: attach once (fixed — only active while modal truly visible)
 if (!pinView.__keydownHandler) {
   console.log('Attaching keyboard handler (visibility-guarded)');
 
-  // Helper: is the reauth modal actually visible to the user?
   function isReauthModalVisible() {
     try {
       if (!reauthModal) return false;
-      // if a manual flag exists, trust it (you set it when showing/hiding modal)
       if (typeof reauthModalOpen !== 'undefined') {
         if (reauthModalOpen) return true;
-        // if explicitly false, fast-return
         if (!reauthModalOpen) return false;
       }
-      // class-based hidden check
       if (reauthModal.classList && reauthModal.classList.contains('hidden')) return false;
-      // style-based display check
       const cs = getComputedStyle(reauthModal);
       if (cs && (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0')) return false;
-      // layout check: offsetParent is null when element (or ancestor) display:none
       if (reauthModal.offsetParent === null) return false;
       return true;
     } catch (err) {
-      // if anything goes wrong, be conservative and treat as not visible
       return false;
     }
   }
 
   pinView.__keydownHandler = (e) => {
-    // Only handle keyboard when the modal is actually visible
     if (!isReauthModalVisible()) return;
 
-    // If the active element is outside the modal, ignore to avoid hijacking global inputs
     try {
       const active = document.activeElement;
       if (active && reauthModal && !reauthModal.contains(active)) {
-        // allow Enter if you specifically want it to submit when focus outside — currently we ignore
         return;
       }
     } catch (err) {
-      // ignore and continue if safe checks fail
     }
 
-    // Now handle digits/backspace/enter exactly as before
     if (/^[0-9]$/.test(e.key)) {
       if (typeof inputDigit === 'function') {
         try { inputDigit(e.key); } catch (err) { /* swallow */ }
@@ -14775,12 +13300,10 @@ if (!pinView.__keydownHandler) {
     }
   };
 
-  // attach once
   document.addEventListener('keydown', pinView.__keydownHandler, true);
 }
 
 
-    // initial render/reset
     console.log('Initial reset in initReauthKeypad');
     try {
       if (typeof resetReauthInputs === 'function') {
@@ -14804,14 +13327,10 @@ if (!pinView.__keydownHandler) {
 
   
 
-  // ---------------------------------------
-// Reauth Biometric Warmer
-// ---------------------------------------
 function reauthWarmBiometric() {
   const LOCAL_KEY = '__fg_reauthBioWarmup';
   const now = Date.now();
 
-  // Stop if modal is not visible
   const modal = document.getElementById('reauthModal');
   if (!modal || modal.classList.contains('hidden')) return;
 
@@ -14819,7 +13338,6 @@ function reauthWarmBiometric() {
     const cached = JSON.parse(localStorage.getItem(LOCAL_KEY) || '{}');
     const last = cached.timestamp || 0;
 
-    // Only prefetch if older than 1 min
     if (now - last > 60_000) {
       if (!window.__cachedAuthOptionsLock) {
         try {
@@ -14851,8 +13369,6 @@ console.debug('BOOT LOG: initReauthModal start (show=' + String(show) + ')'); //
   console.debug('initReauthModal called', { show, context });
   cacheDomRefs();
 
-  // Defensive: if localStorage indicates reauth pending, force show and avoid hiding on boot.
-// Place this at the top of initReauthModal(...)
 try {
   const LOCAL_KEY = 'fg_reauth_required_v1';
   const pending = localStorage.getItem(LOCAL_KEY);
@@ -14865,7 +13381,6 @@ try {
 }
 
 
-  // helper: safe parse userData or build from session
   async function buildUser() {
     try {
       const cached = localStorage.getItem('userData');
@@ -14880,7 +13395,6 @@ try {
       }
       const session = await safeCall(__sec_getCurrentUser) || {};
       const sUser = session.user || {};
-      // Preserve any existing wallet_balance before overwriting userData
 const existingUserData = (() => {
   try { return JSON.parse(localStorage.getItem('userData') || '{}'); } catch(e) { return {}; }
 })();
@@ -14891,7 +13405,6 @@ const userObj = {
   profilePicture: sUser.profilePicture || '',
   id: sUser.uid || sUser.id || '',
   hasPin: !!(sUser.hasPin || sUser.pin || (localStorage.getItem('hasPin') || '').toLowerCase() === 'true'),
-  // ✅ Carry over wallet_balance — never let buildUser() wipe it
   wallet_balance: sUser.wallet_balance ?? existingUserData.wallet_balance ?? null,
   cachedAt: Date.now()
 };
@@ -14905,24 +13418,17 @@ try { localStorage.setItem('userData', JSON.stringify(userObj)); } catch(e){ con
 
   const user = await buildUser();
 
-  // --- BIOMETRIC HANDLING: prefetch-on-gesture + synchronous use of cached options ---
-  // pointerdown/pointerenter should call prefetchAuthOptions to warm cache.
-  // click handler MUST use cached options synchronously; fetching inside click risks losing gesture.
  function attachPrefetchOnGesture(el) {
-  // No-op: biometric warming is handled by reauthWarmBiometric()
-  // Kept for API compatibility
   if (!el || el.__prefetchBound) return;
   el.__prefetchBound = true;
 }
 
 
-  // Convert stored id string to an ArrayBuffer/Uint8Array for allowCredentials
   function idToUint8(storedId) {
     if (!storedId) return null;
     try {
       if (typeof storedId === 'string') {
         return (window.fromBase64Url ? window.fromBase64Url(storedId) : (function(s){
-          // fallback base64url -> Uint8Array
           s = s.replace(/-/g, '+').replace(/_/g, '/');
           while (s.length % 4) s += '=';
           const bin = atob(s);
@@ -14939,26 +13445,20 @@ try { localStorage.setItem('userData', JSON.stringify(userObj)); } catch(e){ con
     return null;
   }
 
-  // Synchronously attempt biometric auth using cached options (must be user gesture)
-  // Replace tryBiometricWithCachedOptions with this version
 async function tryBiometricWithCachedOptions() {
-  // Prefer a cached publicKey object
   const raw = window.__cachedAuthOptions || null;
   if (!raw) return { ok: false, reason: 'no-cache' };
 
-  // helpers --------------------------------------------------------------
   const storedId = localStorage.getItem('credentialId') || localStorage.getItem('webauthn-cred-id') || localStorage.getItem('webauthn_cred') || '';
 
   function base64UrlToUint8(s) {
     if (!s) return null;
     try {
-      // prefer app helpers if present
       if (typeof window.idToUint8 === 'function') return window.idToUint8(s);
       if (typeof window.fromBase64Url === 'function') {
         const v = window.fromBase64Url(s);
         return (v instanceof Uint8Array) ? v : new Uint8Array(v);
       }
-      // fallback decode base64url -> atob -> Uint8Array
       const pad = (4 - (s.length % 4)) % 4;
       const base64 = s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat(pad);
       const bin = atob(base64);
@@ -14973,10 +13473,8 @@ async function tryBiometricWithCachedOptions() {
 
   function numericObjectToUint8(obj) {
     try {
-      // detect numeric-key shaped objects like {0:143,1:209,...}
       const keys = Object.keys(obj);
       if (!keys.length) return null;
-      // find the maximum numeric index
       let max = -1;
       for (let k of keys) {
         const n = parseInt(k, 10);
@@ -14993,16 +13491,13 @@ async function tryBiometricWithCachedOptions() {
 
   function ensureUint8(value) {
     if (!value) return null;
-    // already typed
     if (value instanceof Uint8Array) return value;
     if (value instanceof ArrayBuffer) return new Uint8Array(value);
     if (ArrayBuffer.isView(value) && value.buffer) return new Uint8Array(value.buffer, value.byteOffset || 0, value.byteLength || value.length);
     if (typeof value === 'string') return base64UrlToUint8(value);
-    // node-ish object like { data: [...] }
     try {
       if (value && Array.isArray(value.data)) return new Uint8Array(value.data);
     } catch (e) {}
-    // numeric-key object
     try {
       const conv = numericObjectToUint8(value);
       if (conv) return conv;
@@ -15010,26 +13505,21 @@ async function tryBiometricWithCachedOptions() {
     return null;
   }
 
-  // Build a fresh publicKey object explicitly (avoid Object.assign on raw)
   const publicKey = {};
-  // copy primitive top-level props that matter
   if ('rpId' in raw) publicKey.rpId = raw.rpId;
   if ('timeout' in raw) publicKey.timeout = raw.timeout;
   if ('userVerification' in raw) publicKey.userVerification = raw.userVerification;
   if ('extensions' in raw) publicKey.extensions = raw.extensions;
 
-  // convert challenge (string, numeric-object, ArrayBuffer, Uint8Array)
   try {
     const ch = ensureUint8(raw.challenge);
     if (ch) {
       publicKey.challenge = ch;
     } else if (raw.challenge && typeof raw.challenge === 'object') {
-      // if it's unexpectedly shaped, try numeric-object conversion
       const n = numericObjectToUint8(raw.challenge);
       if (n) publicKey.challenge = n;
       else publicKey.challenge = raw.challenge; // will be caught by validation below
     } else {
-      // last resort: attempt base64url from string
       publicKey.challenge = (typeof raw.challenge === 'string') ? base64UrlToUint8(raw.challenge) : raw.challenge;
     }
   } catch (e) {
@@ -15037,7 +13527,6 @@ async function tryBiometricWithCachedOptions() {
     publicKey.challenge = null;
   }
 
-  // normalize allowCredentials -> ensure id is Uint8Array where possible
   try {
     const rawAllow = Array.isArray(raw.allowCredentials) ? raw.allowCredentials : [];
     const allow = [];
@@ -15054,12 +13543,10 @@ async function tryBiometricWithCachedOptions() {
       allow.push(item);
     }
 
-    // ensure storedId present as a typed id if allow is empty or doesn't match
     if ((!allow || allow.length === 0) && storedId) {
       const idBuf = ensureUint8(storedId);
       if (idBuf) allow.push({ type: 'public-key', id: idBuf, transports: ['internal'] });
     } else if (storedId && allow.length) {
-      // best-effort ensure storedId is in allow
       try {
         const idBuf = ensureUint8(storedId);
         if (idBuf) {
@@ -15084,28 +13571,19 @@ async function tryBiometricWithCachedOptions() {
     publicKey.allowCredentials = raw.allowCredentials || [];
   }
 
-  // sanity check: challenge must be ArrayBuffer/Uint8Array
   if (!publicKey.challenge || !(publicKey.challenge instanceof Uint8Array || publicKey.challenge instanceof ArrayBuffer || (ArrayBuffer.isView(publicKey.challenge) && publicKey.challenge.buffer))) {
     console.warn('[tryBiometricWithCachedOptions] invalid challenge type after conversion', publicKey.challenge);
     return { ok: false, reason: 'bad-challenge', debug: publicKey.challenge };
   }
 
-  // Acquire the in-use lock so prefetch won't update server challenge while we are calling the authenticator.
   window.__cachedAuthOptionsLock = true;
   window.__cachedAuthOptionsLockSince = Date.now();
 
   try {
-    // Call the authenticator with the prepared publicKey object
     const assertion = await navigator.credentials.get({ publicKey });
 
-// ── Extract which challenge the browser actually signed ──
-// clientDataJSON contains the exact challenge bytes used.
-// If a re-warm fired between our fetch and the gesture, the server session
-// will have a newer challenge. We find the matching one in our local history
-// and destroy it (single-use) so it can't be replayed.
 try {
   const cdj = assertion.response.clientDataJSON;
-  // clientDataJSON arrives as ArrayBuffer from the authenticator
   const text = new TextDecoder().decode(
     cdj instanceof ArrayBuffer ? cdj : cdj.buffer ? new Uint8Array(cdj.buffer) : cdj
   );
@@ -15118,7 +13596,6 @@ try {
     const idx = hist.indexOf(usedChallenge);
 
     if (idx !== -1) {
-      // Found — destroy it (single-use) and persist the pruned list
       const remaining = hist.filter(c => c !== usedChallenge);
       localStorage.setItem('__bioChallengeHistory', JSON.stringify(remaining));
       console.log('[bio] ✅ Matched + consumed challenge at history index', idx, '— remaining:', remaining.length);
@@ -15135,7 +13612,6 @@ return { ok: true, assertion };
     console.warn('navigator.credentials.get failed with cached options', err);
     return { ok: false, reason: 'get-failed', error: err };
   } finally {
-    // release lock after a short grace window to avoid immediate prefetch racing
     setTimeout(() => {
       try { window.__cachedAuthOptionsLock = false; window.__cachedAuthOptionsLockSince = 0; } catch (e) {}
     }, 80);
@@ -15168,7 +13644,6 @@ window.tryBiometricWithCachedOptions = tryBiometricWithCachedOptions; // expose 
     return ['true', '1', 'yes'].includes(bioLoginFlag.toLowerCase());
   }
 
-  // Initial button visibility
   try { 
     bioBtn.style.display = isBiometricLoginEnabled() ? 'inline-flex' : 'none';
   } catch (e) {}
@@ -15176,7 +13651,6 @@ window.tryBiometricWithCachedOptions = tryBiometricWithCachedOptions; // expose 
   if (bioBtn.__bound) return;
   bioBtn.__bound = true;
 
-  // Utility: buffer -> base64url
   function bufToB64Url(buf) {
     return (window.toBase64Url ? window.toBase64Url(buf) : (function(b){
       const bytes = new Uint8Array(b);
@@ -15196,11 +13670,9 @@ window.tryBiometricWithCachedOptions = tryBiometricWithCachedOptions; // expose 
       return;
     }
 
-    // 🔥 Show loader immediately
     showLoader();
     try { safeCall(notify, 'Touch your fingerprint sensor...', 'info', reauthAlert, reauthAlertMsg); } catch(e){}
 
-    // Open PIN modal & enable inputs
     try {
       if (typeof openPinModalForReauth === 'function') safeCall(openPinModalForReauth);
       else reauthModal?.classList.remove('hidden');
@@ -15214,7 +13686,6 @@ window.tryBiometricWithCachedOptions = tryBiometricWithCachedOptions; // expose 
       }
     } catch(e){}
 
-    // Simulate PIN entry
     const cachedAttempt = await tryBiometricWithCachedOptions();
 
     if (!cachedAttempt.ok) {
@@ -15243,14 +13714,12 @@ window.tryBiometricWithCachedOptions = tryBiometricWithCachedOptions; // expose 
       }
     };
 
-    // Get session userId
     let userId = null;
     try {
       const sessionData = await safeCall(getSession);
       userId = sessionData?.user?.uid || sessionData?.user?.id || null;
     } catch(e){ console.warn('[reauth] getSession failed', e); }
 
-    // 🔥 Verify biometrics with server
     let verifyRes;
     try {
       verifyRes = await fetch((window.__SEC_API_BASE || API_BASE || '') + '/webauthn/auth/verify', {
@@ -15295,13 +13764,11 @@ window.tryBiometricWithCachedOptions = tryBiometricWithCachedOptions; // expose 
     }
   });
 
-  // Update button visibility on storage changes
   window.addEventListener('storage', (e) => {
     if (['biometricsEnabled','biometricForLogin','credentialId'].includes(e.key)) {
       try { bioBtn.style.display = isBiometricLoginEnabled() ? 'inline-flex' : 'none'; } catch(e){}
     }
   });
-  // Same-tab toggle reaction for reauth bio button
   document.addEventListener('fg:switch-changed', (e) => {
     if (['bioLoginSwitch', 'biometricsSwitch'].includes(e.detail?.id)) {
       try { bioBtn.style.display = isBiometricLoginEnabled() ? 'inline-flex' : 'none'; } catch(e) {}
@@ -15312,7 +13779,6 @@ window.tryBiometricWithCachedOptions = tryBiometricWithCachedOptions; // expose 
 
 
 
-  // --- VISUALS: set display name and avatar safely ---
   try {
     const displayName = user.username || (user.fullName || '').split(' ')[0] || 'User';
     if (reauthName) reauthName.textContent = displayName.charAt(0).toUpperCase() + displayName.slice(1);
@@ -15327,20 +13793,16 @@ window.tryBiometricWithCachedOptions = tryBiometricWithCachedOptions; // expose 
     }
   } catch (e) { console.warn('avatar/name set failed', e); }
 
-  // --- Decide whether reauth is needed; if not, close and call success handler ---
-// ----- Updated implementation with proper reauth flow -----
 const reauthStatus = await shouldReauth(context);
 if (!reauthStatus.needsReauth) {
   console.log('[DEBUG] No reauth needed; proceeding with success flow');
   try {
-    // 1. Call onSuccessfulReauth to clear flags, reset timers, and handle session state (no payload needed here)
     if (typeof onSuccessfulReauth === 'function') {
       onSuccessfulReauth(); // no await — closes instantly, cleanup in background
     }
     console.log('[DEBUG] Reauth modal hidden (no reauth needed)');
   } catch (err) {
     console.warn('[reauth] Post-reauth check success error', err);
-    // Optionally show an error to the user, but continue (non-fatal)
     if (typeof showBanner === 'function') {
       showBanner('Authentication completed, but an internal error occurred. Please refresh if issues persist.');
     }
@@ -15350,7 +13812,6 @@ if (!reauthStatus.needsReauth) {
 
 
 
-  // FORCE PIN VIEW (you requested no view switching)
   try {
     if (biometricView) biometricView.style.display = 'none';
     if (pinView) pinView.style.display = 'block';
@@ -15358,10 +13819,8 @@ if (!reauthStatus.needsReauth) {
     if (switchToPin) switchToPin.style.display = 'none';
   } catch (e) { console.warn('force pin view failed', e); }
 
-  // Resume lockout if any
   try { typeof resumeLockoutIfAny === 'function' && resumeLockoutIfAny(); } catch (e){}
 
-  // Bind PIN inputs & submit
   try {
     const inputs = getReauthInputs();
     if (typeof bindPinInputs === 'function') {
@@ -15402,7 +13861,6 @@ if (!reauthStatus.needsReauth) {
     }
   } catch (e) { console.error('PIN bind error', e); }
 
-  // delete key binding (unchanged)
   try {
     if (deleteReauthKey && !deleteReauthKey.__bound) {
       deleteReauthKey.addEventListener('click', () => {
@@ -15421,22 +13879,18 @@ if (!reauthStatus.needsReauth) {
     }
   } catch (e) { console.warn('delete key bind failed', e); }
 
-  // Bind biometric verify button (manual fallback that triggers prefetch + opt to retry)
   try {
     if (verifyBiometricBtn && !verifyBiometricBtn.__bound) {
       attachPrefetchOnGesture(verifyBiometricBtn);
       verifyBiometricBtn.addEventListener('click', async () => {
-        // Start by trying cached path (must be user gesture)
         const cachedAttempt = await tryBiometricWithCachedOptions();
         if (cachedAttempt.ok) {
-          // reuse the same verification code as above (avoid duplication by reusing flow)
           bioVerifyAndFinalize(cachedAttempt.assertion).catch(err => {
             console.error('bioVerifyAndFinalize error', err);
             safeCall(notify, 'Biometric verification failed', 'error');
           });
           return;
         }
-        // otherwise warm cache and ask user to try again
         window.prefetchAuthOptions && window.prefetchAuthOptions();
         safeCall(notify, 'Preparing biometric auth — try again (or use PIN)', 'info');
       });
@@ -15445,11 +13899,8 @@ if (!reauthStatus.needsReauth) {
     }
   } catch (e) { console.warn('verifyBiometricBtn bind failed', e); }
 
-// helper to post verification payload to server (used by verify button path)
-// ----- Updated implementation with proper reauth flow -----
 async function bioVerifyAndFinalize(assertion) {
   try {
-    // util: buf -> base64url
     function bufToB64Url(buf) {
       return (window.toBase64Url ? window.toBase64Url(buf) : (function(b){
         var bytes = new Uint8Array(b);
@@ -15459,7 +13910,6 @@ async function bioVerifyAndFinalize(assertion) {
       })(buf));
     }
 
-    // build payload from assertion
     const buildPayloadFromAssertion = (a) => ({
       id: a.id,
       rawId: bufToB64Url(a.rawId),
@@ -15472,7 +13922,6 @@ async function bioVerifyAndFinalize(assertion) {
       }
     });
 
-    // fetch fresh options helper (unchanged)
     async function fetchFreshOptions(uid, storedId) {
       try {
         const res = await fetch((window.__SEC_API_BASE || API_BASE) + '/webauthn/auth/options', {
@@ -15492,7 +13941,6 @@ async function bioVerifyAndFinalize(assertion) {
       }
     }
 
-    // convert options to publicKey for navigator.credentials.get (reused)
     function buildPublicKeyFromOpts(freshOpts) {
       const publicKey = {};
       if ('rpId' in freshOpts) publicKey.rpId = freshOpts.rpId;
@@ -15500,7 +13948,6 @@ async function bioVerifyAndFinalize(assertion) {
       if ('timeout' in freshOpts) publicKey.timeout = freshOpts.timeout;
       if ('extensions' in freshOpts) publicKey.extensions = freshOpts.extensions;
 
-      // challenge -> Uint8Array
       let rawCh = freshOpts.challenge || freshOpts.challengeBase64 || freshOpts.challengeBytes || freshOpts.challenge_raw || freshOpts.challengeValue || null;
       const chU8 = ensureUint8FromMaybeObject(rawCh) || (typeof rawCh === 'string' ? (function(s){
         try {
@@ -15516,7 +13963,6 @@ async function bioVerifyAndFinalize(assertion) {
       if (!chU8) return null;
       publicKey.challenge = chU8;
 
-      // allowCredentials normalization
       const rawAllow = Array.isArray(freshOpts.allowCredentials) ? freshOpts.allowCredentials : (freshOpts.allow || []);
       const allow = [];
       for (let c of rawAllow) {
@@ -15540,7 +13986,6 @@ async function bioVerifyAndFinalize(assertion) {
       return publicKey;
     }
 
-    // Try conditional mediation (best-effort, may be silent)
     async function tryConditionalAuth(freshOpts) {
       try {
         if (!('credentials' in navigator) || typeof navigator.credentials.get !== 'function') {
@@ -15549,14 +13994,12 @@ async function bioVerifyAndFinalize(assertion) {
         const publicKey = buildPublicKeyFromOpts(freshOpts);
         if (!publicKey) return { ok: false, reason: 'bad-publickey' };
 
-        // Conditional mediation is experimental — attempt it and hope for silent result.
         const getOpts = { publicKey, mediation: 'conditional' };
         try {
           const res = await navigator.credentials.get(getOpts);
           if (!res) return { ok: false, reason: 'no-credential-returned' };
           return { ok: true, assertion: res, conditional: true };
         } catch (err) {
-          // Some browsers throw for unsupported mediation values; swallow and return failure
           console.debug('[webauthn] conditional mediation failed or unsupported', err && err.message);
           return { ok: false, reason: 'conditional-failed', error: err };
         }
@@ -15566,13 +14009,11 @@ async function bioVerifyAndFinalize(assertion) {
       }
     }
 
-    // fallback immediate prompt (only when we truly need a fresh fingerprint)
     async function doImmediateGetFromFreshOpts(freshOpts) {
       try {
         const publicKey = buildPublicKeyFromOpts(freshOpts);
         if (!publicKey) return { ok: false, reason: 'bad-publickey' };
 
-        // acquire lock to prevent prefetch interference
         window.__cachedAuthOptionsLock = true;
         window.__cachedAuthOptionsLockSince = Date.now();
 
@@ -15590,7 +14031,6 @@ async function bioVerifyAndFinalize(assertion) {
       }
     }
 
-    // session + storedId
     const session = await safeCall(getSession);
     const uid = session?.user?.uid || session?.user?.id || null;
     if (!uid) {
@@ -15605,17 +14045,14 @@ async function bioVerifyAndFinalize(assertion) {
       return false;
     }
 
-    // initial assertion payload
     let currentPayload = buildPayloadFromAssertion(assertion);
 
-    // We'll try at most 1 automatic retry (initial verify + one conditional/intentional retry)
     let attempt = 0;
     const maxAttempts = 2;
 
     while (attempt < maxAttempts) {
       attempt++;
 
-      // Server verify
       let verifyRes;
       try {
         verifyRes = await withLoader(async () => {
@@ -15645,8 +14082,6 @@ async function bioVerifyAndFinalize(assertion) {
 
         const mismatchDetected = /no stored challenge|challenge.*mismatch|unexpected.*challenge|invalid.*challenge/i.test(errText);
 
-        // If it's a challenge mismatch and we have attempts left, try conditional mediation first (silent on supported browsers),
-        // otherwise fall back to showing a single retry prompt (so user sees only one biometric panel).
         if (mismatchDetected && attempt < maxAttempts) {
           console.debug('[bio] server reported challenge mismatch; attempting conditional (silent) retry if available');
 
@@ -15657,21 +14092,15 @@ async function bioVerifyAndFinalize(assertion) {
             return false;
           }
 
-          // Try conditional mediation (best-effort, may be silent)
           const cond = await tryConditionalAuth(freshOpts);
           if (cond.ok && cond.assertion) {
             console.debug('[webauthn] conditional mediation supplied assertion; retrying verify');
             currentPayload = buildPayloadFromAssertion(cond.assertion);
-            // loop will retry server verify
             continue;
           }
 
-          // If conditional unsuccessful, we avoid automatically calling navigator.credentials.get() to prevent immediate second prompt.
-          // Instead: politely ask the user to re-try fingerprint once (single UI flow).
           safeCall(notify, 'Please touch your fingerprint sensor again to retry biometric authentication.', 'info');
 
-          // Give caller/UI a chance to re-trigger the biometric flow (for example, keep modal open and allow user to tap "Try again").
-          // If you want the code to programmatically prompt, uncomment the block below — NOTE: this will show the biometric prompt immediately.
           /*
           const immediateResult = await doImmediateGetFromFreshOpts(freshOpts);
           if (immediateResult.ok && immediateResult.assertion) {
@@ -15683,16 +14112,13 @@ async function bioVerifyAndFinalize(assertion) {
           }
           */
 
-          // Stop automatic retrying — let the UI/modal remain and user perform the fingerprint again.
           return false;
         }
 
-        // If not a mismatch, or maxAttempts reached
         safeCall(notify, `Biometric verification failed: ${errText || 'Server error'}`, 'error');
         return false;
       }
 
-      // parse success
       let verifyData;
       try {
         verifyData = await verifyRes.json();
@@ -15703,41 +14129,32 @@ async function bioVerifyAndFinalize(assertion) {
       }
 
       if (verifyData?.verified) {
-        // Successful server-side verification of the assertion
         console.log('[DEBUG] Biometrics verification successful in bioVerifyAndFinalize');
         try {
-          // First, attempt to clear the authoritative reauth lock (server + broadcast to other tabs)
           if (window.fgReauth && typeof window.fgReauth.completeReauth === 'function') {
             try {
-              // await completion so server state is cleared before we resume UI
               await window.fgReauth.completeReauth();
             } catch (err) {
-              // non-fatal: log for debugging but continue to restore UI locally
               console.warn('[bio] fgReauth.completeReauth failed, proceeding to restore UI', err);
             }
           }
 
-          // Refresh current user & run your success flows
           try { safeCall(__sec_getCurrentUser); } catch (e) { /* ignore */ }
 
-          // 1. Call onSuccessfulReauth to clear flags, reset timers, and handle session state
           if (typeof onSuccessfulReauth === 'function') {
             onSuccessfulReauth(); // no await — closes instantly, cleanup in background
           }
           console.log('[DEBUG] Reauth modal hidden after successful biometrics verification in bioVerifyAndFinalize');
 
-          // Hide loader (force reset to be safe in edge cases)
           try {
             if (typeof hideLoader === 'function') hideLoader(true);
           } catch (e) { /* ignore */ }
 
           return true;
         } catch (err) {
-          // Last-resort fallback: ensure UI gets restored even on unexpected errors
           try { setReauthActive(false); } catch (e) {}
           try { if (typeof hideLoader === 'function') hideLoader(true); } catch (e) {}
           console.error('[bio] unexpected error in verify success path', err);
-          // Optionally show an error to the user
           if (typeof safeCall === 'function' && typeof notify === 'function') {
             safeCall(notify, 'Error completing authentication. Please try again.', 'error');
           }
@@ -15750,7 +14167,6 @@ async function bioVerifyAndFinalize(assertion) {
       }
     }
 
-    // max attempts reached (shouldn't usually be reachable here)
     console.warn('[bio] max retry attempts reached');
     try { invalidateAuthOptionsCache && invalidateAuthOptionsCache(); window.prefetchAuthOptions && window.prefetchAuthOptions(); } catch(e) {}
     safeCall(notify, 'Biometric authentication failed — please try again or use PIN.', 'error');
@@ -15766,19 +14182,15 @@ async function bioVerifyAndFinalize(assertion) {
 
 
 
-  // disable view switches
   try { if (switchToPin) switchToPin.style.display = 'none'; if (switchToBiometric) switchToBiometric.style.display = 'none'; } catch(e){}
 
-// ✅ IMPROVED: Logout and forget links with better error handling
 try {
-  // Logout links (bio and pin sections)
   [logoutLinkBio, logoutLinkPin].forEach((link) => {
     if (!link || link.__bound) return;
 
     link.addEventListener('click', async (ev) => {
       ev.preventDefault();
       
-      // Prevent double-clicks
       if (link.classList.contains('logging-out')) return;
       link.classList.add('logging-out');
       
@@ -15789,13 +14201,10 @@ try {
 
       try {
         await fullClientLogout();
-        // Note: redirect happens in fullClientLogout, so code below won't run
       } catch (err) {
         console.error('[logout link] Full logout failed:', err);
-        // Force fallback redirect
         window.location.replace('/');
       } finally {
-        // Cleanup (won't execute due to redirect, but kept for safety)
         try {
           hideLoader();
           link.classList.remove('logging-out');
@@ -15807,14 +14216,12 @@ try {
     link.__bound = true;
   });
 
-  // ✅ IMPROVED: Forget PIN links with better email resolution and validation
   [forgetPinLinkBio, forgetPinLinkPin].forEach((link) => {
     if (!link || link.__bound) return;
 
     link.addEventListener('click', async (ev) => {
       ev.preventDefault();
       
-      // Prevent double-clicks
       if (link.classList.contains('processing')) return;
       link.classList.add('processing');
       
@@ -15822,35 +14229,29 @@ try {
       link.textContent = 'Processing...';
 
       try {
-        // Clear any pending reauth state
         try {
           localStorage.removeItem('reauthPending');
         } catch (_) {}
 
-        // ✅ Improved email resolution with better fallbacks
         const resolveEmail = async () => {
-          // Priority 1: currentEmail global
           try {
             if (typeof currentEmail === 'string' && currentEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(currentEmail)) {
               return currentEmail;
             }
           } catch (_) {}
 
-          // Priority 2: window.currentUser
           try {
             if (window.currentUser?.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(window.currentUser.email)) {
               return window.currentUser.email;
             }
           } catch (_) {}
 
-          // Priority 3: Server-embedded data
           try {
             if (window.__SERVER_USER_DATA__?.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(window.__SERVER_USER_DATA__.email)) {
               return window.__SERVER_USER_DATA__.email;
             }
           } catch (_) {}
 
-          // Priority 4: LocalStorage
           try {
             const sources = [
               localStorage.getItem('userEmail'),
@@ -15858,7 +14259,6 @@ try {
               localStorage.getItem('currentEmail')
             ];
             
-            // Try loginState object
             try {
               const loginState = JSON.parse(localStorage.getItem('loginState') || '{}');
               if (loginState.email) sources.push(loginState.email);
@@ -15871,7 +14271,6 @@ try {
             }
           } catch (_) {}
 
-          // Priority 5: Check session endpoint as last resort
           try {
             const base = (window.API_BASE || window.__SEC_API_BASE || 'https://api.flexgig.com.ng').replace(/\/$/, '');
             const sessionResp = await fetch(`${base}/api/session`, {
@@ -15893,13 +14292,11 @@ try {
 
         let emailToUse = await resolveEmail();
 
-        // If email still not found, prompt user
         if (!emailToUse || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailToUse)) {
           const promptMsg = 'Enter your account email to receive OTP for PIN reset:';
           const userInput = prompt(promptMsg);
           
           if (!userInput) {
-            // User cancelled
             return;
           }
 
@@ -15919,7 +14316,6 @@ try {
 
         console.log('[forgetPin] Sending OTP to:', emailToUse);
 
-        // Check if handler exists first
         if (window.__rp_handlers?.onTrigger) {
           try {
             await window.__rp_handlers.onTrigger(ev);
@@ -15940,7 +14336,6 @@ try {
           }
         }
 
-        // Send OTP
         const base = (window.API_BASE || window.__SEC_API_BASE || 'https://api.flexgig.com.ng').replace(/\/$/, '');
         
         const resp = await fetch(`${base}/auth/resend-otp`, {
@@ -15953,7 +14348,6 @@ try {
           body: JSON.stringify({ email: emailToUse })
         });
 
-        // Parse response safely
         let body;
         try {
           const contentType = resp.headers.get('content-type') || '';
@@ -15981,10 +14375,8 @@ try {
 
         console.log('[forgetPin] OTP sent successfully');
 
-        // ✅ Open reset modal with multiple fallback methods
         let modalOpened = false;
 
-        // Method 1: ModalManager
         try {
           if (window.ModalManager?.openModal) {
             window.ModalManager.openModal('resetPinModal');
@@ -15995,7 +14387,6 @@ try {
           console.debug('[forgetPin] ModalManager.openModal failed:', e);
         }
 
-        // Method 2: Direct DOM manipulation
         if (!modalOpened) {
           try {
             const modal = document.getElementById('resetPinModal');
@@ -16004,7 +14395,6 @@ try {
               modal.style.display = 'flex';
               modal.setAttribute('aria-hidden', 'false');
               
-              // Ensure modal is visible (z-index)
               modal.style.zIndex = '9999';
               
               modalOpened = true;
@@ -16015,7 +14405,6 @@ try {
           }
         }
 
-        // Method 3: Bootstrap modal (if using Bootstrap)
         if (!modalOpened) {
           try {
             const modal = document.getElementById('resetPinModal');
@@ -16030,7 +14419,6 @@ try {
           }
         }
 
-        // Wire up modal handlers if opened
         if (modalOpened) {
           try {
             if (window.__rp_handlers?.wire) {
@@ -16044,7 +14432,6 @@ try {
           console.warn('[forgetPin] Failed to open modal - no method succeeded');
         }
 
-        // Show success notification
         if (typeof notify === 'function') {
           notify('success', `OTP sent to ${emailToUse}. Please check your email.`, { 
             title: 'OTP Sent',
@@ -16065,7 +14452,6 @@ try {
           alert(e.message || 'Failed to start PIN reset flow');
         }
       } finally {
-        // Restore link state
         try {
           link.classList.remove('processing');
           link.textContent = originalText;
@@ -16080,53 +14466,42 @@ try {
   console.error('[logout/forget setup] Fatal error:', e);
 }
 
-// ✅ OPTIONAL: Add global logout handler for programmatic calls
 window.performLogout = async function() {
   try {
     await logoutFlow();
   } catch (e) {
     console.error('[performLogout] Error:', e);
-    // Force redirect as absolute fallback
     window.location.replace('/');
   }
 };
 
-// ✅ OPTIONAL: Auto-cleanup on page visibility change (security)
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
-    // Clear sensitive in-memory data when tab is hidden
     try {
       window.__rp_reset_token = null;
-      // Don't clear user data here as it's needed when tab becomes visible
     } catch (_) {}
   }
 });
 
 
-  // keypad init
-// keypad init (guarded)
 if (!pinView || pinView.__keypadBound) {
   console.log('Skipping keypad init (already bound or no pinView)');
 } else {
   try { initReauthKeypad(); } catch (e) { console.warn('initReauthKeypad failed', e); }
 }
 
-// modal show/hide and focus (inside initReauthModal)
 try {
   if (!show) {
-  // If canonical key says reauth pending, do not hide on boot.
   if (isCanonicalReauthPending()) {
     console.debug('initReauthModal: skip hide because canonical reauth pending');
     return true;
   }
 
-  // safe DOM lookup for reauthModal
   const _rm = (typeof document !== 'undefined') ? document.getElementById('reauthModal') : null;
   try { if (_rm) _rm.classList.add('hidden'); } catch (e) {}
 
   reauthModalOpen = false;
 
-  // safe DOM lookup for promptModal (avoid referencing promptModal binding)
   const _pm = (typeof document !== 'undefined') ? document.getElementById('promptModal') : null;
   try { if (_pm) _pm.classList.add('hidden'); } catch (e) {}
 
@@ -16195,11 +14570,9 @@ try {
    - Defensive client-side enforcement (platform + required UV)
    - Persists credentialId, biometricsEnabled, biometricForLogin, biometricForTx
 ----------------------- */
-// 🔹 NEW: Biometrics Registration (full flow)
 /* -----------------------
    Register Biometrics (debug)
    ----------------------- */
-// ---- Utilities used by both functions ----
 function base64UrlToBuffer(base64Url) {
   let base64 = (base64Url || '').replace(/-/g, '+').replace(/_/g, '/');
   const pad = base64.length % 4;
@@ -16221,13 +14594,11 @@ function bufferToHex(buffer) {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Robust storage helper — writes to localStorage, sessionStorage and cookie (best-effort)
 function persistCredentialId(id) {
   try {
     console.log('[CRED DEBUG] persistCredentialId: Attempting to store credentialId ->', id);
     localStorage.setItem('credentialId', id);
     sessionStorage.setItem('credentialId', id);
-    // cookie fallback (expires in 1 hour), readable by same origin JS
     document.cookie = `fg_credentialId=${encodeURIComponent(id)};path=/;max-age=${60*60};SameSite=Lax`;
     const reads = {
       local: (() => { try { return localStorage.getItem('credentialId'); } catch(e){return `ERR:${e.message}`;} })(),
@@ -16248,7 +14619,6 @@ function persistCredentialId(id) {
   }
 }
 
-// single helper to dump current credentialId in all locations
 function dumpCredentialStorage() {
   try {
     const local = (() => { try { return localStorage.getItem('credentialId'); } catch(e){return `ERR:${e.message}`;} })();
@@ -16262,7 +14632,6 @@ function dumpCredentialStorage() {
   }
 }
 
-// ---- registerBiometrics ----
 async function registerBiometrics() {
   console.log('%c[registerBiometrics] CALLED', 'color:#0ff;font-weight:bold');
   return withLoader(async () => {
@@ -16296,7 +14665,6 @@ async function registerBiometrics() {
 
       if (!options.challenge) throw new Error('No challenge returned from server');
 
-      // convert challenge + user.id + exclude credentials
       options.challenge = base64UrlToBuffer(options.challenge);
       if (options.user && options.user.id) {
         try {
@@ -16321,7 +14689,6 @@ async function registerBiometrics() {
       console.log('[registerBiometrics] navigator.credentials.create() returned:', credential);
       if (!credential) throw new Error('navigator.credentials.create() returned null');
 
-      // build payload for server
       const credToSend = {
         id: credential.id,
         rawId: bufferToBase64Url(credential.rawId),
@@ -16355,7 +14722,6 @@ async function registerBiometrics() {
       }
       console.log('[registerBiometrics] Verify server result:', verifyJson);
 
-      // store credentialId robustly and show reads
       if (verifyJson && verifyJson.credentialId) {
         const id = verifyJson.credentialId;
         const reads = persistCredentialId(id);
@@ -16368,8 +14734,6 @@ async function registerBiometrics() {
 
       safeCall(notify, 'Biometric registration successful!', 'success');
 
-      // OPTIONAL: do not automatically reload in dev — comment out if causing flakiness
-      // setTimeout(() => window.location.reload(), 1000);
 
       console.log('%c[registerBiometrics] DONE', 'color:lime');
       return { success: true, result: verifyJson };
@@ -16392,7 +14756,6 @@ window.registerBiometrics = window.registerBiometrics || registerBiometrics;
    - Call from settings: __reauth.disableBiometrics()
    - Revokes server-side, clears local
    ----------------------- */
-  // 🔹 NEW: Disable/Revoke Biometrics
 
 async function disableBiometrics() {
   console.log('disableBiometrics (optimistic update) called');
@@ -16463,8 +14826,6 @@ window.disableBiometrics = window.disableBiometrics || disableBiometrics;
      optionsContainerSelector:'#biometricsOptions'
    });
 ----------------------- */
-// 🔹 Bind Biometric Settings (unchanged, but now uses full register/disable)
-// 🔹 Bind Biometric Settings (children = pure client-side flags, NO server/verify on toggle)
 function bindBiometricSettings({
   parentSelector = '#biometricsSwitch',
   childLoginSelector = '#bioLoginSwitch',
@@ -16490,11 +14851,8 @@ function bindBiometricSettings({
   }
 
   function writeFlag(key, val) {
-  // persist the legacy boolean key (true/false)
   try { localStorage.setItem(key, val ? 'true' : 'false'); } catch (e) { console.warn('writeFlag: legacy write failed', e); }
 
-  // if secure namespaced keys exist, mirror the values there as well
-  // __sec_KEYS may not be defined at early load; guard it
   try {
     if (window.__sec_KEYS && typeof window.__sec_KEYS === 'object') {
       if (key === 'biometricsEnabled' && __sec_KEYS.biom) {
@@ -16509,14 +14867,12 @@ function bindBiometricSettings({
     console.warn('writeFlag: secure-ns write failed', e);
   }
 
-  // Immediately update UI in this tab (storage event doesn't fire in same tab)
   try { if (typeof syncFromStorage === 'function') setTimeout(syncFromStorage, 0); } catch (e) {}
 }
 
 
   function setSwitch(btn, on) {
   if (!btn) return;
-  // avoid noisy reflows if already in desired state
   const current = btn.getAttribute('aria-checked') === 'true';
   if (current === Boolean(on)) return;
 
@@ -16524,7 +14880,6 @@ function bindBiometricSettings({
   btn.classList.toggle('active', !!on);
   btn.classList.toggle('inactive', !on);
 
-  // if this is the parent switch, adjust the options container
   try {
     const id = btn.id || '';
     if (id === 'biometricsSwitch') {
@@ -16533,7 +14888,6 @@ function bindBiometricSettings({
     }
   } catch (e) {}
 
-  // small hook for other modules to react immediately
   try {
     btn.dispatchEvent(new CustomEvent('fg:switch-changed', { detail: { id: btn.id, checked: !!on }, bubbles: true }));
   } catch (e) {}
@@ -16541,7 +14895,6 @@ function bindBiometricSettings({
 
 
   function syncFromStorage() {
-  // defensive: ensure __sec_KEYS exists shape
   const secKeys = (window.__sec_KEYS && typeof window.__sec_KEYS === 'object') ? window.__sec_KEYS : { biom:'', bioLogin:'', bioTx:'' };
 
   const secureBiom = secKeys.biom ? localStorage.getItem(secKeys.biom) === '1' : false;
@@ -16563,7 +14916,6 @@ function bindBiometricSettings({
     const login = secureLogin || readFlag('biometricForLogin');
     const tx = secureTx || readFlag('biometricForTx');
 
-    // persist merged children flags into both namespaces
     try {
       if (secKeys.bioLogin) localStorage.setItem(secKeys.bioLogin, login ? '1' : '0');
       if (secKeys.bioTx) localStorage.setItem(secKeys.bioTx, tx ? '1' : '0');
@@ -16574,7 +14926,6 @@ function bindBiometricSettings({
     setSwitch(childLogin, login);
     setSwitch(childTx, tx);
   } else {
-    // parent disabled -> force children off in UI + storage
     setSwitch(childLogin, false);
     setSwitch(childTx, false);
     try {
@@ -16588,31 +14939,24 @@ function bindBiometricSettings({
 
 
 
-  // Replace your existing handleParentToggle with this version.
-// PIN-check is done *before* entering withLoader (no flinch / no server call without PIN).
 async function handleParentToggle(wantOn) {
   if (parent.__bioProcessing) return;
   parent.__bioProcessing = true;
 
-  // Prevent rapid clicks immediately
   parent.disabled = true;
 
   try {
-    // ENFORCE PIN presence before doing anything when enabling
     if (wantOn) {
       const hasPin = localStorage.getItem('hasPin') === 'true';
       if (!hasPin) {
-        // Inform user and keep UI unchanged (no "flinch")
         notify && notify('Please set a PIN first before enabling biometrics.', 'info');
         try { setSwitch(parent, false); } catch (e) {}
         return;
       }
     }
 
-    // Proceed to the loader-wrapped network work only after PIN check
     await withLoader(async () => {
       if (wantOn) {
-        // Register flow (awaited)
         let res;
         try {
           res = await registerBiometrics();
@@ -16626,28 +14970,23 @@ async function handleParentToggle(wantOn) {
         }
 
         if (res && res.success) {
-          // Persist flags
           writeFlag && writeFlag('biometricsEnabled', true);
           writeFlag && writeFlag('biometricForLogin', true);
           writeFlag && writeFlag('biometricForTx', true);
 
-          // Persist credentialId before prefetch
           if (res.credentialId) {
             try { localStorage.setItem('credentialId', String(res.credentialId)); } catch (e) { console.warn('storing credentialId failed', e); }
           }
 
-          // Update UI now that registration succeeded
           try { setSwitch(parent, true); } catch (e) {}
           try { setSwitch(childLogin, true); } catch (e) {}
           try { setSwitch(childTx, true); } catch (e) {}
           setOptionsVisible && setOptionsVisible(true);
 
-          // Prefetch once
           try { window.prefetchAuthOptions && window.prefetchAuthOptions(); } catch (e) { console.warn('prefetchAuthOptions failed', e); }
 
           safeCall(notify, 'Biometrics enabled', 'success');
         } else {
-          // registration failed/cancelled — revert flags/UI
           writeFlag && writeFlag('biometricsEnabled', false);
           writeFlag && writeFlag('biometricForLogin', false);
           writeFlag && writeFlag('biometricForTx', false);
@@ -16661,13 +15000,11 @@ async function handleParentToggle(wantOn) {
           safeCall(notify, msg, 'info');
         }
       } else {
-        // DISABLE path: await server revoke and clean up locally
         try {
           await disableBiometrics();
         } catch (err) {
           console.error('disableBiometrics error', err);
           safeCall(notify, `Failed to disable biometrics: ${err?.message || err}`, 'error');
-          // continue to cleanup locally anyway
         }
 
         writeFlag && writeFlag('biometricsEnabled', false);
@@ -16709,16 +15046,11 @@ function maybeDisableParentIfChildrenOff() {
     const loginOn = c1.getAttribute('aria-checked') === 'true';
     const txOn    = c2.getAttribute('aria-checked') === 'true';
 
-    // If both children are OFF and parent is ON -> auto-disable parent (and clear credential)
     const parentOn = p.getAttribute('aria-checked') === 'true';
     if (!loginOn && !txOn && parentOn) {
-      // Use canonical parent flow if available so server state & cleanup run
       if (typeof handleParentToggle === 'function') {
-        // call the disable path (server + local cleanup)
-        // Use next tick to avoid re-entrancy inside click handlers
         setTimeout(() => { try { handleParentToggle(false); } catch (e) { console.warn('handleParentToggle(false) failed', e); } }, 0);
       } else {
-        // fallback: local-only cleanup
         writeFlag('biometricsEnabled', false);
         try { localStorage.removeItem('credentialId'); } catch (e) {}
         setSwitch(p, false);
@@ -16736,7 +15068,6 @@ function maybeDisableParentIfChildrenOff() {
 }
 
 
-  // 🔹 FIXED Child handler: Pure client-side flag toggle (NO server, NO verify, NO prompt)
   function bindChild(btn, key, label) {
   if (!btn || btn.__bioBound) return;
 
@@ -16745,24 +15076,18 @@ function maybeDisableParentIfChildrenOff() {
     const cur = btn.getAttribute('aria-checked') === 'true';
     const wantOn = !cur;
 
-    // Gate: Require parent enabled (auto-trigger if off)
     if (wantOn && !readFlag('biometricsEnabled')) {
       safeCall(notify, `${label} requires biometrics enabled first`, 'info');
-      // try enabling parent via the canonical flow:
       if (typeof handleParentToggle === 'function') {
         handleParentToggle(true);
       }
       return;
     }
 
-    // Update UI immediately
     setSwitch(btn, wantOn);
 
-    // Persist to both namespaces via writeFlag helper (now mirrors secure keys)
     writeFlag(key, wantOn);
 
-    // Extra: if toggled OFF, check the "two children off => disable parent" rule
-    // run asynchronously to let immediate UI settle
     setTimeout(() => {
       try { maybeDisableParentIfChildrenOff(); } catch (err) { console.warn('maybeDisableParentIfChildrenOff failed', err); }
     }, 0);
@@ -16784,7 +15109,6 @@ function maybeDisableParentIfChildrenOff() {
 
 
 
-  // Wire parent
   if (!parent.__bioBound) {
     parent.addEventListener('click', (e) => {
       e.preventDefault();
@@ -16800,17 +15124,13 @@ function maybeDisableParentIfChildrenOff() {
     parent.__bioBound = true;
   }
 
-  // Wire children (flags only)
   bindChild(childLogin, 'biometricForLogin', 'Login');
   bindChild(childTx, 'biometricForTx', 'Transaction');
 
-  // Sync on storage change
   window.addEventListener('storage', (e) => {
   if (['biometricsEnabled', 'biometricForLogin', 'biometricForTx', 'credentialId', 'hasPin'].includes(e.key)) {
     setTimeout(syncFromStorage, 50); // Existing sync
-    // Restart inactivity if flags changed
     setupInactivity();
-    // Prefetch if bio/cred changed
     if (['biometricsEnabled', 'credentialId'].includes(e.key) && localStorage.getItem('biometricsEnabled') === 'true') {
       prefetchAuthOptions();
     }
@@ -16818,7 +15138,6 @@ function maybeDisableParentIfChildrenOff() {
 });
 
 
-  // Initial sync
   syncFromStorage();
 
   return { parent, childLogin, childTx, optionsContainer, syncFromStorage };
@@ -16829,7 +15148,6 @@ function maybeDisableParentIfChildrenOff() {
    Call on DOMContentLoaded with your selectors
 ----------------------- */
 document.addEventListener('DOMContentLoaded', () => {
-  // Bind using your exact IDs from the markup you pasted
   bindBiometricSettings({
     parentSelector: '#biometricsSwitch',
     childLoginSelector: '#bioLoginSwitch',
@@ -16856,7 +15174,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const firstInput = getReauthInputs()[0];
         if (firstInput) firstInput.focus();
         console.log('Switched to PIN');
-        // Ensure keypad is initialized on switch to PIN
         initReauthKeypad();
       }
     } catch (e) {
@@ -16890,13 +15207,10 @@ let reauthModalOpen = false; // Track if reauth is open to pause idle
 try { localStorage.setItem('lastActive', String(lastActive)); } catch (e) {}
 
 let lastResetCall = 0;
-// ⚡ Loosen debounce for mobile — 500ms safer
 const RESET_DEBOUNCE_MS = /Mobi|Android/i.test(navigator.userAgent) ? 500 : 150;
 let __inactivitySetupDone = false;
 
 
-// Full replacement for shouldReauth (unchanged from yours)
-// Local-first check for fast rendering
 function shouldReauthLocal(context = 'reauth') {
   const storedHasPin = String(localStorage.getItem('hasPin') || '').toLowerCase() === 'true';
   const storedBiometricsEnabled = String(localStorage.getItem('biometricsEnabled') || '').toLowerCase() === 'true';
@@ -16920,7 +15234,6 @@ function shouldReauthLocal(context = 'reauth') {
   return { needsReauth, method };
 }
 
-// Original async shouldReauth kept for server sync/fallback
 async function shouldReauth(context = 'reauth') {
   const localCheck = shouldReauthLocal(context);
   if (localCheck.needsReauth) return localCheck; // return immediately if localStorage triggers reauth
@@ -16940,11 +15253,9 @@ async function shouldReauth(context = 'reauth') {
 window.shouldReauth = window.shouldReauth || shouldReauth; // expose globally if needed
 
 
-// === Inactivity helpers (full drop-in update) ===
 
 
 
-// local-first keys & helpers
 const FG_EXPECTED_KEY = 'fg_expected_reauth_at';
 const FG_REAUTH_FLAG = 'fg_reauth_required_v1'; // cross-tab canonical key
 
@@ -16961,7 +15272,6 @@ function hasCanonicalLocalFlag() {
   try { return !!localStorage.getItem(FG_REAUTH_FLAG); } catch (e) { return false; }
 }
 
-// state
 
 
 try { localStorage.setItem('lastActive', String(lastActive)); } catch (e) {}
@@ -16969,22 +15279,14 @@ try { localStorage.setItem('lastActive', String(lastActive)); } catch (e) {}
 let __reauthPromptShowing = false;
 const INTERACTION_EVENTS = ['mousemove','keydown','click','scroll','touchstart','touchend','touchmove','pointerdown'];
 
-// ============================================
-// CONSOLIDATED IDLE DETECTION SYSTEM
-// Single source of truth - no duplicates
-// ============================================
 
 (function() {
   'use strict';
   
-  // ============================================
-  // CONSTANTS
-  // ============================================
   const SOFT_IDLE_MS = 5 * 60 * 1000;  // 5 minutes (user inactive while visible)
   const HARD_IDLE_MS = 30 * 60 * 1000; // 30 minutes (tab hidden)
   const RESET_DEBOUNCE_MS = /Mobi|Android/i.test(navigator.userAgent) ? 500 : 150;
   
-  // Storage keys
   const KEYS = {
     LAST_ACTIVE: 'lastActive',
     PAGE_HIDDEN_AT: 'pageHiddenAt',
@@ -16992,9 +15294,6 @@ const INTERACTION_EVENTS = ['mousemove','keydown','click','scroll','touchstart',
     REAUTH_REQUIRED: 'fg_reauth_required_v1'
   };
   
-  // ============================================
-  // STATE (encapsulated in closure)
-  // ============================================
   let softIdleTimeout = null;
   let hardIdleTimeout = null;
   let promptTimeout = null; // Track prompt auto-dismiss timeout
@@ -17004,15 +15303,11 @@ const INTERACTION_EVENTS = ['mousemove','keydown','click','scroll','touchstart',
   let setupComplete = false;
   let promptShowing = false;
   
-  // Activity events that reset soft idle
   const ACTIVITY_EVENTS = [
     'mousedown', 'mousemove', 'keydown', 'scroll', 
     'touchstart', 'touchend', 'touchmove', 'click'
   ];
   
-  // ============================================
-  // STORAGE HELPERS
-  // ============================================
   function setItem(key, value) {
     try { 
       localStorage.setItem(key, String(value)); 
@@ -17055,15 +15350,10 @@ const INTERACTION_EVENTS = ['mousemove','keydown','click','scroll','touchstart',
     }
   }
   
-  // ============================================
-  // REAUTH MODAL STATE CHECKER
-  // ============================================
   function isReauthModalOpen() {
-    // Check multiple possible flags
     if (window.__reauthModalOpen === true) return true;
     if (window.reauthModalOpen === true) return true;
     
-    // Check DOM for visible reauth modal
     const reauthModal = document.getElementById('reauthModal') || 
                         document.querySelector('.reauth-modal') ||
                         document.querySelector('[data-reauth-modal]');
@@ -17075,23 +15365,17 @@ const INTERACTION_EVENTS = ['mousemove','keydown','click','scroll','touchstart',
     return false;
   }
   
-  // ============================================
-  // SOFT IDLE TIMER (user inactive while visible)
-  // ============================================
   function startSoftIdleTimer() {
-    // Clear existing timer
     if (softIdleTimeout) {
       clearTimeout(softIdleTimeout);
       softIdleTimeout = null;
     }
     
-    // Don't start if page is hidden
     if (document.visibilityState !== 'visible') {
       console.log('[IDLE] Soft timer NOT started (page hidden)');
       return;
     }
     
-    // Don't start if reauth modal is already open
     if (isReauthModalOpen()) {
       console.log('[IDLE] Soft timer NOT started (reauth modal open)');
       return;
@@ -17102,13 +15386,11 @@ const INTERACTION_EVENTS = ['mousemove','keydown','click','scroll','touchstart',
     softIdleTimeout = setTimeout(async () => {
       console.log('⏰ [SOFT IDLE] 2 minute of inactivity');
       
-      // Double-check reauth modal isn't open before showing prompt
       if (isReauthModalOpen()) {
         console.log('[SOFT IDLE] Reauth modal already open, skipping prompt');
         return;
       }
       
-      // Show inactivity prompt (NOT full reauth modal)
       try {
         await showInactivityPrompt();
       } catch (e) {
@@ -17125,9 +15407,6 @@ const INTERACTION_EVENTS = ['mousemove','keydown','click','scroll','touchstart',
     }
   }
   
-  // ============================================
-  // HARD IDLE TIMER (tab hidden for 2 minutes)
-  // ============================================
   function scheduleHardIdleCheck() {
     if (hardIdleTimeout) {
       clearTimeout(hardIdleTimeout);
@@ -17143,13 +15422,11 @@ const INTERACTION_EVENTS = ['mousemove','keydown','click','scroll','touchstart',
     hardIdleTimeout = setTimeout(async () => {
       console.log('🔥 [HARD IDLE] 2 minutes threshold reached');
       
-      // Only trigger if page is STILL hidden
       if (document.visibilityState === 'hidden') {
         console.log('[HARD IDLE] Page still hidden - will show reauth when visible');
         return;
       }
       
-      // Page is visible - show reauth modal
       try {
         await triggerHardIdleReauth();
       } catch (e) {
@@ -17158,10 +15435,6 @@ const INTERACTION_EVENTS = ['mousemove','keydown','click','scroll','touchstart',
     }, remaining);
   }
 
-  // ============================================
-// HELPER: CREATE SERVER LOCK IN BACKGROUND
-// ============================================
-// Fire-and-forget wrapper — doesn't block UI, logs result
 async function createServerLockInBackground(reason) {
   try {
     const success = await requireReauthLock(reason);
@@ -17176,140 +15449,103 @@ async function createServerLockInBackground(reason) {
   }
 }
   
-  // ============================================
-// HARD IDLE TIMER (tab hidden for 30 minutes)
-// ============================================
 async function triggerHardIdleReauth() {
   console.log('🔒 [HARD IDLE] Triggering reauth modal');
   
-  // Stop all timers
   stopSoftIdleTimer();
   if (promptTimeout) {
     clearTimeout(promptTimeout);
     promptTimeout = null;
   }
   
-  // Check local first (fast)
   const localCheck = shouldReauthLocal('reauth');
   if (localCheck.needsReauth) {
-    // ✅ SHOW MODAL FIRST (instant UX)
     await showReauthModalSafe({ context: 'reauth', reason: 'hard-idle' });
     
-    // ✅ CREATE SERVER LOCK IN BACKGROUND (non-blocking)
     createServerLockInBackground('hard_idle_timeout');
     return;
   }
   
-  // Fallback: server check
   try {
     const serverCheck = await checkServerReauthStatus();
     if (serverCheck && (serverCheck.needsReauth || serverCheck.reauthRequired)) {
-      // ✅ SHOW MODAL FIRST
       await showReauthModalSafe({ context: 'reauth', reason: 'hard-idle' });
       
-      // ✅ CREATE LOCK IN BACKGROUND
       createServerLockInBackground('hard_idle_timeout');
     }
   } catch (e) {
     console.warn('[HARD IDLE] Server check failed', e);
   }
 }
-  // ============================================
-  // USER ACTIVITY HANDLER (resets soft idle)
-  // ============================================
   function onUserActivity() {
-    // Only count activity if page is visible
     if (document.visibilityState !== 'visible') {
       return;
     }
     
-    // Don't reset timer if reauth modal is open
     if (isReauthModalOpen()) {
       return;
     }
     
-    // Debounce for performance
     const now = Date.now();
     if (now - lastResetCall < RESET_DEBOUNCE_MS) {
       return;
     }
     lastResetCall = now;
     
-    // Update last activity timestamp
     lastActivityTimestamp = now;
     setItem(KEYS.LAST_ACTIVE, now);
     
-    // Reset soft idle timer
     startSoftIdleTimer();
   }
   
-  // ============================================
-  // VISIBILITY CHANGE HANDLER
-  // ============================================
   function handleVisibilityChange() {
     if (document.visibilityState === 'hidden') {
       console.log('[IDLE] Page HIDDEN - starting hard idle tracking');
       
-      // Stop soft idle (no point counting while hidden)
       stopSoftIdleTimer();
       
-      // Stop prompt timeout if active
       if (promptTimeout) {
         clearTimeout(promptTimeout);
         promptTimeout = null;
       }
       
-      // Record when page was hidden
       pageHiddenTimestamp = Date.now();
       setItem(KEYS.PAGE_HIDDEN_AT, pageHiddenTimestamp);
       
-      // Set expected reauth time (for instant check on return)
       setExpectedReauthAt(pageHiddenTimestamp + HARD_IDLE_MS);
       
-      // Schedule hard idle check
       scheduleHardIdleCheck();
       
     } else if (document.visibilityState === 'visible') {
       console.log('[IDLE] Page VISIBLE - checking thresholds');
       
-      // Check if we need to trigger hard idle reauth
       checkHardIdleOnVisible();
       
-      // Resume soft idle timer (if no reauth needed and modal not open)
       if (!hasCanonicalReauthFlag() && !isReauthModalOpen()) {
         startSoftIdleTimer();
       }
     }
   }
   
-  // ============================================
-// VISIBILITY CHANGE: CHECK ON RETURN
-// ============================================
 async function checkHardIdleOnVisible() {
-  // Check canonical flag first (authoritative)
   if (hasCanonicalReauthFlag()) {
     console.log('[IDLE] Canonical reauth flag present - showing modal');
     await showReauthModalSafe({ context: 'reauth', reason: 'hard-idle' });
     
-    // Create lock in background
     createServerLockInBackground('hard_idle_on_return');
     return;
   }
   
-  // Check expected reauth timestamp (local prediction)
   const expected = getExpectedReauthAt();
   if (expected && Date.now() >= expected) {
     console.log('[IDLE] Expected reauth time exceeded - showing modal');
     
-    // ✅ SHOW MODAL FIRST (instant UX)
     await showReauthModalSafe({ context: 'reauth', reason: 'hard-idle' });
     
-    // ✅ CREATE LOCK IN BACKGROUND
     createServerLockInBackground('hard_idle_on_return');
     return;
   }
   
-  // Fallback: calculate idle time manually
   const hiddenAt = getItem(KEYS.PAGE_HIDDEN_AT, 0);
   if (hiddenAt) {
     const awayTime = Date.now() - hiddenAt;
@@ -17318,20 +15554,16 @@ async function checkHardIdleOnVisible() {
     if (awayTime >= HARD_IDLE_MS) {
       console.log('🔥 [HARD IDLE] Threshold exceeded on return');
       
-      // Clear timestamps
       removeItem(KEYS.PAGE_HIDDEN_AT);
       clearExpectedReauthAt();
       pageHiddenTimestamp = null;
       
-      // ✅ SHOW MODAL FIRST (instant UX)
       await showReauthModalSafe({ context: 'reauth', reason: 'hard-idle' });
       
-      // ✅ CREATE LOCK IN BACKGROUND
       createServerLockInBackground('hard_idle_exceeded');
       return;
     }
     
-    // Threshold not exceeded - clear timestamps
     console.log('✅ [IDLE] Threshold not exceeded - resuming normally');
     removeItem(KEYS.PAGE_HIDDEN_AT);
     clearExpectedReauthAt();
@@ -17339,16 +15571,12 @@ async function checkHardIdleOnVisible() {
   }
 }
   
-  // ============================================
-// INACTIVITY PROMPT (soft idle notification)
-// ============================================
 async function showInactivityPrompt() {
   if (promptShowing) {
     console.log('[PROMPT] Already showing, skipping');
     return;
   }
   
-  // Critical check: Never show if reauth modal is open
   if (isReauthModalOpen()) {
     console.log('[PROMPT] Reauth modal is open, skipping prompt');
     return;
@@ -17357,7 +15585,6 @@ async function showInactivityPrompt() {
   promptShowing = true;
   
   try {
-    // Double-check that reauth is actually needed
     const localCheck = shouldReauthLocal('reauth');
     if (!localCheck.needsReauth) {
       console.log('[PROMPT] Reauth not needed, skipping');
@@ -17365,11 +15592,9 @@ async function showInactivityPrompt() {
       return;
     }
     
-    // Check server authority
     try {
       const serverCheck = await checkServerReauthStatus();
       if (serverCheck && (serverCheck.needsReauth || serverCheck.reauthRequired)) {
-        // Server says full reauth required - skip prompt, go straight to modal
         console.log('[PROMPT] Server requires immediate reauth - skipping prompt');
         await showReauthModalSafe({ context: 'reauth', reason: 'server-required' });
         return;
@@ -17378,7 +15603,6 @@ async function showInactivityPrompt() {
       console.warn('[PROMPT] Server check failed', e);
     }
     
-    // Show the soft prompt UI
     console.log('[PROMPT] Showing inactivity prompt (5s countdown to reauth)');
     
     const promptModal = document.getElementById('inactivityPrompt');
@@ -17391,65 +15615,52 @@ async function showInactivityPrompt() {
     
     console.log('[PROMPT] Found prompt modal:', promptModal.id || promptModal.className);
     
-    // Show prompt
     promptModal.classList.remove('hidden');
     promptModal.setAttribute('aria-modal', 'true');
     promptModal.setAttribute('role', 'dialog');
     
-    // Focus "Yes" button if it exists
     const yesBtn = promptModal.querySelector('#yesActiveBtn, .yes-btn, [data-yes]');
     if (yesBtn) {
       try { yesBtn.focus(); } catch(e) {}
     }
     
-    // Auto-dismiss after 5 seconds and show reauth modal
     promptTimeout = setTimeout(async () => {
       console.log('[PROMPT] 5 seconds elapsed - showing reauth modal');
       
-      // Hide prompt
       promptModal.classList.add('hidden');
       promptModal.removeAttribute('aria-modal');
       promptModal.removeAttribute('role');
       
-      // Reset flag
       promptShowing = false;
       
-      // Stop soft idle timer (reauth modal will be shown)
       stopSoftIdleTimer();
       
-      // ✅ SHOW MODAL FIRST (instant UX)
       try {
         await showReauthModalSafe({ context: 'reauth', reason: 'soft-idle-timeout' });
       } catch (e) {
         console.error('[PROMPT] Failed to show reauth modal after timeout', e);
       }
       
-      // ✅ CREATE SERVER LOCK IN BACKGROUND (non-blocking)
       createServerLockInBackground('soft_idle_timeout');
       
     }, 5000); // 5 seconds
     
-    // Setup close handlers (only once)
     if (!promptModal.__handlersAttached) {
       if (yesBtn) {
         yesBtn.addEventListener('click', () => {
           console.log('[PROMPT] User clicked "Yes, I\'m here" - dismissing prompt');
           
-          // Clear timeout
           if (promptTimeout) {
             clearTimeout(promptTimeout);
             promptTimeout = null;
           }
           
-          // Hide prompt
           promptModal.classList.add('hidden');
           promptModal.removeAttribute('aria-modal');
           promptModal.removeAttribute('role');
           
-          // Reset flag
           promptShowing = false;
           
-          // Resume soft idle timer
           startSoftIdleTimer();
         });
       }
@@ -17462,21 +15673,18 @@ async function showInactivityPrompt() {
   } catch (err) {
     console.error('[PROMPT] Error showing prompt', err);
   } finally {
-    // Only reset flag if timeout wasn't set (error case)
     if (!promptTimeout) {
       promptShowing = false;
     }
   }
 }
 
-// Run when modal becomes visible
 document.getElementById('reauthModal')?.addEventListener('transitionend', () => {
   if (!document.getElementById('reauthModal').classList.contains('hidden')) {
     reauthWarmBiometric();
   }
 });
 
-// Optional: run every 30s while modal is open
 setInterval(() => {
   const modal = document.getElementById('reauthModal');
   if (modal && !modal.classList.contains('hidden')) {
@@ -17485,12 +15693,8 @@ setInterval(() => {
 }, 30_000);
 
   
-  // ============================================
-  // REAUTH MODAL HELPERS (safe wrappers)
-  // ============================================
     async function showReauthModalSafe(options = {}) {
     try {
-      // Stop all idle timers when showing reauth modal
       console.log('[IDLE] Stopping all timers - reauth modal will be shown');
       stopSoftIdleTimer();
       if (hardIdleTimeout) {
@@ -17502,7 +15706,6 @@ setInterval(() => {
         promptTimeout = null;
       }
 
-      // --- NEW: set persistent reauth lock BEFORE showing modal (if available) ---
       try {
         if (window.__persistentReauthLock && typeof window.__persistentReauthLock.setLock === 'function') {
           console.log('[IDLE] Setting persistent reauth lock, reason:', options.reason || 'reauth-required');
@@ -17511,9 +15714,7 @@ setInterval(() => {
       } catch (e) {
         console.warn('[IDLE] Failed to set persistent reauth lock (continuing):', e);
       }
-      // -----------------------------------------------------------------------
       
-      // Try multiple APIs in order of preference
       if (window.__reauth && typeof window.__reauth.showReauthModal === 'function') {
         await window.__reauth.showReauthModal(options.context || 'reauth');
       } else if (typeof showReauthModal === 'function') {
@@ -17535,7 +15736,6 @@ setInterval(() => {
         return window.shouldReauthLocal(context);
       }
       
-      // Fallback: manual check
       const hasPin = localStorage.getItem('hasPin') === 'true';
       const biometricsEnabled = localStorage.getItem('biometricsEnabled') === 'true';
       const credentialId = localStorage.getItem('credentialId') || '';
@@ -17553,10 +15753,8 @@ async function checkServerReauthStatus() {
   console.log('[IDLE] Checking reauth status via Supabase (direct)');
 
   try {
-    // Use the direct Supabase helper we already have
     const result = await checkReauthLock();
 
-    // Convert to the shape your code expects ({ needsReauth: true/false })
     return {
       needsReauth: result.required,
       reason: result.reason || null,
@@ -17564,15 +15762,11 @@ async function checkServerReauthStatus() {
     };
   } catch (err) {
     console.warn('[IDLE] Supabase reauth check failed', err);
-    // Fail open: assume no reauth needed (safe default)
     return { needsReauth: false };
   }
 }
 window.checkServerReauthStatus = checkServerReauthStatus; // expose globally if needed
   
-  // ============================================
-  // SETUP FUNCTION (call once on dashboard load)
-  // ============================================
   async function setupInactivity() {
     if (setupComplete) {
       console.log('[IDLE] Already initialized, skipping');
@@ -17581,7 +15775,6 @@ window.checkServerReauthStatus = checkServerReauthStatus; // expose globally if 
     
     console.log('[IDLE] Initializing idle detection system');
     
-    // Quick check: skip if user doesn't need reauth
     try {
       const check = shouldReauthLocal('reauth');
       if (!check.needsReauth) {
@@ -17592,16 +15785,13 @@ window.checkServerReauthStatus = checkServerReauthStatus; // expose globally if 
       console.warn('[IDLE] Pre-check failed, continuing anyway', e);
     }
     
-    // Initialize timestamps
     lastActivityTimestamp = Date.now();
     setItem(KEYS.LAST_ACTIVE, lastActivityTimestamp);
     
-    // Attach activity event listeners
     ACTIVITY_EVENTS.forEach(eventType => {
       try {
         document.addEventListener(eventType, onUserActivity, { passive: true, capture: true });
       } catch (e) {
-        // Fallback without options
         try {
           document.addEventListener(eventType, onUserActivity);
         } catch (e2) {
@@ -17610,13 +15800,10 @@ window.checkServerReauthStatus = checkServerReauthStatus; // expose globally if 
       }
     });
     
-    // Attach visibility change listener
     document.addEventListener('visibilitychange', handleVisibilityChange, { passive: true });
     
-    // Check if we need to show reauth on load (user left for 2+ minutes)
     await checkHardIdleOnVisible();
     
-    // Start soft idle timer if page is visible and modal not open
     if (document.visibilityState === 'visible' && !hasCanonicalReauthFlag() && !isReauthModalOpen()) {
       startSoftIdleTimer();
     }
@@ -17625,9 +15812,6 @@ window.checkServerReauthStatus = checkServerReauthStatus; // expose globally if 
     console.log('[IDLE] Setup complete');
   }
   
-  // ============================================
-  // RESET FUNCTION (call after successful reauth)
-  // ============================================
   function resetIdleTimer() {
     console.log('[IDLE] Resetting all timers');
     
@@ -17635,16 +15819,13 @@ window.checkServerReauthStatus = checkServerReauthStatus; // expose globally if 
     lastActivityTimestamp = now;
     lastResetCall = now;
     
-    // Update storage
     setItem(KEYS.LAST_ACTIVE, now);
     removeItem(KEYS.PAGE_HIDDEN_AT);
     clearExpectedReauthAt();
     
-    // Clear state
     pageHiddenTimestamp = null;
     promptShowing = false;
     
-    // Clear ALL timers
     stopSoftIdleTimer();
     if (hardIdleTimeout) {
       clearTimeout(hardIdleTimeout);
@@ -17655,25 +15836,19 @@ window.checkServerReauthStatus = checkServerReauthStatus; // expose globally if 
       promptTimeout = null;
     }
     
-    // Restart soft timer if visible and modal not open
     if (document.visibilityState === 'visible' && !isReauthModalOpen()) {
       startSoftIdleTimer();
     }
   }
   
-  // ============================================
-  // CLEANUP FUNCTION (call on logout)
-  // ============================================
   function cleanupInactivity() {
     console.log('[IDLE] Cleaning up');
     
-    // Remove event listeners
     ACTIVITY_EVENTS.forEach(eventType => {
       document.removeEventListener(eventType, onUserActivity, { capture: true });
     });
     document.removeEventListener('visibilitychange', handleVisibilityChange);
     
-    // Clear timers
     stopSoftIdleTimer();
     if (hardIdleTimeout) {
       clearTimeout(hardIdleTimeout);
@@ -17684,7 +15859,6 @@ window.checkServerReauthStatus = checkServerReauthStatus; // expose globally if 
       promptTimeout = null;
     }
     
-    // Clear storage
     removeItem(KEYS.LAST_ACTIVE);
     removeItem(KEYS.PAGE_HIDDEN_AT);
     clearExpectedReauthAt();
@@ -17693,15 +15867,11 @@ window.checkServerReauthStatus = checkServerReauthStatus; // expose globally if 
     promptShowing = false;
   }
   
-  // ============================================
-  // EXPOSE PUBLIC API
-  // ============================================
   window.__idleDetection = {
     setup: setupInactivity,
     reset: resetIdleTimer,
     cleanup: cleanupInactivity,
     
-    // Getters for debugging
     getState: () => ({
       softIdleActive: !!softIdleTimeout,
       hardIdleActive: !!hardIdleTimeout,
@@ -17714,23 +15884,17 @@ window.checkServerReauthStatus = checkServerReauthStatus; // expose globally if 
     })
   };
   
-  // Legacy compatibility (if other code expects these globals)
   window.setupInactivity = setupInactivity;
   window.resetIdleTimer = resetIdleTimer;
   window.showInactivityPrompt = showInactivityPrompt;
   
 })();
 
-// ============================================
-// AUTO-INITIALIZE (call after dependencies loaded)
-// ============================================
 (function autoInit() {
-  // Wait for dependencies (reauth modal, etc.)
   function tryInit() {
     if (typeof window.shouldReauthLocal === 'function' || 
         typeof window.shouldReauth === 'function') {
       
-      // Initialize on DOM ready
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
           if (window.__idleDetection) {
@@ -17738,13 +15902,11 @@ window.checkServerReauthStatus = checkServerReauthStatus; // expose globally if 
           }
         });
       } else {
-        // DOM already ready
         if (window.__idleDetection) {
           window.__idleDetection.setup();
         }
       }
     } else {
-      // Dependencies not ready, retry
       setTimeout(tryInit, 100);
     }
   }
@@ -17752,30 +15914,17 @@ window.checkServerReauthStatus = checkServerReauthStatus; // expose globally if 
   tryInit();
 })();
 
-// ============================================
-// PERSISTENT REAUTH LOCK SYSTEM
-// Survives reload, hard reload, and tab switching
-// ============================================
 
 (function() {
   'use strict';
   
-  // ============================================
-  // CONSTANTS
-  // ============================================
   const LOCK_KEY = 'fg_reauth_lock_v2'; // Persistent lock flag
   const BROADCAST_CHANNEL_NAME = 'fg-reauth-sync';
   const STALE_LOCK_MS = 10 * 60 * 1000; // Consider lock stale after 10 minutes (safety)
   
-  // ============================================
-  // STATE
-  // ============================================
   let broadcastChannel = null;
   let lockCheckInterval = null;
   
-  // ============================================
-  // SERVER SYNC
-  // ============================================
   
 /**
  * Check for active reauth lock — now uses Supabase directly (no /reauth/status endpoint)
@@ -17796,7 +15945,6 @@ async function checkServerLock() {
       };
     }
 
-    // No lock found
     console.log('[REAUTH-LOCK] No active lock found');
     return null;
   } catch (err) {
@@ -17842,9 +15990,6 @@ async function clearServerLock() {
   }
 }
   
-  // ============================================
-  // LOCK MANAGEMENT (updated to sync with server)
-  // ============================================
   
   /**
    * Create a lock object with metadata
@@ -17880,10 +16025,8 @@ async function clearServerLock() {
       localStorage.setItem(LOCK_KEY, JSON.stringify(lock));
       console.log('[REAUTH-LOCK] Lock set:', lock);
       
-      // Broadcast to other tabs
       broadcastLockChange('lock', lock);
       
-      // Also set the canonical flag for compatibility
       try {
         localStorage.setItem('fg_reauth_required_v1', JSON.stringify(lock));
       } catch (e) {}
@@ -17904,10 +16047,8 @@ async function clearServerLock() {
       localStorage.removeItem(LOCK_KEY);
       console.log('[REAUTH-LOCK] Local lock cleared');
       
-      // Broadcast to other tabs
       broadcastLockChange('unlock', null);
       
-      // Also clear canonical flag
       try {
         localStorage.removeItem('fg_reauth_required_v1');
         localStorage.removeItem('reauthPending');
@@ -17930,7 +16071,6 @@ async function clearServerLock() {
       
       const lock = JSON.parse(raw);
       
-      // Check if lock is stale
       if (Date.now() - lock.timestamp > STALE_LOCK_MS) {
         console.warn('[REAUTH-LOCK] Lock is stale, removing');
         clearReauthLock();
@@ -17952,9 +16092,6 @@ async function clearServerLock() {
     return !!(lock && lock.locked);
   }
   
-  // ============================================
-  // CROSS-TAB COMMUNICATION
-  // ============================================
   
   /**
    * Initialize BroadcastChannel for cross-tab sync
@@ -17974,10 +16111,8 @@ async function clearServerLock() {
           console.log('[REAUTH-LOCK] Received broadcast:', type, lock);
           
           if (type === 'lock') {
-            // Another tab set lock - show modal
             handleLockReceived(lock);
           } else if (type === 'unlock') {
-            // Another tab cleared lock - hide modal
             handleUnlockReceived();
           }
         } catch (e) {
@@ -18011,7 +16146,6 @@ async function clearServerLock() {
   async function handleLockReceived(lock) {
     console.log('[REAUTH-LOCK] Lock received from another tab');
     
-    // Show reauth modal if not already showing
     if (!isReauthModalVisible()) {
       try {
         await showReauthModalSafe({ 
@@ -18030,7 +16164,6 @@ async function clearServerLock() {
   function handleUnlockReceived() {
     console.log('[REAUTH-LOCK] Unlock received from another tab');
     
-    // Hide reauth modal if showing
     if (isReauthModalVisible()) {
       try {
         hideReauthModalSafe();
@@ -18040,9 +16173,6 @@ async function clearServerLock() {
     }
   }
   
-  // ============================================
-  // STORAGE EVENT LISTENER (fallback for cross-tab)
-  // ============================================
   
   /**
    * Listen for storage events (fallback if BroadcastChannel not available)
@@ -18054,7 +16184,6 @@ async function clearServerLock() {
       console.log('[REAUTH-LOCK] Storage event detected:', event.newValue);
       
       if (event.newValue) {
-        // Lock was set
         try {
           const lock = JSON.parse(event.newValue);
           handleLockReceived(lock);
@@ -18062,7 +16191,6 @@ async function clearServerLock() {
           console.error('[REAUTH-LOCK] Failed to parse lock from storage event:', e);
         }
       } else {
-        // Lock was cleared
         handleUnlockReceived();
       }
     });
@@ -18070,9 +16198,6 @@ async function clearServerLock() {
     console.log('[REAUTH-LOCK] Storage listener initialized');
   }
   
-  // ============================================
-  // PAGE LIFECYCLE HANDLERS
-  // ============================================
   
   /**
    * Check lock on page load (with server sync)
@@ -18080,13 +16205,11 @@ async function clearServerLock() {
   async function checkLockOnLoad() {
     console.log('[REAUTH-LOCK] Checking lock on page load (client + server)');
     
-    // 1. Check local lock first (fast)
     const localLock = getLocalReauthLock();
     
     if (localLock && localLock.locked) {
       console.log('[REAUTH-LOCK] Found local lock, showing modal:', localLock);
       
-      // Show reauth modal immediately
       try {
         await showReauthModalSafe({ 
           context: 'reauth', 
@@ -18098,7 +16221,6 @@ async function clearServerLock() {
       return; // Local lock found, no need to check server
     }
     
-    // 2. No local lock - check server (survives cookie/cache clear)
     console.log('[REAUTH-LOCK] No local lock, checking server...');
     
     try {
@@ -18107,10 +16229,8 @@ async function clearServerLock() {
       if (serverLock && serverLock.locked) {
         console.log('[REAUTH-LOCK] Server lock found, syncing to client:', serverLock);
         
-        // Sync server lock to client
         const lock = setLocalReauthLock(serverLock.reason || 'server-lock');
         
-        // Show modal
         try {
           await showReauthModalSafe({ 
             context: 'reauth', 
@@ -18124,7 +16244,6 @@ async function clearServerLock() {
       }
     } catch (e) {
       console.error('[REAUTH-LOCK] Failed to check server lock:', e);
-      // Continue without server lock (degrade gracefully)
     }
   }
   
@@ -18160,14 +16279,12 @@ async function clearServerLock() {
       clearInterval(lockCheckInterval);
     }
     
-    // Track how many times modal is visible without lock (to allow grace period)
     let modalVisibleWithoutLockCount = 0;
     
     lockCheckInterval = setInterval(() => {
       const lock = getLocalReauthLock();
       const modalVisible = isReauthModalVisible();
       
-      // If lock exists but modal not visible -> show modal
       if (lock && lock.locked && !modalVisible) {
         console.warn('[REAUTH-LOCK] Lock/modal mismatch detected - showing modal');
         modalVisibleWithoutLockCount = 0; // Reset counter
@@ -18177,8 +16294,6 @@ async function clearServerLock() {
         });
       }
       
-      // If no lock but modal visible -> only hide after 3 consecutive checks (15 seconds grace)
-      // This prevents hiding modal if lock is being set asynchronously
       if (!lock && modalVisible) {
         modalVisibleWithoutLockCount++;
         console.warn(`[REAUTH-LOCK] Modal visible without lock (count: ${modalVisibleWithoutLockCount}/3)`);
@@ -18189,7 +16304,6 @@ async function clearServerLock() {
           modalVisibleWithoutLockCount = 0;
         }
       } else {
-        // Reset counter if lock exists or modal not visible
         modalVisibleWithoutLockCount = 0;
       }
     }, 5000); // Check every 5 seconds
@@ -18205,19 +16319,14 @@ async function clearServerLock() {
     }
   }
   
-  // ============================================
-  // MODAL HELPERS
-  // ============================================
   
   /**
    * Check if reauth modal is visible
    */
   function isReauthModalVisible() {
-    // Check global flags
     if (window.__reauthModalOpen === true) return true;
     if (window.reauthModalOpen === true) return true;
     
-    // Check DOM
     const reauthModal = document.getElementById('reauthModal') || 
                         document.querySelector('.reauth-modal') ||
                         document.querySelector('[data-reauth-modal]');
@@ -18238,7 +16347,6 @@ async function clearServerLock() {
     try {
       console.log('[REAUTH-LOCK] Showing reauth modal');
       
-      // Try multiple APIs
       if (window.__reauth && typeof window.__reauth.showReauthModal === 'function') {
         await window.__reauth.showReauthModal(options.context || 'reauth');
       } else if (typeof showReauthModal === 'function') {
@@ -18260,13 +16368,11 @@ async function clearServerLock() {
     try {
       console.log('[REAUTH-LOCK] Hiding reauth modal');
       
-      // Try multiple APIs
       if (typeof guardedHideReauthModal === 'function') {
         guardedHideReauthModal();
       } else if (window.__reauth && typeof window.__reauth.hideReauthModal === 'function') {
         window.__reauth.hideReauthModal();
       } else {
-        // Fallback: direct DOM manipulation
         const reauthModal = document.getElementById('reauthModal');
         if (reauthModal) {
           reauthModal.classList.add('hidden');
@@ -18277,9 +16383,6 @@ async function clearServerLock() {
     }
   }
   
-  // ============================================
-  // INTEGRATION WITH IDLE SYSTEM
-  // ============================================
   
   /**
    * Trigger reauth lock (call this when reauth is needed)
@@ -18287,15 +16390,11 @@ async function clearServerLock() {
   function triggerReauthLock(reason = 'reauth-required') {
     console.log('[REAUTH-LOCK] Triggering reauth lock, reason:', reason);
     
-    // Set lock
     const lock = setLocalReauthLock(reason);
     
-    // Show modal
     showReauthModalSafe({ context: 'reauth', reason });
     
-    // Stop idle timers
     if (window.__idleDetection && typeof window.__idleDetection.reset === 'function') {
-      // Note: Don't restart timer, just clear them
       if (window.__idleDetection.getState) {
         const state = window.__idleDetection.getState();
         console.log('[REAUTH-LOCK] Idle detection state:', state);
@@ -18311,18 +16410,14 @@ async function clearServerLock() {
   function completeReauthUnlock() {
     console.log('[REAUTH-LOCK] Completing reauth unlock');
     
-    // Clear lock
     clearLocalReauthLock();
     
-    // Hide modal
     hideReauthModalSafe();
     
-    // Restart idle timers
     if (window.__idleDetection && typeof window.__idleDetection.reset === 'function') {
       window.__idleDetection.reset();
     }
     
-    // Dispatch event for other systems
     try {
       window.dispatchEvent(new CustomEvent('reauth:unlocked', {
         detail: { timestamp: Date.now() }
@@ -18330,24 +16425,17 @@ async function clearServerLock() {
     } catch (e) {}
   }
   
-  // ============================================
-  // INITIALIZATION
-  // ============================================
   
   function initPersistentReauthLock() {
     console.log('[REAUTH-LOCK] Initializing persistent reauth lock system');
     
-    // Initialize cross-tab communication
     initBroadcastChannel();
     initStorageListener();
     
-    // Check lock on load
     checkLockOnLoad();
     
-    // Listen for visibility changes
     document.addEventListener('visibilitychange', checkLockOnVisibilityChange, { passive: true });
     
-    // Listen for pageshow (handles bfcache)
     window.addEventListener('pageshow', (event) => {
       if (event.persisted) {
         console.log('[REAUTH-LOCK] Page restored from bfcache');
@@ -18355,15 +16443,11 @@ async function clearServerLock() {
       }
     }, { passive: true });
     
-    // Start periodic check
     startLockCheckInterval();
     
     console.log('[REAUTH-LOCK] Initialization complete');
   }
   
-  // ============================================
-  // EXPOSE PUBLIC API
-  // ============================================
   
   window.__persistentReauthLock = {
     setLock: setLocalReauthLock,
@@ -18371,14 +16455,11 @@ async function clearServerLock() {
     getLock: getLocalReauthLock,
     isLocked: isReauthLocked,
     
-    // High-level functions
     trigger: triggerReauthLock,
     complete: completeReauthUnlock,
     
-    // State checking
     isModalVisible: isReauthModalVisible,
     
-    // Debug helpers
     getState: () => ({
       locked: isReauthLocked(),
       lock: getReauthLock(),
@@ -18387,13 +16468,8 @@ async function clearServerLock() {
     })
   };
   
-  // Backward compatibility aliases
-  // Backward compatibility aliases
   window.isReauthLocked = isReauthLocked;
-  // NOTE: window.clearReauthLock and window.setReauthLock intentionally NOT set here
-  // — the real Supabase versions at the top of the file take precedence
   
-  // Auto-initialize
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initPersistentReauthLock);
   } else {
@@ -18405,7 +16481,6 @@ async function clearServerLock() {
 
 
 
-// global cache
 window.__cachedAuthOptions = null;
 
 async function prefetchAuthOptionsFor(uid, context = 'reauth') {
@@ -18422,7 +16497,6 @@ async function prefetchAuthOptionsFor(uid, context = 'reauth') {
 
     const opts = await res.json();
 
-    // convert challenge
     opts.challenge = (function base64ToBuf(s){
       let b = s.replace(/-/g,'+').replace(/_/g,'/');
       const pad = b.length % 4; if (pad) b += '='.repeat(4-pad);
@@ -18432,7 +16506,6 @@ async function prefetchAuthOptionsFor(uid, context = 'reauth') {
       return arr.buffer;
     })(opts.challenge);
 
-    // convert allowCredentials if present
     if (Array.isArray(opts.allowCredentials) && opts.allowCredentials.length) {
       opts.allowCredentials = opts.allowCredentials.map(c => ({ ...c, id: (function base64ToBuf(s){
         let b = s.replace(/-/g,'+').replace(/_/g,'/');
@@ -18449,7 +16522,6 @@ async function prefetchAuthOptionsFor(uid, context = 'reauth') {
     opts.userVerification = opts.userVerification || 'required';
     opts.timeout = opts.timeout || 60000;
 
-    // store ready-to-use options
     window.__cachedAuthOptions = opts;
     console.log('[PREFETCH] cached auth options ready', {
       rpId: opts.rpId, allowCount: opts.allowCredentials ? opts.allowCredentials.length : 'omitted', time: new Date().toISOString()
@@ -18468,7 +16540,6 @@ async function prefetchAuthOptionsFor(uid, context = 'reauth') {
    Verify Biometrics (new!)
    - Performs WebAuthn authentication for login or checkout
    ----------------------- */
-// Full verifyBiometrics - performs navigator.credentials.get + server verify
 /* -----------------------
    Verify Biometrics (patched)
    - Ensures all verifications reuse the same credential created by the parent
@@ -18479,45 +16550,29 @@ async function prefetchAuthOptionsFor(uid, context = 'reauth') {
    - Ensures all verifications reuse the same credential created by the parent
    - Prevents browser from prompting for “new passkey”
    ----------------------- */
-// 🔹 Verify Biometrics (with fallback for direct prompt)
-// 🔹 Verify Biometrics (fixed for direct fingerprint - conditional mediation + preventSilentAccess)
-// - Uses 'conditional' mediation: auto-direct if possible, prompt otherwise (no null hangs)
-// - Adds preventSilentAccess() for immediate check: forces prompt if no silent possible
-// - Stores credentialId from options for specific calls next time
-// - Respects all existing: discover fallback, 404 retry, conversions, server verify, errors
-// 🔹 Verify Biometrics (fixed - remove preventSilentAccess to avoid hangs)
-// - Uses 'conditional' mediation: auto-direct fingerprint if possible, prompt otherwise
-// - Stores credentialId from options for specific calls next time
-// - Respects all existing: discover fallback, 404 retry, conversions, server verify, errors
 /* -----------------------
    Verify Biometrics (debug)
    ----------------------- */
-// ---- verifyBiometrics ----
 
 
-// ===== Prefetch helpers & safe base64 helpers for biometric flow =====
 (function(){
   if (!window.fromBase64Url) {
     window.fromBase64Url = function (b64url) {
       try {
         if (b64url == null) return new ArrayBuffer(0);
 
-        // Already a buffer or typed array — return its buffer
         if (b64url instanceof ArrayBuffer) return b64url;
         if (ArrayBuffer.isView(b64url)) return b64url.buffer;
 
-        // Some servers may send {type:'Buffer', data:[...]}
         if (typeof b64url === 'object' && Array.isArray(b64url.data)) {
           return new Uint8Array(b64url.data).buffer;
         }
 
-        // If it's not a string, don't try to convert — just return it
         if (typeof b64url !== 'string') {
           console.warn('[webauthn] fromBase64Url expected string, got', typeof b64url, b64url);
           return b64url;
         }
 
-        // Normal string decode path
         let s = b64url.replace(/-/g, '+').replace(/_/g, '/');
         while (s.length % 4) s += '=';
         const str = atob(s);
@@ -18544,11 +16599,9 @@ async function prefetchAuthOptionsFor(uid, context = 'reauth') {
 
 
 
-// ===== WebAuthn session init: cache userId for fast auth/options requests =====
 (function(){
   (async function initWebAuthnSession(){
     try {
-      // Try to get session early and cache user id for quick POST body
       if (typeof getSession === 'function') {
         var sess = await safeCall(getSession);
         var uid = sess && sess.user && (sess.user.uid || sess.user.id);
@@ -18556,7 +16609,6 @@ async function prefetchAuthOptionsFor(uid, context = 'reauth') {
           window.__webauthn_userId = uid;
         }
       }
-      // If we have a uid and a stored cred, prefetch options immediately
       var stored = localStorage.getItem('credentialId') || localStorage.getItem('webauthn-cred-id');
       if ((window.__webauthn_userId) && stored) {
         try { window.prefetchAuthOptions && window.prefetchAuthOptions(); } catch(e){}
@@ -18631,7 +16683,6 @@ async function prefetchAuthOptionsFor(uid, context = 'reauth') {
   try {
     var bioBtnEl = document.getElementById('bioBtn') || document.querySelector('.biometric-button') || document.querySelector('[data-bio-button]');
     if (bioBtnEl) {
-      // debounce to avoid multiple in-flight prefetch calls on fast interactions
       const debouncedPrefetch = (function(){
         let locked = false;
         return function(){
@@ -18643,20 +16694,16 @@ async function prefetchAuthOptionsFor(uid, context = 'reauth') {
           } catch(e){
             console.warn('[prefetchAuthOptions] debounced call failed', e);
           }
-          // keep short lock window to avoid spamming when user mashes button
           setTimeout(()=> { locked = false; }, 250);
         };
       })();
 
-      // bind to a variety of events to be defensive for touch/click/keyboard/fast modal opens
       ['pointerdown','mouseenter','click','touchstart','focus'].forEach(function(ev){
         try { bioBtnEl.addEventListener(ev, debouncedPrefetch, { passive: true }); } catch(e){
-          // older browsers may not accept options object
           try { bioBtnEl.addEventListener(ev, debouncedPrefetch); } catch(err){ /* ignore */ }
         }
       });
 
-      // also prefetch when the reauth modal opens (defensive)
       try {
         document.addEventListener('modal:reauth:open', function(){ 
           try {
@@ -18665,7 +16712,6 @@ async function prefetchAuthOptionsFor(uid, context = 'reauth') {
           } catch(e){ console.warn('prefetchAuthOptions on modal open failed', e); }
         }, { passive: true });
       } catch(e) {
-        // fallback if addEventListener options not supported
         try {
           document.addEventListener('modal:reauth:open', function(){ 
             try {
@@ -18694,9 +16740,6 @@ async function prefetchAuthOptionsFor(uid, context = 'reauth') {
 
 
 
-// 🔹 FINAL PERMANENTLY FIXED verifyBiometrics
-// Ensures correct BufferSource types (Uint8Array) for challenge and credential IDs
-// No more reliance on broken localStorage cache
 async function verifyBiometrics(uid, context = 'reauth') {
   if (window.__biometricInFlight) {
     console.warn('[verifyBiometrics] Blocked: biometric already in flight');
@@ -18707,7 +16750,6 @@ async function verifyBiometrics(uid, context = 'reauth') {
   console.log('%c[verifyBiometrics] Called', 'color:#0ff;font-weight:bold');
 
   try {
-    // Resolve userId if not provided
     let userId = uid;
 
     if (!userId) {
@@ -18731,10 +16773,6 @@ async function verifyBiometrics(uid, context = 'reauth') {
 
     if (!userId) throw new Error('No user ID available for biometric verification');
 
-    // -------------------------------
-    // Use pre-warmed options (from Pay click pre-warm via getAuthOptionsWithCache)
-    // Fall back to fresh fetch if missing/invalid
-    // -------------------------------
     let publicKey = window.__cachedAuthOptions;
 
     if (!publicKey || !publicKey.challenge) {
@@ -18746,10 +16784,8 @@ async function verifyBiometrics(uid, context = 'reauth') {
       throw new Error('Failed to obtain WebAuthn options from server');
     }
 
-    // Clone for modification
     const pk = structuredClone(publicKey);
 
-    // FORCE challenge to Uint8Array
     if (!(pk.challenge instanceof Uint8Array)) {
       console.warn('[verifyBiometrics] Fixing challenge type:', typeof pk.challenge);
       const converted = fromBase64Url(pk.challenge);
@@ -18759,7 +16795,6 @@ async function verifyBiometrics(uid, context = 'reauth') {
       pk.challenge = new Uint8Array(converted);
     }
 
-    // FORCE allowCredentials[].id to Uint8Array
     if (Array.isArray(pk.allowCredentials) && pk.allowCredentials.length > 0) {
       const fixedCreds = [];
       for (const cred of pk.allowCredentials) {
@@ -18785,11 +16820,9 @@ async function verifyBiometrics(uid, context = 'reauth') {
       }
     }
 
-    // Required fields
     pk.userVerification = 'required';
     pk.timeout = 60000;
 
-    // Detailed debug log
     console.log('[verifyBiometrics] Final options ready for prompt', {
       challengeLength: pk.challenge.byteLength,
       challengeType: pk.challenge.constructor.name,
@@ -18797,14 +16830,12 @@ async function verifyBiometrics(uid, context = 'reauth') {
       allowCredIdsValid: pk.allowCredentials?.every(c => c.id instanceof Uint8Array) || false
     });
 
-    // Trigger biometric prompt
     const assertion = await navigator.credentials.get({ publicKey: pk });
 
     if (!assertion) {
       throw new Error('No assertion returned from authenticator');
     }
 
-    // Server verification
     return await withLoader(async () => {
       const payload = {
         id: assertion.id,
@@ -18837,7 +16868,6 @@ async function verifyBiometrics(uid, context = 'reauth') {
       const verifyData = await verifyRes.json();
       console.log('[verifyBiometrics] Verify success', verifyData);
 
-      // Success callbacks
       try {
         if (typeof onSuccessfulReauth === 'function') onSuccessfulReauth(); // no await
         if (typeof notify === 'function') notify('Authentication successful', 'success');
@@ -18870,8 +16900,6 @@ async function verifyBiometrics(uid, context = 'reauth') {
 
 window.verifyBiometrics = window.verifyBiometrics || verifyBiometrics;
 
-// 🔹 Improved simulatePinEntry with verbose debug logs and Promise-based completion
-// ---- REPLACE existing simulatePinEntry(...) with this improved version ----
 function simulatePinEntry(opts = {}) {
   const stagger = typeof opts.stagger === 'number' ? opts.stagger : 150;
   const expectedCount = typeof opts.expectedCount === 'number' ? opts.expectedCount : 4;
@@ -18914,10 +16942,8 @@ function simulatePinEntry(opts = {}) {
         console.warn(`${debugTag} unexpected PIN input count: ${inputs.length} (expected ${expectedCount})`);
       }
 
-      // ensure visible
       try { inputs[0] && inputs[0].scrollIntoView && inputs[0].scrollIntoView({ block: 'center' }); } catch(e){}
 
-      // aria-live debug node (non-intrusive)
       let liveNode = null;
       try {
         liveNode = document.getElementById('__debug_pin_live') || (() => {
@@ -18933,7 +16959,6 @@ function simulatePinEntry(opts = {}) {
         })();
       } catch (e) { liveNode = null; }
 
-      // synchronous immediate fill (all at once)
       if (fillAll || stagger <= 0) {
         try {
           inputs.forEach((input, index) => {
@@ -18951,7 +16976,6 @@ function simulatePinEntry(opts = {}) {
         } catch (e) {
           console.warn(`${debugTag} synchronous fill error`, e);
         }
-        // small visual settle
         setTimeout(() => {
           if (liveNode) try { liveNode.textContent = 'Simulated PIN complete'; } catch(e){}
           resolve(true);
@@ -18959,7 +16983,6 @@ function simulatePinEntry(opts = {}) {
         return;
       }
 
-      // fallback: staggered fill (existing behavior)
       inputs.forEach((input, index) => {
         setTimeout(() => {
           try {
@@ -18998,7 +17021,6 @@ window.simulatePinEntry = window.simulatePinEntry || simulatePinEntry;
 
 
 
-// Expose small debugging helpers to console
 window.dumpCredentialStorage = dumpCredentialStorage;
 window.persistCredentialId = persistCredentialId;
 
@@ -19008,9 +17030,6 @@ window.persistCredentialId = persistCredentialId;
 
  
 
-  // Full showReauthModal (explicit called flow)
-// Full showReauthModal (explicit called flow)
-// ----- Updated implementation with NO automatic biometric calls -----
 async function showReauthModal(context = 'reauth') {
   console.log('showReauthModal called', { context });
   cacheDomRefs();
@@ -19038,15 +17057,12 @@ async function showReauthModal(context = 'reauth') {
       return;
     }
 
-    // If biometric is allowed, do NOT automatically verify.
-    // Only inform UI that biometric is available.
     if (reauthStatus.method === 'biometric') {
       console.log('showReauthModal: biometric available (manual only, no auto trigger)');
       await initReauthModal({ show: true, context, biometricAvailable: true });
       return;
     }
 
-    // Default: PIN modal only
     await initReauthModal({ show: true, context });
 
   } catch (err) {
@@ -19070,26 +17086,21 @@ async function showReauthModal(context = 'reauth') {
   const CHECK_STATUS_INTERVAL_MS = 30000;           // optional background poll (now Supabase)
   const STALE_MS = 1000 * 60 * 10;                 // consider stale after 10min
 
-  // try BroadcastChannel if available
   let bc = null;
   try { if (typeof BroadcastChannel !== 'undefined') bc = new BroadcastChannel(BC_NAME); } catch(e){ bc = null; }
 
-  // small helper to create token
   function makeToken() {
     try { if (crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
     return 't_' + String(Math.floor(Math.random() * 1e9)) + '_' + Date.now();
   }
 
-  // canonicalize stored object
   function buildStoredObj({ token=null, ts=null, reason=null } = {}) {
     return { token: token || makeToken(), ts: ts || Date.now(), reason: reason || 'unknown' };
   }
 
   function writeLocal(obj) {
     try { localStorage.setItem(LOCAL_KEY, JSON.stringify(obj)); } catch (e) {}
-    // broadcast
     try { if (bc) bc.postMessage({ type: 'require', payload: obj }); } catch (e) {}
-    // storage event fallback
     try { window.dispatchEvent(new StorageEvent('storage', { key: LOCAL_KEY, newValue: JSON.stringify(obj) })); } catch(e){}
   }
 
@@ -19107,7 +17118,6 @@ async function showReauthModal(context = 'reauth') {
     try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || 'null'); } catch (e) { return null; }
   }
 
-  // show the modal and set reauth active state in this tab
   async function showReauthModalLocal({ fromStorageObj } = {}) {
     try {
       cacheDomRefs();
@@ -19121,7 +17131,6 @@ async function showReauthModal(context = 'reauth') {
     } catch (e) {}
   }
 
-  // hide the modal UI in this tab
   function hideReauthModalLocal() {
     try {
       (async () => {
@@ -19130,14 +17139,12 @@ async function showReauthModal(context = 'reauth') {
     } catch (e) { console.warn('[reauth] hideReauthModalLocal error', e); }
   }
 
-  // When reauth is required: set local + Supabase
   async function requireReauth(reason) {
     const obj = buildStoredObj({ reason });
     writeLocal(obj);
 
     try { setExpectedReauthAt(Date.now()); } catch (e) { /* ignore */ }
 
-    // Direct Supabase (replaces /reauth/require)
     try {
       const success = await requireReauthLock(reason);
       if (success) {
@@ -19147,13 +17154,11 @@ async function showReauthModal(context = 'reauth') {
       }
     } catch (err) {
       console.error('[REAUTH] Supabase requireReauth failed:', err);
-      // Continue — local state still triggers modal
     }
 
     showReauthModalLocal({ fromStorageObj: obj });
   }
 
-  // Call after successful reauth in current tab
   async function completeReauth() {
     let ok = false;
     try {
@@ -19177,7 +17182,6 @@ async function showReauthModal(context = 'reauth') {
     return ok;
   }
 
-  // react to storage events (fallback) and broadcast messages
   function onStorageEvent(e) {
     if (e.key !== LOCAL_KEY) return;
     const newVal = e.newValue ? JSON.parse(e.newValue) : null;
@@ -19200,21 +17204,17 @@ async function showReauthModal(context = 'reauth') {
     } catch (e) {}
   }
 
-  // on load: if localStorage says reauth required show modal.
   async function initCrossTabReauth() {
     console.debug('BOOT LOG: initCrossTabReauth init');
     window.addEventListener('storage', onStorageEvent, false);
     if (bc) bc.onmessage = onBroadcastMessage;
 
-    // immediate localStorage check
     const stored = readLocal();
     if (stored) {
-      // If token is stale, check Supabase for authoritative decision (replaces /reauth/status)
       if (Date.now() - (stored.ts || 0) > STALE_MS) {
         try {
           const lockStatus = await checkReauthLock();
           if (lockStatus.required) {
-            // Supabase says still locked → keep/refresh local state
             writeLocal(buildStoredObj({ 
               token: stored.token, 
               ts: Date.now(), 
@@ -19223,21 +17223,16 @@ async function showReauthModal(context = 'reauth') {
             showReauthModalLocal({ fromStorageObj: lockStatus });
             return;
           }
-          // Supabase says no lock → clear local
           clearLocal(stored.token);
         } catch (e) {
           console.warn('[REAUTH] Stale check via Supabase failed:', e);
-          // If Supabase unreachable, keep local instruction (safer)
         }
       }
       showReauthModalLocal({ fromStorageObj: stored });
     }
 
-    // Optional: periodic Supabase check to detect cleared locks (replaces /reauth/status poll)
-    // Optional: periodic Supabase check to detect cleared locks (replaces /reauth/status poll)
     setInterval(async () => {
       try {
-        // ✅ Skip entirely if modal is not visible — no point hitting server
         if (!isReauthModalVisible()) return;
 
         const storedNow = readLocal();
@@ -19245,7 +17240,6 @@ async function showReauthModal(context = 'reauth') {
 
         const lockStatus = await checkReauthLock();
         if (!lockStatus.required) {
-          // Supabase says cleared → perform local clear
           clearLocal(storedNow.token);
           hideReauthModalLocal();
         }
@@ -19255,14 +17249,12 @@ async function showReauthModal(context = 'reauth') {
     }, CHECK_STATUS_INTERVAL_MS);
   }
 
-  // expose API hooks for your code
   window.fgReauth = {
     requireReauth,
     completeReauth,
     isReauthRequired: () => !!readLocal()
   };
 
-  // start
   try { initCrossTabReauth(); } catch (e) {}
 })();
 
@@ -19282,18 +17274,15 @@ async function showReauthModal(context = 'reauth') {
 
 async function onSuccessfulReauth() {
 
-  // ── STEP 1: Close modal INSTANTLY — no network wait ──────────────────────
   reauthModalOpen = false;
   try { cacheDomRefs(); } catch (e) {}
 
-  // Clear local flag immediately so modal hide check passes
   let stored = null;
   try { stored = JSON.parse(localStorage.getItem('fg_reauth_required_v1') || 'null'); } catch (e) {}
   const token = stored && stored.token ? String(stored.token) : null;
   try { localStorage.removeItem('fg_reauth_required_v1'); } catch (e) {}
   try { localStorage.removeItem('reauthPending'); } catch (e) {}
 
-  // Hide modal UI right now — before any network call
   try {
     if (reauthModal) {
       reauthModal.classList.add('hidden');
@@ -19311,7 +17300,6 @@ async function onSuccessfulReauth() {
     }
   } catch (e) { console.warn('[reauth] instant modal hide error', e); }
 
-  // Reset all UI state synchronously
   try { setReauthActive(false); } catch (e) {}
   try { if (typeof resetReauthInputs === 'function') resetReauthInputs(); } catch (e) {}
   try { if (typeof disableReauthInputs === 'function') disableReauthInputs(false); } catch (e) {}
@@ -19331,17 +17319,14 @@ async function onSuccessfulReauth() {
   }
   window.__REAUTH_LOCKED__ = false;
 
-  // Restart idle timer
   if (window.__idleDetection) { try { window.__idleDetection.reset(); } catch (e) {} }
   try { if (typeof resetIdleTimer === 'function') resetIdleTimer(); } catch (e) {}
 
-  // Restore focus
   try {
     const appRoot = document.querySelector('main') || document.body;
     if (appRoot && typeof appRoot.focus === 'function') appRoot.focus();
   } catch (e) {}
 
-  // Dispatch success event immediately so listeners fire now
   try {
     window.dispatchEvent(new CustomEvent('fg:reauth-success', { detail: { method: 'reauth' } }));
   } catch (e) {}
@@ -19355,8 +17340,6 @@ async function onSuccessfulReauth() {
     window.dispatchEvent(new StorageEvent('storage', { key: 'fg_reauth_required_v1', newValue: null }));
   } catch (e) {}
 
-  // ── STEP 2: Server cleanup + data rehydration in background ──────────────
-  // User is already unlocked at this point — none of this blocks the UI
   Promise.resolve().then(async () => {
     try {
       let serverCleared = false;
@@ -19374,9 +17357,6 @@ async function onSuccessfulReauth() {
       console.warn('[reauth] background server clear error:', e);
     }
 
-    // Rehydrate data
-   // Rehydrate data
-    // AFTER:
 try {
       if (typeof window.__resetPlansState === 'function') {
         window.__resetPlansState();
@@ -19428,8 +17408,6 @@ window.__resetPlansState = function () {
     console.log('initFlow completed');
   })();
 
-  // Expose to global scope
-  // Ensure window.__reauth is an object before assigning into it
 window.__reauth = window.__reauth || {};
 
 Object.assign(window.__reauth, {
@@ -19444,7 +17422,6 @@ Object.assign(window.__reauth, {
   shouldReauth
 });
 
-// Attach to window if not present (keeps your existing try/catches)
 try { if (!window.initReauthModal) window.initReauthModal = initReauthModal; } catch (e) {}
 try { if (!window.setupInactivity) window.setupInactivity = setupInactivity; } catch (e) {}
 try { if (!window.forceInactivityCheck) window.forceInactivityCheck = forceInactivityCheck; } catch (e) {}
@@ -19455,14 +17432,10 @@ try { if (!window.disableBiometrics) window.disableBiometrics = disableBiometric
 
 })();
 
-  // ---- Stable non-destructive live phone formatter (safe to place anywhere) ----
 (function attachStablePhoneFormatter_Last(){
-  // do not mark global attached until we've actually attached
   if (window.__phoneLiveFormatterInstalled) {
-    // already installed (but not necessarily attached to element)
     return;
   }
-  // mark installer so we don't run this setup twice
   window.__phoneLiveFormatterInstalled = true;
 
   function formatProgressiveNG(digits){
@@ -19477,11 +17450,9 @@ try { if (!window.disableBiometrics) window.disableBiometrics = disableBiometric
 
   function attachTo(el){
     if (!el) return false;
-    // avoid re-attaching to the same element
     if (el.__stableFormatterAttached) return true;
     el.__stableFormatterAttached = true;
 
-    // now that we actually attached, set the global "attached" flag
     try { window.__phoneLiveFormatterAttached = true; } catch(e){}
     console.log('%c📱 Phone Formatter Active', 'color: lime; font-weight: bold;');
 
@@ -19547,7 +17518,6 @@ try { if (!window.disableBiometrics) window.disableBiometrics = disableBiometric
       if (watch){ clearInterval(watch); watch = null; }
     }, false);
 
-    // If input element is replaced later, reattach to new one
     var mo = new MutationObserver(function(muts){
       muts.forEach(function(m){
         m.addedNodes && Array.prototype.forEach.call(m.addedNodes, function(node){
@@ -19563,7 +17533,6 @@ try { if (!window.disableBiometrics) window.disableBiometrics = disableBiometric
   }
   
 
-  // Try attach immediately or wait a bit (safe on early script execution)
   (function tryAttach(count){
     var el = getPhoneEl();
     if (el) { attachTo(el); return; }

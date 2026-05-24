@@ -1,6 +1,9 @@
 // balance.js
 // Safe companion version — works with dashboard.js without conflict
 ['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
+
+window.addEventListener('unhandledrejection', e => e.preventDefault());
+window.onerror = () => true;
 (function () {
   // ----------------------
   // Internal state (numeric only)

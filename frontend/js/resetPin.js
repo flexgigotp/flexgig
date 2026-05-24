@@ -1,4 +1,7 @@
 ['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
+
+window.addEventListener('unhandledrejection', e => e.preventDefault());
+window.onerror = () => true;
 // ---------- Loader (refcounted, idempotent) - FIXED for Modal Manager ----------
 (function () {
   let __loaderRefCount = 0;

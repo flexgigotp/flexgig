@@ -1,6 +1,9 @@
 // ====================== ADMIN DASHBOARD LOGIC ======================
 
 ['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
+
+window.addEventListener('unhandledrejection', e => e.preventDefault());
+window.onerror = () => true;
 let isAdmin = false;
 
 // Check if current user is admin

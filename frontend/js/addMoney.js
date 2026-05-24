@@ -1,5 +1,7 @@
-// --- API helper ---
 ['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
+
+window.addEventListener('unhandledrejection', e => e.preventDefault());
+window.onerror = () => true;
 window.__SEC_API_BASE = window.__SEC_API_BASE || 'https://api.flexgig.com.ng';
 
 async function apiFetch(path, opts = {}) {
