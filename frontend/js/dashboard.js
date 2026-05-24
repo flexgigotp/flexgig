@@ -466,6 +466,7 @@ window.getSharedAuthClient = getSharedAuthClient;
       ...options,
       credentials: 'include',
       headers: {
+        'X-Requested-With': 'XMLHttpRequest',
         ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         ...options.headers, // preserve caller's headers (X-PIN-TOKEN etc.)
       }
