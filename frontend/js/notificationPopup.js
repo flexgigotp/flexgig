@@ -1,3 +1,4 @@
+['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 // notificationPopup.js
 // ============================================================
 // FLEXGIG — LOGIN / DASHBOARD NOTIFICATION POPUP SYSTEM

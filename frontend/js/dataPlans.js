@@ -1,5 +1,5 @@
 // dataPlans.js with Supabase Realtime
-
+['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 let plansCache = [];
 let cacheUpdatedAt = null;
 const CACHE_KEY = 'cached_data_plans_v12';

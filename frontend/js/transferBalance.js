@@ -1,3 +1,4 @@
+['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 // frontend/js/transferBalance.js
 (function () {
   'use strict';

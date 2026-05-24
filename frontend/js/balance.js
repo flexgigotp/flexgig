@@ -1,6 +1,6 @@
 // balance.js
 // Safe companion version — works with dashboard.js without conflict
-
+['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 (function () {
   // ----------------------
   // Internal state (numeric only)

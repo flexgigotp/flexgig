@@ -1,3 +1,4 @@
+['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 // ReferralModule — production-ready client for referral modal (updated: site link + username-only code + native WhatsApp)
 (() => {
   const LOG_PREFIX = '[REF-MOD]';

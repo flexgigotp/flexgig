@@ -1,3 +1,4 @@
+['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 const BACKEND_URL = 'https://api.flexgig.com.ng';
 
 (() => {

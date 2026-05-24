@@ -1,3 +1,4 @@
+['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 // ---------- Loader (refcounted, idempotent) - FIXED for Modal Manager ----------
 (function () {
   let __loaderRefCount = 0;

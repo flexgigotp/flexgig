@@ -2,6 +2,7 @@
    Handles checkout modal display, payment processing, and authentication
    Integrates with dashboard.js for user state and biometric/PIN verification
 */
+['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 
 console.log('[checkout] Module loaded 🛒');
 

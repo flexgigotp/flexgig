@@ -1,5 +1,6 @@
 // dashboard.js
 // === PREVENT UNWANTED AUTO-SCROLL ON RELOAD (lightweight hack) ===
+['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 (function() {
   // Attaching a focusin listener early often blocks browser auto-focus/scroll restore
   document.addEventListener('focusin', () => {}, { passive: true });

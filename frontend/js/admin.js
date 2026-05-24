@@ -1,6 +1,6 @@
 // ====================== ADMIN DASHBOARD LOGIC ======================
 
-
+['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 let isAdmin = false;
 
 // Check if current user is admin

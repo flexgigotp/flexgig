@@ -5,7 +5,7 @@
    - Sticky month headers that push each other
    - Accurate month filtering from server data
 */
-
+['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 (() => {
   'use strict';
 
