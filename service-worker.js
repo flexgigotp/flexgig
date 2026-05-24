@@ -1,3 +1,4 @@
+['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 console.log('service-worker.js: Loaded');
 
 const APP_VERSION = '1.0.5'; // only bump this on each deploy
