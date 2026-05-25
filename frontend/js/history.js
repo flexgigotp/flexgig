@@ -5,10 +5,10 @@
    - Sticky month headers that push each other
    - Accurate month filtering from server data
 */
-['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
+// ['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 
-window.addEventListener('unhandledrejection', e => e.preventDefault());
-window.onerror = () => true;
+// window.addEventListener('unhandledrejection', e => e.preventDefault());
+// window.onerror = () => true;
 (() => {
   'use strict';
 
@@ -1245,7 +1245,6 @@ function startTransactionReport(tx) {
 window.startTransactionReport = startTransactionReport;
 
 window.showTransactionReceipt = showTransactionReceipt;
-window.reportTransactionIssue = reportTransactionIssue;
 window.shareReceipt = shareReceipt;
 
 /**
