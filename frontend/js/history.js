@@ -933,18 +933,9 @@ const descriptionLine = (() => {
 
                 <!-- Action Buttons -->
                 <div style="display:flex;gap:12px;margin-top:auto;padding-bottom:env(safe-area-inset-bottom);">
-                    <button onclick="startTransactionReport(${JSON.stringify({
-  id: tx.id || tx.reference,
-  reference: tx.reference || tx.id,
-  amount: tx.amount,
-  status: tx.status,
-  created_at: tx.time || tx.created_at,
-  description: tx.description,
-  provider: tx.provider,
-  phone: tx.phone
-})})" style="flex:1;background:#2c2c2c;color:#00d4aa;border:1.5px solid #00d4aa;border-radius:50px;padding:14px;font-weight:600;cursor:pointer;font-size:14px;">
-                        Report Issue
-                    </button>
+                    <button data-report-btn style="flex:1;background:#2c2c2c;color:#00d4aa;border:1.5px solid #00d4aa;border-radius:50px;padding:14px;font-weight:600;cursor:pointer;font-size:14px;">
+    Report Issue
+</button>
                 </div>
             </div>
         </div>
@@ -977,6 +968,23 @@ const descriptionLine = (() => {
     `;
 
     wrapper.innerHTML = receiptContent;
+
+    // Report button — wire up after innerHTML set
+const reportBtn = wrapper.querySelector('[data-report-btn]');
+if (reportBtn) {
+    reportBtn.addEventListener('click', () => {
+        startTransactionReport({
+            id:          tx.id || tx.reference,
+            reference:   tx.reference || tx.id,
+            amount:      tx.amount,
+            status:      tx.status,
+            created_at:  tx.time || tx.created_at,
+            description: tx.description,
+            provider:    tx.provider,
+            phone:       tx.phone
+        });
+    });
+}
 
     // Copy button functionality
     const copyBtn = wrapper.querySelector('[data-copy-btn]');
