@@ -513,10 +513,15 @@ function setAdminActive() {
     },
     fxgReceiptModal: { id: 'fxg-transfer-receipt-modal', element: null, hasPullHandle: false },
       receiptModal: { 
-    id: 'receiptModal', 
-    element: null, 
-    hasPullHandle: false 
-  },
+        id: 'receiptModal', 
+        element: null, 
+        hasPullHandle: false 
+      },
+      reportModal: {
+        id: 'reportModal',
+        element: null,
+        hasPullHandle: false
+      },
   kycVerifyModal: { id: 'kycVerifyModal', element: null, hasPullHandle: false },
   };
 
@@ -531,6 +536,7 @@ const bottomSheetModals = [
   'fxg-transfer-confirm-modal',
   'fxgReceiptModal',
   'receiptModal',
+  'reportModal',
   'kycVerifyModal',
 ];
 

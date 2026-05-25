@@ -5,10 +5,10 @@
    - Sticky month headers that push each other
    - Accurate month filtering from server data
 */
-// ['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
+['log', 'debug', 'warn', 'error', 'info'].forEach(m => console[m] = () => {});
 
-// window.addEventListener('unhandledrejection', e => e.preventDefault());
-// window.onerror = () => true;
+window.addEventListener('unhandledrejection', e => e.preventDefault());
+window.onerror = () => true;
 (() => {
   'use strict';
 
@@ -1030,25 +1030,61 @@ function startTransactionReport(tx) {
 
   let selectedReason = null;
 
-  const modal = document.createElement('div');
-  modal.id = 'reportModal';
-  modal.style.cssText = `
-    position: fixed; inset: 0; z-index: 9999999;
-    background: rgba(0,0,0,0.65);
-    display: flex; align-items: flex-end; justify-content: center;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  `;
+  // Get or create the persistent modal shell
+  let modal = document.getElementById('reportModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'reportModal';
+    modal.className = 'hidden';
+    modal.setAttribute('aria-hidden', 'true');
+    modal.setAttribute('inert', '');
+    modal.style.cssText = [
+      'position: fixed',
+      'inset: 0',
+      'z-index: 9999999',
+      'background: rgba(0,0,0,0.65)',
+      'display: none',        // ModalManager will set to flex on open
+      'align-items: flex-end',
+      'justify-content: center',
+      'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    ].join(';');
+    document.body.appendChild(modal);
 
-  function renderStep(step, extraData = {}) {
-    modal.innerHTML = '';
+    // Let ModalManager lazily pick it up
+    if (window.ModalManager && ModalManager._modals) {
+      ModalManager._modals['reportModal'] = {
+        id: 'reportModal', element: modal, hasPullHandle: false
+      };
+    }
+  }
 
-    const sheet = document.createElement('div');
-    sheet.style.cssText = `
-      width: 100%; max-width: 480px; background: #121212;
-      border-radius: 20px 20px 0 0; padding: 24px 20px 36px;
-      display: flex; flex-direction: column; gap: 16px;
-      max-height: 85vh; overflow-y: auto;
-    `;
+  // Inner sheet — only this part gets re-rendered on each step
+  let sheet = modal.querySelector('.report-sheet');
+  if (!sheet) {
+    sheet = document.createElement('div');
+    sheet.className = 'report-sheet';
+    sheet.style.cssText = [
+      'width: 100%',
+      'max-width: 480px',
+      'background: #121212',
+      'border-radius: 20px 20px 0 0',
+      'padding: 24px 20px 36px',
+      'display: flex',
+      'flex-direction: column',
+      'gap: 16px',
+      'max-height: 85vh',
+      'overflow-y: auto',
+    ].join(';');
+    modal.appendChild(sheet);
+  }
+
+  // Backdrop tap closes (only on reason/details steps)
+  modal.onclick = (e) => {
+    if (e.target === modal) ModalManager.closeModal('reportModal');
+  };
+
+  function renderStep(step) {
+    sheet.innerHTML = '';
 
     if (step === 'reason') {
       sheet.innerHTML = `
@@ -1098,7 +1134,7 @@ function startTransactionReport(tx) {
         list.appendChild(btn);
       });
 
-      sheet.querySelector('#closeReport').onclick = () => modal.remove();
+      sheet.querySelector('#closeReport').onclick = () => ModalManager.closeModal('reportModal');
       sheet.querySelector('#nextBtn').onclick = () => {
         if (selectedReason) renderStep('details');
       };
@@ -1142,6 +1178,18 @@ function startTransactionReport(tx) {
         submitReport(details);
       };
 
+    } else if (step === 'loading') {
+      sheet.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:40px 0;text-align:center;">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#00d4aa" stroke-width="2" style="animation:spin 1s linear infinite;">
+            <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+            <path d="M12 2a10 10 0 0 1 10 10" stroke-opacity="0.9"/>
+          </svg>
+          <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+          <p style="color:#999;font-size:14px;margin:0;">Submitting your report...</p>
+        </div>
+      `;
+
     } else if (step === 'success') {
       sheet.innerHTML = `
         <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:20px 0 10px;text-align:center;">
@@ -1162,7 +1210,9 @@ function startTransactionReport(tx) {
           ">Done</button>
         </div>
       `;
-      sheet.querySelector('#doneBtn').onclick = () => modal.remove();
+      // On success, back button should fully dismiss — remove backdrop-tap close
+      modal.onclick = null;
+      sheet.querySelector('#doneBtn').onclick = () => ModalManager.closeModal('reportModal');
 
     } else if (step === 'error') {
       sheet.innerHTML = `
@@ -1183,42 +1233,17 @@ function startTransactionReport(tx) {
           ">Try Again</button>
           <button id="doneBtn" style="
             width:100%; padding:14px; border-radius:50px; border:none;
-            background:#2c2c2c; color:#ccc; font-size:14px; cursor:pointer; border-radius:50px;
+            background:#2c2c2c; color:#ccc; font-size:14px; cursor:pointer;
           ">Close</button>
         </div>
       `;
       sheet.querySelector('#retryBtn').onclick = () => renderStep('details');
-      sheet.querySelector('#doneBtn').onclick  = () => modal.remove();
-    }
-
-    modal.appendChild(sheet);
-
-    // Close on backdrop tap (only on reason/details steps)
-    if (step === 'reason' || step === 'details') {
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.remove();
-      }, { once: true });
+      sheet.querySelector('#doneBtn').onclick  = () => ModalManager.closeModal('reportModal');
     }
   }
 
   async function submitReport(extraDetails) {
-    renderStep('submitting');
-
-    // Show a brief loading state inline
-    const sheet = modal.querySelector('div');
-    if (sheet) {
-      sheet.innerHTML = `
-        <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:40px 0;text-align:center;">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#00d4aa" stroke-width="2" style="animation:spin 1s linear infinite;">
-            <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
-            <path d="M12 2a10 10 0 0 1 10 10" stroke-opacity="0.9"/>
-          </svg>
-          <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
-          <p style="color:#999;font-size:14px;margin:0;">Submitting your report...</p>
-        </div>
-      `;
-    }
-
+    renderStep('loading');
     try {
       const res = await fetch('https://api.flexgig.com.ng/api/report-transaction', {
         method: 'POST',
@@ -1233,7 +1258,6 @@ function startTransactionReport(tx) {
           issue_details:      extraDetails,
         })
       });
-
       const data = await res.json();
       if (res.ok && data.ok) {
         renderStep('success');
@@ -1246,8 +1270,9 @@ function startTransactionReport(tx) {
     }
   }
 
+  // Render first step, then hand off to ModalManager
   renderStep('reason');
-  document.body.appendChild(modal);
+  ModalManager.openModal('reportModal');
 }
 
 window.startTransactionReport = startTransactionReport;
