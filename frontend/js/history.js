@@ -933,7 +933,16 @@ const descriptionLine = (() => {
 
                 <!-- Action Buttons -->
                 <div style="display:flex;gap:12px;margin-top:auto;padding-bottom:env(safe-area-inset-bottom);">
-                    <button onclick="reportTransactionIssue('${tx.id || tx.reference}')" style="flex:1;background:#2c2c2c;color:#00d4aa;border:1.5px solid #00d4aa;border-radius:50px;padding:14px;font-weight:600;cursor:pointer;font-size:14px;">
+                    <button onclick="startTransactionReport(${JSON.stringify({
+  id: tx.id || tx.reference,
+  reference: tx.reference || tx.id,
+  amount: tx.amount,
+  status: tx.status,
+  created_at: tx.time || tx.created_at,
+  description: tx.description,
+  provider: tx.provider,
+  phone: tx.phone
+})})" style="flex:1;background:#2c2c2c;color:#00d4aa;border:1.5px solid #00d4aa;border-radius:50px;padding:14px;font-weight:600;cursor:pointer;font-size:14px;">
                         Report Issue
                     </button>
                 </div>
@@ -1001,10 +1010,239 @@ const descriptionLine = (() => {
     ModalManager.openModal('receiptModal');
 }
 
-function reportTransactionIssue(txId) {
-    alert('Report issue for transaction ' + txId + '\n\nThis will open support chat in production');
-    ModalManager.closeModal('receiptModal');
+const REPORT_REASONS = [
+  { id: 'not_received',   label: 'Data not received',          desc: 'You were charged but data was never delivered' },
+  { id: 'not_delivered',  label: 'Charged but not delivered',  desc: 'Payment left wallet but transaction shows failed' },
+  { id: 'wrong_amount',   label: 'Wrong amount charged',       desc: 'A different amount was deducted than expected' },
+  { id: 'other',          label: 'Other issue',                desc: 'Any other problem not listed above' },
+];
+
+function startTransactionReport(tx) {
+  ModalManager.closeModal('receiptModal');
+
+  let selectedReason = null;
+
+  const modal = document.createElement('div');
+  modal.id = 'reportModal';
+  modal.style.cssText = `
+    position: fixed; inset: 0; z-index: 9999999;
+    background: rgba(0,0,0,0.65);
+    display: flex; align-items: flex-end; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  `;
+
+  function renderStep(step, extraData = {}) {
+    modal.innerHTML = '';
+
+    const sheet = document.createElement('div');
+    sheet.style.cssText = `
+      width: 100%; max-width: 480px; background: #121212;
+      border-radius: 20px 20px 0 0; padding: 24px 20px 36px;
+      display: flex; flex-direction: column; gap: 16px;
+      max-height: 85vh; overflow-y: auto;
+    `;
+
+    if (step === 'reason') {
+      sheet.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <h2 style="color:#fff;font-size:18px;font-weight:700;margin:0;">Report Transaction</h2>
+          <button id="closeReport" style="background:none;border:none;color:#888;font-size:24px;cursor:pointer;line-height:1;">×</button>
+        </div>
+        <div style="color:#999;font-size:13px;line-height:1.5;">
+          Ref: <span style="color:#ccc;font-family:monospace;">${tx.reference}</span>
+          &nbsp;·&nbsp; ₦${Number(tx.amount||0).toLocaleString('en-NG',{minimumFractionDigits:2})}
+        </div>
+        <p style="color:#ccc;font-size:14px;margin:0;">What is the issue?</p>
+        <div id="reasonList" style="display:flex;flex-direction:column;gap:10px;"></div>
+        <button id="nextBtn" disabled style="
+          margin-top:8px; padding:14px; border-radius:50px; border:none;
+          background:#333; color:#666; font-size:15px; font-weight:600;
+          cursor:not-allowed; transition:all 0.2s;
+        ">Continue</button>
+      `;
+
+      const list = sheet.querySelector('#reasonList');
+      REPORT_REASONS.forEach(r => {
+        const btn = document.createElement('button');
+        btn.style.cssText = `
+          background:#1e1e1e; border:1.5px solid #333; border-radius:12px;
+          padding:14px 16px; text-align:left; cursor:pointer; transition:all 0.2s;
+          display:flex; flex-direction:column; gap:4px;
+        `;
+        btn.innerHTML = `
+          <span style="color:#fff;font-size:14px;font-weight:600;">${r.label}</span>
+          <span style="color:#777;font-size:12px;">${r.desc}</span>
+        `;
+        btn.addEventListener('click', () => {
+          list.querySelectorAll('button').forEach(b => {
+            b.style.borderColor = '#333';
+            b.style.background = '#1e1e1e';
+          });
+          btn.style.borderColor = '#00d4aa';
+          btn.style.background = '#0d2b26';
+          selectedReason = r;
+          const next = sheet.querySelector('#nextBtn');
+          next.disabled = false;
+          next.style.background = 'linear-gradient(90deg,#00d4aa,#00bfa5)';
+          next.style.color = '#fff';
+          next.style.cursor = 'pointer';
+        });
+        list.appendChild(btn);
+      });
+
+      sheet.querySelector('#closeReport').onclick = () => modal.remove();
+      sheet.querySelector('#nextBtn').onclick = () => {
+        if (selectedReason) renderStep('details');
+      };
+
+    } else if (step === 'details') {
+      sheet.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button id="backBtn" style="background:none;border:none;color:#00d4aa;cursor:pointer;padding:4px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+          </button>
+          <h2 style="color:#fff;font-size:18px;font-weight:700;margin:0;">Add Details</h2>
+        </div>
+        <div style="background:#1e1e1e;border-radius:10px;padding:12px 14px;color:#ccc;font-size:13px;">
+          Issue: <strong style="color:#fff;">${selectedReason.label}</strong>
+        </div>
+        <p style="color:#999;font-size:13px;margin:0;">Optional: describe the issue in a few words.</p>
+        <textarea id="detailsInput" rows="4" placeholder="e.g. Sent to 08012345678 but no data received..." style="
+          background:#1e1e1e; border:1.5px solid #333; border-radius:12px;
+          padding:14px; color:#fff; font-size:14px; resize:none;
+          outline:none; width:100%; box-sizing:border-box; font-family:inherit;
+        "></textarea>
+        <div style="display:flex;gap:10px;margin-top:4px;">
+          <button id="skipBtn" style="
+            flex:1; padding:14px; border-radius:50px; border:1.5px solid #444;
+            background:transparent; color:#ccc; font-size:14px; font-weight:600; cursor:pointer;
+          ">Skip</button>
+          <button id="submitBtn" style="
+            flex:2; padding:14px; border-radius:50px; border:none;
+            background:linear-gradient(90deg,#00d4aa,#00bfa5); color:#fff;
+            font-size:15px; font-weight:600; cursor:pointer;
+          ">Submit Report</button>
+        </div>
+      `;
+
+      sheet.querySelector('#backBtn').onclick = () => renderStep('reason');
+      sheet.querySelector('#skipBtn').onclick  = () => submitReport('');
+      sheet.querySelector('#submitBtn').onclick = () => {
+        const details = sheet.querySelector('#detailsInput').value.trim().slice(0, 300);
+        submitReport(details);
+      };
+
+    } else if (step === 'success') {
+      sheet.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:20px 0 10px;text-align:center;">
+          <div style="width:64px;height:64px;border-radius:50%;background:#0d2b26;display:flex;align-items:center;justify-content:center;">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#00d4aa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 6L9 17l-5-5"/>
+            </svg>
+          </div>
+          <h2 style="color:#fff;font-size:20px;font-weight:700;margin:0;">Report Submitted</h2>
+          <p style="color:#999;font-size:14px;line-height:1.6;margin:0;">
+            Our support team will review your report within 24 hours.<br>
+            <span style="color:#666;font-size:12px;font-family:monospace;">Ref: ${tx.reference}</span>
+          </p>
+          <button id="doneBtn" style="
+            width:100%; margin-top:8px; padding:14px; border-radius:50px; border:none;
+            background:linear-gradient(90deg,#00d4aa,#00bfa5); color:#fff;
+            font-size:15px; font-weight:600; cursor:pointer;
+          ">Done</button>
+        </div>
+      `;
+      sheet.querySelector('#doneBtn').onclick = () => modal.remove();
+
+    } else if (step === 'error') {
+      sheet.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:20px 0 10px;text-align:center;">
+          <div style="width:64px;height:64px;border-radius:50%;background:#2b1010;display:flex;align-items:center;justify-content:center;">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ff3b30" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
+            </svg>
+          </div>
+          <h2 style="color:#fff;font-size:20px;font-weight:700;margin:0;">Submission Failed</h2>
+          <p style="color:#999;font-size:14px;line-height:1.6;margin:0;">
+            We couldn't reach support right now.<br>
+            Please contact us directly at <strong style="color:#fff;">+2349160227505</strong>
+          </p>
+          <button id="retryBtn" style="
+            width:100%; padding:14px; border-radius:50px; border:1.5px solid #00d4aa;
+            background:transparent; color:#00d4aa; font-size:15px; font-weight:600; cursor:pointer;
+          ">Try Again</button>
+          <button id="doneBtn" style="
+            width:100%; padding:14px; border-radius:50px; border:none;
+            background:#2c2c2c; color:#ccc; font-size:14px; cursor:pointer; border-radius:50px;
+          ">Close</button>
+        </div>
+      `;
+      sheet.querySelector('#retryBtn').onclick = () => renderStep('details');
+      sheet.querySelector('#doneBtn').onclick  = () => modal.remove();
+    }
+
+    modal.appendChild(sheet);
+
+    // Close on backdrop tap (only on reason/details steps)
+    if (step === 'reason' || step === 'details') {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+      }, { once: true });
+    }
+  }
+
+  async function submitReport(extraDetails) {
+    renderStep('submitting');
+
+    // Show a brief loading state inline
+    const sheet = modal.querySelector('div');
+    if (sheet) {
+      sheet.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:40px 0;text-align:center;">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#00d4aa" stroke-width="2" style="animation:spin 1s linear infinite;">
+            <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+            <path d="M12 2a10 10 0 0 1 10 10" stroke-opacity="0.9"/>
+          </svg>
+          <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+          <p style="color:#999;font-size:14px;margin:0;">Submitting your report...</p>
+        </div>
+      `;
+    }
+
+    try {
+      const res = await fetch('https://api.flexgig.com.ng/api/report-transaction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'include',
+        body: JSON.stringify({
+          transaction_ref:    tx.reference,
+          transaction_amount: tx.amount,
+          transaction_status: tx.status,
+          transaction_date:   tx.created_at,
+          issue_reason:       selectedReason.label,
+          issue_details:      extraDetails,
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        renderStep('success');
+      } else {
+        renderStep('error');
+      }
+    } catch (err) {
+      console.error('[Report]', err);
+      renderStep('error');
+    }
+  }
+
+  renderStep('reason');
+  document.body.appendChild(modal);
 }
+
+window.startTransactionReport = startTransactionReport;
 
 window.showTransactionReceipt = showTransactionReceipt;
 window.reportTransactionIssue = reportTransactionIssue;
