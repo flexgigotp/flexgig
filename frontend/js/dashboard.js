@@ -16346,6 +16346,10 @@ async function clearServerLock() {
    */
   async function showReauthModalSafe(options) {
     try {
+      if (window.__REAUTH_COMPLETING__) {
+        console.log('[REAUTH-LOCK] showReauthModalSafe suppressed — reauth completing');
+        return;
+      }
       console.log('[REAUTH-LOCK] Showing reauth modal');
       
       if (window.__reauth && typeof window.__reauth.showReauthModal === 'function') {
@@ -17121,6 +17125,10 @@ async function showReauthModal(context = 'reauth') {
 
   async function showReauthModalLocal({ fromStorageObj } = {}) {
     try {
+      if (window.__REAUTH_COMPLETING__) {
+        console.log('[reauth] showReauthModalLocal suppressed — reauth completing');
+        return;
+      }
       cacheDomRefs();
       if (typeof initReauthModal === 'function') {
         await initReauthModal({ show: true, context: 'reauth' });
@@ -17274,6 +17282,7 @@ async function showReauthModal(context = 'reauth') {
   }
 
 async function onSuccessfulReauth() {
+  window.__REAUTH_COMPLETING__ = true;
 
   reauthModalOpen = false;
   try { cacheDomRefs(); } catch (e) {}
@@ -17372,6 +17381,7 @@ try {
     } catch (e) {
       console.warn('[reauth] background data rehydration failed:', e);
     }
+    window.__REAUTH_COMPLETING__ = false;
   });
 
   return true;
