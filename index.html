@@ -17,14 +17,14 @@
   <meta name="twitter:creator" content="@Flexgig">
   <meta property="og:title" content="Flexgig — Cheap Data Plug">
   <meta property="og:description" content="Get affordable data, convert excess airtime to cash, and pay utility bills - all with great user experience and speed.">
-  <meta property="og:url" content="https://www.flexgig.com.ng">
+  <meta property="og:url" content="https://flexgig.com.ng">
   <meta property="og:image" content="https://flexgig.com.ng/frontend/img/Monthly_5gb.jpg">  
   <meta property="og:image:alt" content="Flexgig Data">
   <meta property="og:image:width" content="512">
   <meta property="og:image:height" content="512">
   <meta property="og:type" content="website">
   <meta property="og:image:type" content="image/jpeg">
-  <link rel="canonical" href="https://www.flexgig.com.ng">
+  <link rel="canonical" href="https://flexgig.com.ng">
 
   <!-- Styles -->
   <link rel="stylesheet" href="frontend/styles/main.css">
@@ -91,7 +91,6 @@
 <body>
 <style>#__next { visibility: hidden; }</style>
 <script>
-  // Check session INSTANTLY before any UI renders
   fetch('https://api.flexgig.com.ng/api/session', { credentials: 'include' })
     .then(res => res.ok ? res.json() : null)
     .then(data => {
@@ -339,16 +338,6 @@
               <p class="text-body2 w-full text-center font-poppins text-n7 font-semibold tracking-wide">Continue with Google</p>
             </button>
           </a>
-          <!-- <a class="telegram-button relative w-full text-center text-white/90 dark:text-white/80 shadow-button font-poppins max-w-sm h-16 rounded-full flex items-center space-x-4 bg-[#229ED9]/90 hover:bg-[#229ED9] transition" href="tg://resolve?domain=flexgig">
-            <span class="h-16 w-20 flex items-center justify-center absolute">
-              
-               <svg xmlns="http://www.w3.org/2000/svg" class="size-6" viewBox="0 0 24 24" aria-label="Telegram Icon">
-                <path fill="#FFF" d="M21.73 4.16c.06-.28-.04-.56-.25-.74 -.22-.19-.51-.23-.77-.13l-18.5 7.5c-.31.12-.5.43-.47.76 .03.32.27.6.59.66l4.55.91 1.87 6.56c.08.29.33.5.63.53 .3.03.59-.12.74-.39l2.06-3.72 4.8 3.93c.2.16.47.21.71.12s.43-.3.48-.55l3.5-15.5Z"></path>
-                <path fill="#FFF" fill-rule="evenodd" d="M21.72 4.17c-.03.1-.08.21-.15.3l-8.84 10.79 -.48.92 -.06-.05 -2.07 3.71c-.15.26-.44.41-.75.38 -.31-.04-.56-.25-.64-.54l-1.88-6.57 -1.33-.27 1.5-1.01 .01-.02 13.5-8.5c.03-.03.07-.05.1-.06l0-.01c.1-.05.22-.07.33-.06 .03 0 .06 0 .1.01 .11.02.23.07.32.16 .01.01.02.02.03.03 0 0 0 0 0 0 .01.01.02.02.03.03 .01.02.03.04.05.06 .12.17.16.38.11.59l-.01 0Z"></path>
-              </svg>
-            </span>
-            <p class="text-body2 w-full text-n0 font-poppins font-semibold tracking-wide">Use Telegram Bot</p>
-          </a> -->
           <a id="emailLoginBtn" class="relative w-full text-center text-[#ff]/70 dark:shadow-none shadow-button bg-n0 dark:text-n05/90 dark:bg-[#292929] font-poppins max-w-sm h-16 rounded-full flex items-center space-x-4" href="/auth/email">
             <span class="h-16 w-20 flex items-center justify-center absolute">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6" aria-label="Email Icon">
@@ -391,33 +380,47 @@
         <div class="text-center my-4 space-y-[0.5px] font-poppins rounded tracking-wider leading-relaxed">
           <p class="font-semibold text-[0.7rem] dark:text-n05/85" id="fus">Follow Us</p>
           <div class="flex flex-wrap justify-center space-x-2">
-            <a href="tg://resolve?domain=flexgig" class="flex items-center font-poppins bg-n0 dark:bg-[#292929] w-fit dark:shadow-none shadow-button rounded-full">
+            <a href="tg://resolve?domain=flexgigng" class="flex items-center font-poppins bg-n0 dark:bg-[#292929] w-fit dark:shadow-none shadow-button rounded-full">
               <span class="size-10 flex items-center justify-center rounded-full">
                 <!-- SVG Placeholder: Telegram Icon (Follow Us) -->
-                 <svg xmlns="http://www.w3.org/2000/svg" class="size-5" viewBox="0 0 24 24" aria-label="Telegram Icon">
+                 <svg xmlns="http://www.w3.org/2000/svg" class="size-5" viewBox="0 0 24 24" aria-label="Telegram Channel">
                   <path fill="#5E94FF" d="M21.73 4.16c.06-.28-.04-.56-.25-.74 -.22-.19-.51-.23-.77-.13l-18.5 7.5c-.31.12-.5.43-.47.76 .03.32.27.6.59.66l4.55.91 1.87 6.56c.08.29.33.5.63.53 .3.03.59-.12.74-.39l2.06-3.72 4.8 3.93c.2.16.47.21.71.12s.43-.3.48-.55l3.5-15.5Z"></path>
                   <path fill="#4DC4FF" fill-rule="evenodd" d="M21.72 4.17c-.03.1-.08.21-.15.3l-8.84 10.79 -.48.92 -.06-.05 -2.07 3.71c-.15.26-.44.41-.75.38 -.31-.04-.56-.25-.64-.54l-1.88-6.57 -1.33-.27 1.5-1.01 .01-.02 13.5-8.5c.03-.03.07-.05.1-.06l0-.01c.1-.05.22-.07.33-.06 .03 0 .06 0 .1.01 .11.02.23.07.32.16 .01.01.02.02.03.03 0 0 0 0 0 0 .01.01.02.02.03.03 .01.02.03.04.05.06 .12.17.16.38.11.59l-.01 0Z"></path>
                 </svg>
               </span>
             </a>
-            <a class="w-10 h-10 flex items-center justify-center bg-[#1877F2] rounded-full shadow-button" href="https://www.facebook.com/flexgig" target="_blank" rel="noopener noreferrer" aria-label="Visit our Facebook page">
+            <a class="w-10 h-10 flex items-center justify-center bg-[#1877F2] rounded-full shadow-button" href="https://www.facebook.com/flexgigng" target="_blank" rel="noopener noreferrer" aria-label="Visit our Facebook page">
               <!-- SVG Placeholder: Facebook Icon -->
                <svg class="" width="18" height="18" viewBox="0 0 16 16" role="img" xmlns="http://www.w3.org/2000/svg" fill="#FFFFFF">
-                <title>Facebook Icon</title>
+                <title>Facebook Page</title>
                 <path d="M7.967.017a8 8 0 1 1 0 16 8 8 0 1 1 0-16zm0 1.6a6.4 6.4 0 0 0-6.4 6.4c0 2.982 2.039 5.487 4.799 6.198l.001-4.598h-.8a.8.8 0 1 1 0-1.6h.8v-1.6a2.4 2.4 0 0 1 2.4-2.4h.8a.8.8 0 1 1 0 1.6h0-.8a.8.8 0 0 0-.8.8h0v1.6h1.6a.8.8 0 1 1 0 1.6h0-1.6v4.8a6.4 6.4 0 0 0 0-12.8z"/>
               </svg>
             </a>
-            <a class="w-10 h-10 flex items-center justify-center rounded-full shadow-button" href="https://instagram.com/flexgig" target="_blank" rel="noopener noreferrer" aria-label="Visit our Instagram page" style="background: radial-gradient(circle at 30% 107%, #fdf497 0%, #fd5949 45%, #d6249f 60%, #285AEB 90%)">
-              <!-- SVG Placeholder: Instagram Icon -->
-               <svg class="block mx-auto" width="18" height="18" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="#FFFFFF" role="img">
-                <title>Instagram Icon</title>
-                <path d="M11.2 0A4.8 4.8 0 0 1 16 4.8h0v6.4a4.8 4.8 0 0 1-4.8 4.8h0-6.4A4.8 4.8 0 0 1 0 11.2h0V4.8A4.8 4.8 0 0 1 4.8 0h0zm0 1.6H4.8a3.2 3.2 0 0 0-3.2 3.2v6.4a3.2 3.2 0 0 0 3.2 3.2h6.4a3.2 3.2 0 0 0 3.2-3.2V4.8a3.2 3.2 0 0 0-3.2-3.2zM8 4a4 4 0 1 1 0 8 4 4 0 1 1 0-8zm0 1.6a2.4 2.4 0 0 0 0 4.8 2.4 2.4 0 0 0 0-4.8zm4-2.4a.8.8 0 1 1 0 1.6.8.8 0 1 1 0-1.6z"/>
-              </svg>
-            </a>
-            <a class="w-10 h-10 flex items-center justify-center bg-black rounded-full shadow-button" href="https://twitter.com/flexgig" target="_blank" rel="noopener noreferrer" aria-label="Visit our X profile">
+            <a class="w-10 h-10 flex items-center justify-center rounded-full shadow-button"
+   href="https://whatsapp.com/channel/0029VbDFobWGE56rppyHSt3J"
+   target="_blank"
+   rel="noopener noreferrer"
+   aria-label="Join our WhatsApp Channel"
+   style="background: #25D366;">
+
+  <!-- WhatsApp Icon -->
+  <svg class="block mx-auto"
+       width="18"
+       height="18"
+       viewBox="0 0 24 24"
+       xmlns="http://www.w3.org/2000/svg"
+       fill="#FFFFFF"
+       role="img">
+       
+    <title>WhatsApp Channel</title>
+
+    <path d="M20.52 3.48A11.82 11.82 0 0 0 12.06 0C5.52 0 .18 5.34.18 11.88c0 2.1.54 4.08 1.62 5.88L0 24l6.42-1.68a11.8 11.8 0 0 0 5.64 1.44h.06c6.54 0 11.88-5.34 11.88-11.88 0-3.18-1.26-6.18-3.48-8.4zM12.12 21.6a9.8 9.8 0 0 1-5.04-1.38l-.36-.18-3.78.96 1.02-3.66-.24-.36a9.7 9.7 0 0 1-1.5-5.1c0-5.4 4.38-9.78 9.78-9.78 2.64 0 5.1 1.02 6.96 2.88a9.75 9.75 0 0 1 2.88 6.9c0 5.4-4.38 9.78-9.72 9.78zm5.34-7.32c-.3-.18-1.8-.9-2.1-1.02-.3-.12-.48-.18-.72.18-.18.3-.72 1.02-.9 1.2-.18.18-.3.18-.6.06-.3-.18-1.26-.48-2.4-1.56-.9-.78-1.5-1.8-1.68-2.1-.18-.3 0-.42.12-.6.12-.12.3-.3.42-.48.12-.18.18-.3.3-.48.12-.18.06-.36 0-.54-.06-.18-.72-1.74-.96-2.4-.24-.6-.48-.54-.72-.54h-.6c-.18 0-.48.06-.72.3-.24.24-.96.96-.96 2.34 0 1.38 1.02 2.7 1.14 2.88.18.18 2.04 3.12 4.92 4.38.72.3 1.26.48 1.68.6.72.24 1.38.18 1.92.12.6-.06 1.8-.72 2.04-1.44.3-.72.3-1.32.24-1.44-.06-.12-.24-.18-.54-.36z"/>
+  </svg>
+</a>
+            <a class="w-10 h-10 flex items-center justify-center bg-black rounded-full shadow-button" href="https://x.com/FlexgigNG" target="_blank" rel="noopener noreferrer" aria-label="Visit our X profile">
               <!-- SVG Placeholder: X Icon -->
                <svg class="block mx-auto" width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#FFFFFF" role="img">
-                <title>X Icon</title>
+                <title>X Page</title>
                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
               </svg>
             </a>
