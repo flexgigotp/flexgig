@@ -5751,7 +5751,7 @@ function getSpecialPlanState(plan) {
   const used       = Number(plan.daily_purchase_count)  || 0;
  
   if (plan.monthly_sold_out === true) return 'monthly_sold_out';
-  //if (dayOfMonth > 10)                return 'window_closed';
+  if (dayOfMonth > 10)                return 'window_closed';
   if (slots > 0 && used >= slots)     return 'daily_sold_out';
   return 'available';
 }
