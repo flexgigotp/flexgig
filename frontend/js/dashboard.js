@@ -5745,123 +5745,135 @@ function attach9mobileModalListeners() {
 
 window.attach9mobileModalListeners = window.attach9mobileModalListeners || attach9mobileModalListeners;
 
+function getSpecialPlanState(plan) {
+  const dayOfMonth = new Date().getUTCDate();
+  const slots      = Number(plan.daily_available_slots) || 0;
+  const used       = Number(plan.daily_purchase_count)  || 0;
+ 
+  if (plan.monthly_sold_out === true) return 'monthly_sold_out';
+  if (dayOfMonth > 10)                return 'window_closed';
+  if (slots > 0 && used >= slots)     return 'daily_sold_out';
+  return 'available';
+}
+ 
+window.getSpecialPlanState = window.getSpecialPlanState || getSpecialPlanState;
+
 function updateSpecialRemainingCount(plan) {
   if (
     plan.category?.toUpperCase() !== 'SPECIAL' ||
     plan.provider?.toLowerCase() !== 'mtn'
   ) return;
-
+ 
   const boxes = document.querySelectorAll(
     `.plan-box.mtn.special-plan[data-id="${plan.plan_id}"]`
   );
-
+ 
+  const state = getSpecialPlanState(plan);
+ 
+  const labelMap = {
+    available:        `${Math.max(0, (Number(plan.daily_available_slots) || 0) - (Number(plan.daily_purchase_count) || 0))} left today`,
+    daily_sold_out:   'Sold out today',
+    monthly_sold_out: 'Sold out this month',
+    window_closed:    'Available 1st–10th',
+  };
+ 
+  const isSoldOut = state !== 'available';
+ 
   boxes.forEach(box => {
-    const remaining = Number(plan.daily_available_slots) || 0;
-
     let el = box.querySelector('.remaining-count');
-
     if (!el) {
       el = document.createElement('div');
       el.className = 'remaining-count';
       box.prepend(el);
     }
-
-    if (remaining > 0) {
-      el.textContent = `${remaining} left today`;
-      el.classList.remove('sold-out');
-    } else {
-      el.textContent = 'Sold out today';
-      el.classList.add('sold-out');
-    }
-
-    if (remaining <= 0) {
-      box.classList.add('sold-out');
-      box.style.pointerEvents = 'none';
-    } else {
-      box.classList.remove('sold-out');
-      box.style.pointerEvents = '';
-    }
+ 
+    el.textContent = labelMap[state];
+    el.classList.toggle('sold-out', isSoldOut);
+ 
+    box.classList.toggle('sold-out', isSoldOut);
+    box.style.pointerEvents = isSoldOut ? 'none'        : '';
+    box.style.opacity       = isSoldOut ? '0.6'         : '';
+    box.style.cursor        = isSoldOut ? 'not-allowed' : '';
   });
 }
-
-window.updateSpecialRemainingCount = window.updateSpecialRemainingCount || updateSpecialRemainingCount;
+ 
+window.updateSpecialRemainingCount = updateSpecialRemainingCount;
 
 async function renderDashboardPlans(provider) {
   console.log('%c[RENDER] Starting renderDashboardPlans for:', 'color:cyan;font-weight:bold', provider);
-
+ 
   const plansRow = document.querySelector('.plans-row');
   if (!plansRow) {
     console.error('[ERROR] .plans-row not found');
     return;
   }
-
+ 
   plansRow.querySelectorAll('.plan-box').forEach(p => p.remove());
   console.log('[RENDER] Cleared old plans');
-
+ 
   const plans = await loadAllPlansOnce();
   console.log('[RENDER] Total loaded plans:', plans.length);
-
-  const providerPlans = plans.filter(p => 
+ 
+  const providerPlans = plans.filter(p =>
     p.provider?.toLowerCase() === (provider === 'ninemobile' ? '9mobile' : provider.toLowerCase()) &&
     p.active === true
   );
   console.log(`[RENDER] Found ${providerPlans.length} plans for ${provider}`);
-
+ 
   let plansToShow = [];
-
+ 
   if (provider === 'ninemobile') {
     const sortedPlans = [...providerPlans].sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
     plansToShow = sortedPlans.slice(0, 2);
     console.log('[RENDER] 9mobile → showing first 2 plans by price');
   } else {
-    const awoof = providerPlans.filter(p => p.category.toUpperCase() === 'AWOOF').sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
-    const cg = providerPlans.filter(p => p.category.toUpperCase() === 'CG').sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+    const awoof   = providerPlans.filter(p => p.category.toUpperCase() === 'AWOOF').sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+    const cg      = providerPlans.filter(p => p.category.toUpperCase() === 'CG').sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
     const gifting = providerPlans.filter(p => p.category.toUpperCase() === 'GIFTING').sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
     const special = providerPlans.filter(p => p.category.toUpperCase() === 'SPECIAL').sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
-
-    console.log('[RENDER] Categories found →', { 
-      awoof: awoof.length, 
-      cg: cg.length, 
-      gifting: gifting.length, 
-      special: special.length 
+ 
+    console.log('[RENDER] Categories found →', {
+      awoof: awoof.length,
+      cg: cg.length,
+      gifting: gifting.length,
+      special: special.length
     });
-
+ 
     if (provider === 'airtel') {
       if (awoof.length > 0) plansToShow.push(awoof[0]);
-      if (cg.length > 0) plansToShow.push(cg[0]);
+      if (cg.length > 0)    plansToShow.push(cg[0]);
     }
     else if (provider === 'glo') {
-      if (cg.length > 0) {
-        plansToShow.push(cg[0]);
-      } else if (awoof.length > 0) {
-        plansToShow.push(awoof[0]);
-      }
-      if (gifting.length > 0) plansToShow.push(gifting[0]);
+      if (cg.length > 0)          plansToShow.push(cg[0]);
+      else if (awoof.length > 0)  plansToShow.push(awoof[0]);
+      if (gifting.length > 0)     plansToShow.push(gifting[0]);
     }
     else if (provider === 'mtn') {
       let specialAvailable = false;
-      
+ 
       if (special.length > 0) {
         const firstSpecial = special[0];
-        const remaining = Number(firstSpecial.daily_available_slots) || 0;
-        
-        if (remaining > 0) {
+        const state = getSpecialPlanState(firstSpecial);
+ 
+        // Show the special box on dashboard only when available or daily sold out.
+        // window_closed and monthly_sold_out → hide entirely, fall through to awoof/gifting.
+        if (state === 'available' || state === 'daily_sold_out') {
           plansToShow.push(firstSpecial);
           specialAvailable = true;
-          console.log('[RENDER] Added SPECIAL as first (not sold out)');
+          console.log(`[RENDER] Added SPECIAL to dashboard (state: ${state})`);
         } else {
-          console.log('[RENDER] SPECIAL is sold out - skipping dashboard display');
+          console.log(`[RENDER] SPECIAL hidden from dashboard (state: ${state})`);
         }
       }
-      
+ 
       if (!specialAvailable) {
         if (awoof.length > 0) {
           plansToShow.push(awoof[0]);
-          console.log('[RENDER] Added first AWOOF (position 1 - special sold out)');
+          console.log('[RENDER] Added first AWOOF (position 1)');
         }
         if (gifting.length > 0) {
           plansToShow.push(gifting[0]);
-          console.log('[RENDER] Added first GIFTING (position 2 - special sold out)');
+          console.log('[RENDER] Added first GIFTING (position 2)');
         }
       } else {
         if (awoof.length > 0) {
@@ -5874,31 +5886,54 @@ async function renderDashboardPlans(provider) {
       }
     }
   }
-
+ 
   const seeAllBtn = plansRow.querySelector('.see-all-plans');
   if (!seeAllBtn) {
     console.error('[ERROR] .see-all-plans button not found');
     return;
   }
-
+ 
   console.log(`[RENDER] Final plans to show: ${plansToShow.length}`);
-
+ 
   plansToShow.forEach((plan, i) => {
     const already = plansRow.querySelector(`.plan-box[data-id="${plan.plan_id}"][data-provider="${provider}"]`);
     if (already) {
-      console.log('[RENDER] Skipping duplicate dashboard plan (already exists):', plan.plan_id);
+      console.log('[RENDER] Skipping duplicate dashboard plan:', plan.plan_id);
       return;
     }
-
+ 
     const box = document.createElement('div');
     box.className = `plan-box ${provider}`;
     box.dataset.id = plan.plan_id;
     box.dataset.provider = provider;
-
+ 
     const categoryUpper = plan.category ? plan.category.toUpperCase() : '';
+ 
+    // ── Special plan: gradient border + state badge ────────────────────────
+    let remainingCountHTML = '';
+ 
     if (categoryUpper === 'SPECIAL' && provider === 'mtn') {
       box.classList.add('special-plan');
-      
+ 
+      const state     = getSpecialPlanState(plan);
+      const isSoldOut = state !== 'available';
+ 
+      const labelMap = {
+        available:        `${Math.max(0, (Number(plan.daily_available_slots) || 0) - (Number(plan.daily_purchase_count) || 0))} left today`,
+        daily_sold_out:   'Sold out today',
+        monthly_sold_out: 'Sold out this month',
+        window_closed:    'Available 1st–10th',
+      };
+ 
+      remainingCountHTML = `
+        <div class="remaining-count${isSoldOut ? ' sold-out' : ''}">
+          ${labelMap[state]}
+        </div>
+      `;
+ 
+      // Store state on element so post-render block can read it
+      box.dataset.specialState = state;
+ 
       const gradientStyle = document.createElement('style');
       gradientStyle.textContent = `
         .plan-box.mtn.special-plan[data-id="${plan.plan_id}"]::before {
@@ -5916,14 +5951,12 @@ async function renderDashboardPlans(provider) {
           opacity: 1;
           animation: borderTrain 6s linear infinite, hueShift 10s linear infinite;
         }
-        
         @keyframes borderTrain {
-          0% { background-position: 0% 50%; }
+          0%   { background-position: 0%   50%; }
           100% { background-position: 400% 50%; }
         }
-        
         @keyframes hueShift {
-          0% { filter: hue-rotate(0deg); }
+          0%   { filter: hue-rotate(0deg); }
           100% { filter: hue-rotate(360deg); }
         }
       `;
@@ -5931,40 +5964,39 @@ async function renderDashboardPlans(provider) {
       box.style.position = 'relative';
       box.style.overflow = 'hidden';
     }
-
+    // ── End special plan block ─────────────────────────────────────────────
+ 
     const tag = (plan.category && !['STANDARD', 'NORMAL'].includes(categoryUpper))
       ? `<span class="plan-type-tag">${categoryUpper}</span>`
       : '';
-
-    let remainingCountHTML = '';
-
-    if (categoryUpper === 'SPECIAL' && provider === 'mtn') {
-      const remaining = Number(plan.daily_available_slots) || 0;
-      const remainingText = remaining > 0 ? `${remaining} left today` : 'Sold out today';
-      const remainingClass = remaining > 0 ? 'remaining-count' : 'remaining-count sold-out';
-
-      remainingCountHTML = `
-        <div class="${remainingClass}">
-          ${remainingText}
-        </div>
-      `;
-    }
-
-    box.innerHTML = `
+ 
+    box.innerHTML += `
       ${remainingCountHTML}
       <div class="plan-price plan-amount">₦${plan.price}</div>
       <div class="plan-data plan-gb">${plan.data_amount || plan.data}</div>
       <div class="plan-duration">${plan.duration || plan.validity}</div>
       ${tag}
     `;
-
+ 
     plansRow.insertBefore(box, seeAllBtn);
+ 
+    // Apply sold-out interaction state after the box is in the DOM
+    if (categoryUpper === 'SPECIAL' && provider === 'mtn') {
+      const state = box.dataset.specialState;
+      if (state && state !== 'available') {
+        box.classList.add('sold-out');
+        box.style.pointerEvents = 'none';
+        box.style.opacity       = '0.6';
+        box.style.cursor        = 'not-allowed';
+      }
+    }
+ 
     console.log(`[RENDER] Added plan ${i + 1}: ${plan.category || 'Standard'} ₦${plan.price}`);
   });
-
+ 
   attachPlanListeners();
   syncSpecialPlanGradientState();
-
+ 
   console.log('%c[RENDER] Dashboard complete', 'color:lime;font-weight:bold');
 }
 
@@ -6135,24 +6167,27 @@ function fillPlanSection(sectionEl, provider, subType, plans, title, svg) {
   sectionEl.setAttribute('data-provider', provider);
   const grid = sectionEl.querySelector('.plans-grid');
   if (!grid) return;
-
+ 
   grid.innerHTML = '';
-  
+ 
   plans.forEach((plan, index) => {
     const box = document.createElement('div');
     box.className = `plan-box ${provider}`;
     box.dataset.id = plan.plan_id;
     box.dataset.provider = provider;
-
+ 
     const categoryUpper = plan.category ? plan.category.toUpperCase() : '';
-    
-    const isSoldOut = categoryUpper === 'SPECIAL' && 
-                      provider === 'mtn' && 
-                      (Number(plan.daily_available_slots) || 0) <= 0;
-    
+ 
+    // ── Determine sold-out state ───────────────────────────────────────────
+    const state     = (categoryUpper === 'SPECIAL' && provider === 'mtn')
+                        ? getSpecialPlanState(plan)
+                        : 'available';
+    const isSoldOut = state !== 'available';
+    // ── End state block ────────────────────────────────────────────────────
+ 
     if (categoryUpper === 'SPECIAL' && provider === 'mtn') {
       box.classList.add('special-plan');
-      
+ 
       const gradientStyle = document.createElement('style');
       gradientStyle.textContent = `
         .plan-box.mtn.special-plan[data-id="${plan.plan_id}"]::before {
@@ -6170,59 +6205,62 @@ function fillPlanSection(sectionEl, provider, subType, plans, title, svg) {
           opacity: 1;
           animation: borderTrain 6s linear infinite, hueShift 10s linear infinite;
         }
-        
         @keyframes borderTrain {
-          0% { background-position: 0% 50%; }
+          0%   { background-position: 0%   50%; }
           100% { background-position: 400% 50%; }
         }
-        
         @keyframes hueShift {
-          0% { filter: hue-rotate(0deg); }
+          0%   { filter: hue-rotate(0deg); }
           100% { filter: hue-rotate(360deg); }
         }
       `;
       box.appendChild(gradientStyle);
       box.style.position = 'relative';
       box.style.overflow = 'hidden';
-      
+ 
       if (isSoldOut) {
         box.classList.add('sold-out');
         box.style.pointerEvents = 'none';
-        box.style.opacity = '0.6';
-        box.style.cursor = 'not-allowed';
+        box.style.opacity       = '0.6';
+        box.style.cursor        = 'not-allowed';
       }
     }
-
+ 
     const tag = (categoryUpper && !['STANDARD', 'NORMAL'].includes(categoryUpper))
       ? `<span class="plan-type-tag ${categoryUpper === 'SPECIAL' ? 'special-tag' : ''}">${categoryUpper}</span>`
       : '';
-
+ 
+    // ── Remaining count badge ──────────────────────────────────────────────
     let remainingCountHTML = '';
-
+ 
     if (categoryUpper === 'SPECIAL' && provider === 'mtn') {
-      const remaining = Number(plan.daily_available_slots) || 0;
-      const remainingText = remaining > 0 ? `${remaining} left today` : 'Sold out today';
-      const remainingClass = remaining > 0 ? 'remaining-count' : 'remaining-count sold-out';
-
+      const labelMap = {
+        available:        `${Math.max(0, (Number(plan.daily_available_slots) || 0) - (Number(plan.daily_purchase_count) || 0))} left today`,
+        daily_sold_out:   'Sold out today',
+        monthly_sold_out: 'Sold out this month',
+        window_closed:    'Available 1st–10th',
+      };
+ 
       remainingCountHTML = `
-        <div class="${remainingClass}">
-          ${remainingText}
+        <div class="remaining-count${isSoldOut ? ' sold-out' : ''}">
+          ${labelMap[state]}
         </div>
       `;
     }
-
-    box.innerHTML = `
+    // ── End badge block ────────────────────────────────────────────────────
+ 
+    box.innerHTML += `
       ${remainingCountHTML}
       <div class="plan-amount">₦${plan.price}</div>
       <div class="plan-data">${plan.data_amount || plan.data}</div>
       <div class="plan-days">${plan.duration || plan.validity}</div>
       ${tag}
     `;
-
+ 
     grid.appendChild(box);
-    console.log(`[FILL SECTION] Added modal plan ${index + 1}: ${plan.plan_id}${isSoldOut ? ' (SOLD OUT - DISABLED)' : ''}`);
+    console.log(`[FILL SECTION] Added modal plan ${index + 1}: ${plan.plan_id} (state: ${state})`);
   });
-
+ 
   const header = sectionEl.querySelector('.section-header');
   if (header) {
     header.querySelector('svg')?.remove();
@@ -6230,10 +6268,10 @@ function fillPlanSection(sectionEl, provider, subType, plans, title, svg) {
     const h2 = header.querySelector('h2');
     if (h2) h2.textContent = title;
   }
-  
+ 
   console.log(`[FILL SECTION] ${title}: ${plans.length} plans added`);
 }
-
+ 
 window.renderDashboardPlans = renderDashboardPlans;
 window.fillPlanSection = fillPlanSection;
 

@@ -21,7 +21,6 @@ async function checkAdminStatus() {
       credentials: 'include'
     });
 
-    // Only grant access on an explicit 200 OK — nothing else
     if (res.status === 200) {
       isAdmin = true;
       if (adminTab) {
