@@ -5755,6 +5755,7 @@ function getSpecialPlanState(plan) {
   if (slots > 0 && used >= slots)     return 'daily_sold_out';
   return 'available';
 }
+
  
 window.getSpecialPlanState = window.getSpecialPlanState || getSpecialPlanState;
 
