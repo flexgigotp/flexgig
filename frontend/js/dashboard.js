@@ -2,6 +2,9 @@
 
 window.addEventListener('unhandledrejection', e => e.preventDefault());
 window.onerror = () => true;
+if (sessionStorage.getItem('fg_just_logged_out')) {
+  window.__SERVER_USER_DATA__ = null;
+}
 (function() {
   document.addEventListener('focusin', () => {}, { passive: true });
 
@@ -14,7 +17,6 @@ window.onerror = () => true;
     setTimeout(forceTop, 100);
   });
 
-  console.log('[SCROLL FIX] Lightweight prevention active – no more middle/bottom reloads');
 })();
 import { getAllPlans, getPlans, fetchPlans } from './dataPlans.js';  
 
@@ -393,7 +395,7 @@ window.addEventListener('fg:session-expired', () => {
   }
 
   setTimeout(() => {
-    window.location.href = '/login';
+    window.location.href = '/';
   }, 3000);
 }, { once: true }); // once: true prevents duplicate handlers on hot reload
 
@@ -640,12 +642,19 @@ function handleSessionExpired() {
   }
 
   setTimeout(() => {
-    window.location.href = '/login.html';
+    window.location.href = '/';
   }, 1500);
 }
 
 
 (function initTokenRefresh() {
+  // If a logout just happened, don't seed stale token
+  if (sessionStorage.getItem('fg_just_logged_out')) {
+    sessionStorage.removeItem('fg_just_logged_out');
+    localStorage.removeItem('token');
+    return;
+  }
+
   const token = localStorage.getItem('token');
   if (token) {
     scheduleTokenRefresh(token);
@@ -2131,9 +2140,20 @@ async function fullClientLogout() {
       console.error('[fullClientLogout] WebAuthn clearing failed:', webauthnErr);
     }
 
-    console.log('[fullClientLogout] Logout complete, redirecting to login...');
+    console.log('[fullClientLogout] Logout complete, redirecting...');
 
-    window.location.replace('/');
+// ✅ Set sentinel BEFORE redirect so next page load skips stale localStorage
+sessionStorage.setItem('fg_just_logged_out', '1');
+
+// ✅ Nuke token explicitly so initTokenRefresh doesn't seed stale data
+localStorage.removeItem('token');
+localStorage.removeItem('userData');
+localStorage.removeItem('fg_reauth_required_v1');
+localStorage.removeItem('active_broadcast_id');
+localStorage.removeItem('userId');
+localStorage.removeItem('userEmail');
+
+window.location.replace('/');
 
   } catch (err) {
     console.error('[fullClientLogout] Critical error during logout:', err);

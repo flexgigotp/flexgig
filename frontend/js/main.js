@@ -145,16 +145,11 @@ const BACKEND_URL = 'https://api.flexgig.com.ng';
     router
       .on({
         '/': async () => {
-          console.log('[DEBUG] main.js: Routing to / (homepage)');
-          // Check session: if signed in, auto-redirect to dashboard
           const user = await getSession();
           if (user) {
-            console.log('[DEBUG] main.js: User signed in on homepage, redirecting to dashboard');
-            window.location.href = '/redirecting';
+            window.location.replace('/redirecting.html');
             return;
           }
-          // Otherwise, show homepage as-is (unauthenticated UI will be set if needed)
-          await ensureSignedInFromSession();
         },
         '/auth/email': () => {
           console.log('[DEBUG] main.js: Routing to /auth/email');
@@ -163,7 +158,12 @@ const BACKEND_URL = 'https://api.flexgig.com.ng';
         },
         '/dashboard': async () => {
           console.log('[DEBUG] main.js: Routing to /dashboard');
-          await ensureSignedInFromSession();
+          const user = await getSession();
+          if (!user) {
+            window.location.replace('/');
+            return;
+          }
+          setAuthenticatedUI(user);
         }
       })
       .notFound(() => {
@@ -330,12 +330,17 @@ async function fullClientLogout() {
 
     console.log('[fullClientLogout] Logout complete, redirecting to login...');
 
-    // 7️⃣ Redirect to login (use replace to prevent back button issues)
-    window.location.replace('/');
+sessionStorage.setItem('fg_just_logged_out', '1');
+
+localStorage.removeItem('token');
+localStorage.removeItem('userData');
+localStorage.removeItem('fg_reauth_required_v1');
+localStorage.removeItem('active_broadcast_id');
+
+window.location.replace('/');
 
   } catch (err) {
     console.error('[fullClientLogout] Critical error during logout:', err);
-    // Force redirect even if everything fails
     window.location.replace('/');
   }
 }

@@ -605,8 +605,7 @@ window.hideLoader = function () {
       } else {
         clearState();
         document.cookie = `token=${data.token}; path=/; secure; samesite=none`;
-        document.cookie = `rt=${data.refreshToken}; path=/; secure; samesite=none; httponly`;
-        window.location.href = `${WEB_BASE}/dashboard`;
+        window.location.replace(`${WEB_BASE}/redirecting.html`);
       }
     }).catch(err => {
       qs('#passwordErr').textContent = err.message || 'Login failed';
@@ -718,8 +717,7 @@ window.hideLoader = function () {
       const loginData = await loginRes.json();
       if (!loginRes.ok) throw new Error(loginData.error?.message || 'Login failed');
       document.cookie = `token=${loginData.token}; path=/; secure; samesite=none`;
-      document.cookie = `rt=${loginData.refreshToken}; path=/; secure; samesite=none; httponly`;
-      window.location.href = `${WEB_BASE}/dashboard`;
+      window.location.replace(`${WEB_BASE}/redirecting.html`);
     }).catch(err => {
       errEl.textContent = err.message;
     });
@@ -767,8 +765,7 @@ window.hideLoader = function () {
       if (!loginRes.ok) throw new Error(loginData.error?.message || 'Login failed');
       clearState();
       document.cookie = `token=${loginData.token}; path=/; secure; samesite=none`;
-      document.cookie = `rt=${loginData.refreshToken}; path=/; secure; samesite=none; httponly`;
-      window.location.href = `${WEB_BASE}/dashboard`;
+      window.location.replace(`${WEB_BASE}/redirecting.html`);
     }).catch(err => {
       errEl.textContent = err.message;
     });
