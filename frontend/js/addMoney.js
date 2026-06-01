@@ -766,19 +766,21 @@ window.getWebSocketStatus = function() {
 })();
 
 (function addPaymentSuccessSound() {
-  const successAudio = new Audio('/frontend/sound/paymentReceived.wav');
-  successAudio.preload = 'auto'; successAudio.volume = 0.65;
-  let audioUnlocked = false;
-  function unlockAudio() {
-    if (audioUnlocked) return;
-    successAudio.play().catch(() => {}); successAudio.pause(); successAudio.currentTime = 0; audioUnlocked = true;
-    document.body.removeEventListener('touchstart', unlockAudio); document.body.removeEventListener('click', unlockAudio);
+  // Lazy: don't create Audio object until the moment we actually need to play
+  let successAudio = null;
+
+  function getAudio() {
+    if (!successAudio) {
+      successAudio = new Audio('/frontend/sound/paymentReceived.wav');
+      successAudio.volume = 0.65;
+    }
+    return successAudio;
   }
-  document.body.addEventListener('touchstart', unlockAudio, { once: true });
-  document.body.addEventListener('click', unlockAudio, { once: true });
+
   window.playSuccessSound = function() {
-    if (!audioUnlocked) { successAudio.play().catch(() => {}); return; }
-    successAudio.currentTime = 0; successAudio.play().catch(e => console.warn('Success sound failed:', e));
+    const audio = getAudio();
+    audio.currentTime = 0;
+    audio.play().catch(e => console.warn('Success sound failed:', e));
   };
 })();
 
