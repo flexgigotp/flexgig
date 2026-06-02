@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark" style="color-scheme: dark;">
+<html lang="en" class="dark" style="color-scheme: dark only;">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -28,6 +28,11 @@
 
   <!-- Styles -->
   <link rel="stylesheet" href="frontend/styles/main.css">
+
+  <style>
+  :root { color-scheme: dark only; }
+  html { color-scheme: dark only; }
+  </style>
 
   <!-- Favicon and PWA -->
   <link rel="icon" href="frontend/pwa/favicon.ico" sizes="48x48">
@@ -111,7 +116,7 @@
     var d = document.documentElement;
     d.classList.remove('light');
     d.classList.add('dark');
-    d.style.colorScheme = 'dark';
+    d.style.colorScheme = 'dark only';
   })();
 </script>
 
