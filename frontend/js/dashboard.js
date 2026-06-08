@@ -1782,7 +1782,7 @@ function inGraceWindow() {
 }
 
 (function ensureFreshPlansOnLoad() {
-  const CACHE_KEY = 'cached_data_plans_v13'; // Match your current version
+  const CACHE_KEY = 'cached_data_plans_v14'; // Match your current version
 
   async function fetchAndCacheFreshPlans() {
     let freshPlans = null;
@@ -5647,7 +5647,7 @@ let __allPlansCache = [];
 let __plansLoaded = false;
 
 async function loadAllPlansOnce() {
-  const CACHE_KEY = 'cached_data_plans_v13';
+  const CACHE_KEY = 'cached_data_plans_v14';
 
   try {
     const saved = localStorage.getItem(CACHE_KEY);

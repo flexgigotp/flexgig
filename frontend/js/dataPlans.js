@@ -5,7 +5,7 @@ window.addEventListener('unhandledrejection', e => e.preventDefault());
 window.onerror = () => true;
 let plansCache = [];
 let cacheUpdatedAt = null;
-const CACHE_KEY = 'cached_data_plans_v13';
+const CACHE_KEY = 'cached_data_plans_v14';
 let realtimeSubscription = null;
 
 // Get Supabase client from window (initialized in dashboard.js)
