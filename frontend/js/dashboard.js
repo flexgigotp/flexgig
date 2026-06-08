@@ -22,6 +22,7 @@ import { getAllPlans, getPlans, fetchPlans } from './dataPlans.js';
 
 
 window.__SEC_API_BASE = 'https://api.flexgig.com.ng'
+window.__ACCESS_TOKEN__ = localStorage.getItem('token') || null;
 
 const SUPABASE_URL = 'https://bwmappzvptcjxlukccux.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3bWFwcHp2cHRjanhsdWtjY3V4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU0OTMzMjcsImV4cCI6MjA3MTA2OTMyN30.Ra7k6Br6nl1huQQi5DpDuOQSDE-6N1qlhUIvIset0mc';
@@ -495,6 +496,7 @@ window.getSharedAuthClient = getSharedAuthClient;
 
         if (refreshData.token) {
           localStorage.setItem('token', refreshData.token);
+          window.__ACCESS_TOKEN__ = refreshData.token;
           scheduleTokenRefresh(refreshData.token);
           console.log('[FetchInterceptor] ✅ Token refreshed — retrying original request');
 
@@ -583,6 +585,7 @@ async function silentRefreshToken() {
 
     if (data.token) {
       localStorage.setItem('token', data.token);
+      window.__ACCESS_TOKEN__ = data.token;
       console.log('[TokenRefresh] ✅ Token refreshed silently');
       scheduleTokenRefresh(data.token); // Schedule next refresh
     }
@@ -665,6 +668,7 @@ function handleSessionExpired() {
       .then(data => {
         if (data.token) {
           localStorage.setItem('token', data.token);
+          window.__ACCESS_TOKEN__ = data.token;
           scheduleTokenRefresh(data.token);
           console.log('[TokenRefresh] Token seeded from session, refresh cycle started');
         }
