@@ -5,7 +5,7 @@ window.addEventListener('unhandledrejection', e => e.preventDefault());
 window.onerror = () => true;
 let plansCache = [];
 let cacheUpdatedAt = null;
-const CACHE_KEY = 'cached_data_plans_v12';
+const CACHE_KEY = 'cached_data_plans_v13';
 let realtimeSubscription = null;
 
 // Get Supabase client from window (initialized in dashboard.js)
@@ -55,33 +55,12 @@ const updateCache = (plans) => {
   dispatchPlansUpdateEvent();
 };
 
-// Fetch latest from Supabase directly
 export const fetchPlans = async () => {
   if (window.__REAUTH_LOCKED__ === true) {
     return plansCache;
   }
-
-  const supabase = getSupabaseClient();
-  
-  // If Supabase isn't ready, fall back to HTTP API
-  if (!supabase) {
-    return fetchPlansViaAPI();
-  }
-
-  try {
-    const { data, error } = await supabase
-      .from('data_plans')
-      .select('*')
-      .order('updated_at', { ascending: false });
-
-    if (error) throw error;
-
-    updateCache(data);
-    return data;
-  } catch (err) {
-    console.warn('Failed to fetch plans from Supabase, trying API fallback', err);
-    return fetchPlansViaAPI();
-  }
+  // Always use backend API — it handles POS filtering server-side
+  return fetchPlansViaAPI();
 };
 
 // Fallback to your existing API endpoint
@@ -90,14 +69,20 @@ const fetchPlansViaAPI = async () => {
     const base = (window.__SEC_API_BASE || 'https://api.flexgig.com.ng').replace(/\/+$/, '');
     const url = `${base}/api/dataPlans`;
 
-    const res = await fetch(url, {
-      method: 'GET',
-      credentials: 'include',
-      headers: {
-        'Accept': 'application/json',
-      },
-      cache: 'no-store'
-    });
+const token = window.__ACCESS_TOKEN__
+  || document.cookie.split('; ').find(r => r.startsWith('token='))?.split('=')[1]
+  || null;
+
+const res = await fetch(url, {
+  method: 'GET',
+  credentials: 'include',
+  headers: {
+    'Accept': 'application/json',
+    'X-Requested-With': 'XMLHttpRequest',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+  },
+  cache: 'no-store'
+});
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -152,50 +137,11 @@ export const subscribeToPlans = () => {
         schema: 'public',
         table: 'data_plans'
       },
-      (payload) => {
-        console.log('🔴 Realtime change detected:', payload);
-
-        if (payload.eventType === 'INSERT') {
-          // Add new plan to cache
-          plansCache.push(payload.new);
-          updateCache(plansCache);
-
-          window.dispatchEvent(new CustomEvent('planUpdated', {
-            detail: payload.new
-          }));
-
-        } else if (payload.eventType === 'UPDATE') {
-          // Update existing plan in cache
-          const index = plansCache.findIndex(p => p.id === payload.new.id);
-          if (index !== -1) {
-            plansCache[index] = payload.new;
-            updateCache(plansCache);
-
-            window.dispatchEvent(new CustomEvent('planUpdated', {
-              detail: payload.new
-            }));
-
-          } else {
-            // If not found in cache, add it
-            plansCache.push(payload.new);
-            updateCache(plansCache);
-
-            window.dispatchEvent(new CustomEvent('planUpdated', {
-              detail: payload.new
-            }));
-
-          }
-        } else if (payload.eventType === 'DELETE') {
-          // Remove plan from cache
-          plansCache = plansCache.filter(p => p.id !== payload.old.id);
-          updateCache(plansCache);
-
-          window.dispatchEvent(new CustomEvent('planUpdated', {
-            detail: payload.new
-          }));
-
-        }
-      }
+      async (payload) => {
+  console.log('🔴 Realtime change detected:', payload.eventType);
+  // Always re-fetch from backend so POS filtering is applied correctly
+  await fetchPlansViaAPI();
+}
     )
     .subscribe((status) => {
       if (status === 'SUBSCRIBED') {
