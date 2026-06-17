@@ -30,11 +30,11 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const { createClient } = supabase;
 const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
-    autoRefreshToken: true,          // Automatically refresh expired tokens
-    persistSession: true,            // Save session in localStorage
-    storage: localStorage,           // Explicitly use localStorage
-    detectSessionInUrl: true,        // Handle OAuth redirects (good for Google)
-    flowType: 'pkce'                 // Modern, secure flow (recommended)
+    autoRefreshToken: true,          
+    persistSession: true,            
+    storage: localStorage,           
+    detectSessionInUrl: true,        
+    flowType: 'pkce'                
   }
 });
 
@@ -110,20 +110,20 @@ window.pollStatus = async function pollStatus(force = false) {
     let message = '';
     let level = 'info';
     let serverId = null;
-    let isPersistent = false;  // we'll treat no expire_at as persistent for now
+    let isPersistent = false;  
 
     if (data) {
       message = data.message || '';
       level = ['info', 'warning', 'error'].includes(data.level) ? data.level : 'info';
       serverId = data.id;
-      isPersistent = !data.expire_at;  // no expiry → treat as sticky/persistent
+      isPersistent = !data.expire_at;  
 
       if (message) {
         showBanner(message, {
           persistent: isPersistent,
           serverId,
           type: level,
-          url: data.url || null   // optional: make banner clickable if url exists
+          url: data.url || null   
         });
 
         window.__fg_currentBanner = window.__fg_currentBanner || {};
@@ -249,7 +249,7 @@ async function getSharedJWT(forceRefresh = false) {
       });
 
       if (res.status === 423) {
-        _jwtBlockedByLock = true; // ✅ block all further JWT fetches until reauth clears
+        _jwtBlockedByLock = true; 
         console.warn('[JWT Cache] 🔒 Account locked (423) — triggering reauth modal');
         localStorage.setItem('fg_reauth_required_v1', JSON.stringify({
           reason: 'backend_423', ts: Date.now()
@@ -371,9 +371,7 @@ async function getSharedJWT(forceRefresh = false) {
   return JWT_CACHE.pendingRequest;
 }
 
-/**
- * Clear JWT cache (useful for logout)
- */
+
 function clearJWTCache() {
   JWT_CACHE.token = null;
   JWT_CACHE.expiry = 0;
@@ -568,7 +566,7 @@ async function silentRefreshToken() {
 
     const res = await fetch('https://api.flexgig.com.ng/auth/refresh', {
       method: 'POST',
-      credentials: 'include', // sends the httpOnly rt cookie automatically
+      credentials: 'include', 
     });
 
     if (!res.ok) {
@@ -6300,15 +6298,20 @@ function fillPlanSection(sectionEl, provider, subType, plans, title, svg) {
 window.renderDashboardPlans = renderDashboardPlans;
 window.fillPlanSection = fillPlanSection;
 
-console.log('%c✅ SOLD OUT LOGIC APPLIED', 'color:lime;font-size:16px;font-weight:bold');
-console.log('%c✅ Dashboard hides sold out special plans', 'color:lime;font-weight:bold');
-console.log('%c✅ Modal disables sold out special plans', 'color:lime;font-weight:bold');
-console.log('%c✅ First plan of each category shows on dashboard', 'color:lime;font-weight:bold');
 
 
 
-document.addEventListener('DOMContentLoaded', () => {
-  loadAllPlansOnce();
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadAllPlansOnce();
+
+  const initialProvider = providerClasses.find(cls => slider.classList.contains(cls)) || 'mtn';
+
+  await renderDashboardPlans(initialProvider);
+  await renderModalPlans(initialProvider);
+  attachPlanListeners();
+  logPlanIDs();
+  updateContinueState();
+  syncSpecialPlanGradientState();
 });
 const seeAllBtn = document.querySelector('.see-all-plans');
 if (seeAllBtn) {
