@@ -73,6 +73,8 @@
       align-items: center;
       gap: 10px;
       flex-shrink: 0;
+      text-decoration: none;
+      cursor: pointer;
     }
     .support svg { width: 20px; height: 20px; fill: white; }
 
