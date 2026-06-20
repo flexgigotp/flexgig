@@ -7832,7 +7832,7 @@ window.showToast = showToast;
       const res = await fetch('https://api.flexgig.com.ng/api/verify-pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: currentPin }),
+        body: JSON.stringify({ pin: currentPin, action: 'reauth' }),
         credentials: 'include',
       });
       console.log('[reauth] verify-pin status', res.status, 'ms', performance.now() - tStart);
@@ -8364,7 +8364,7 @@ function __fg_pin_clearAllInputs() {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
             },
-            body: JSON.stringify({ pin: cur }),
+            body: JSON.stringify({ pin: cur, action: 'reauth' }),
             credentials: 'include',
           });
           if (!verifyRes.ok) {
