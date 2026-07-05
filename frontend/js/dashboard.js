@@ -6303,15 +6303,7 @@ window.fillPlanSection = fillPlanSection;
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadAllPlansOnce();
-
-  const initialProvider = providerClasses.find(cls => slider.classList.contains(cls)) || 'mtn';
-
-  await renderDashboardPlans(initialProvider);
-  await renderModalPlans(initialProvider);
-  attachPlanListeners();
-  logPlanIDs();
-  updateContinueState();
-  syncSpecialPlanGradientState();
+  window.__fg_plansPreloaded = true;
 });
 const seeAllBtn = document.querySelector('.see-all-plans');
 if (seeAllBtn) {
@@ -6837,9 +6829,15 @@ function normalizePhone(formatted) {
 }
 
 
-initializeProviderAndPlans();
-restoreEverything(); 
-updateContinueState();
+(async () => {
+  if (!window.__fg_plansPreloaded) {
+    await loadAllPlansOnce();
+  }
+  initializeProviderAndPlans();   // renders dashboard + modal once cache is guaranteed populated
+  await new Promise(r => setTimeout(r, 650)); // matches restoreEverything's internal delay
+  restoreEverything();
+  updateContinueState();
+})();
   let touchStartX = 0, touchStartY = 0, isScrolling = false;
 
   const debouncedSelectProvider = debounce((providerClass) => {
