@@ -6396,6 +6396,7 @@ function selectPlanById(id) {
       type:       selectedPlanObj.planType || selectedPlanObj.category || "STANDARD",
       category:   selectedPlanObj.category || "NORMAL",
       daily_purchase_count: Number(selectedPlanObj.daily_purchase_count) || 0,
+      debt_risk:  !!selectedPlanObj.debt_risk,
     };
   } else {
     console.warn('[SELECT] No cached plan found → falling back to DOM parsing');
@@ -6421,7 +6422,8 @@ function selectPlanById(id) {
       validity,
       type: 'GIFTING',           // fallback default – you can try to improve this later
       category: 'NORMAL',
-      daily_purchase_count: 0
+      daily_purchase_count: 0,
+      debt_risk: false,
     };
   }
 
