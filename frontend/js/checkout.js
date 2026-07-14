@@ -26,6 +26,93 @@ const safeGetUserState = () => {
   }
 };
 
+// ==================== DEBT-RISK WARNING MODAL ====================
+function showDebtRiskWarning(checkoutData) {
+  return new Promise((resolve, reject) => {
+    const isPosAgent = safeGetUserState().is_pos_agent === true;
+
+    // Build the message
+    const warningMsg = isPosAgent
+      ? `⚠️ <b>Important — Please Confirm With Your Customer</b><br><br>` +
+        `This <b>${checkoutData.provider} ${checkoutData.dataAmount}</b> plan will <b>NOT</b> be delivered if your customer currently owes MTN airtime.<br><br>` +
+        `MTN will automatically convert this purchase into an airtime debt repayment instead of sending data.<br><br>` +
+        `Please confirm your customer has <b>no outstanding MTN debt</b> before proceeding.`
+      : `⚠️ <b>Important Notice</b><br><br>` +
+        `This <b>${checkoutData.provider} ${checkoutData.dataAmount}</b> plan will <b>NOT</b> be delivered if you currently owe MTN airtime.<br><br>` +
+        `MTN will automatically convert this purchase into an airtime debt repayment instead of sending you data.<br><br>` +
+        `Please make sure you have <b>no outstanding MTN debt</b> before proceeding.`;
+
+    // Create modal HTML
+    const backdropId = 'debt-risk-backdrop';
+    let backdrop = document.getElementById(backdropId);
+    if (!backdrop) {
+      backdrop = document.createElement('div');
+      backdrop.id = backdropId;
+      backdrop.className = 'modal-backdrop';
+      backdrop.style.cssText = `
+        position: fixed; top:0; left:0; width:100%; height:100%;
+        background: rgba(0,0,0,0.5); z-index:9999;
+        display: flex; align-items: center; justify-content: center;
+        animation: fadeIn 0.3s ease;
+      `;
+      backdrop.innerHTML = `
+        <div style="background: white; max-width: 500px; width: 90%; padding: 24px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); position: relative;">
+          <div style="text-align: center; margin-bottom: 16px;">
+            <span style="font-size: 40px;">⚠️</span>
+          </div>
+          <div id="debt-warning-text" style="font-size: 15px; line-height: 1.6; color: #333; margin-bottom: 20px;">
+            ${warningMsg}
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 10px; margin-bottom: 20px; background: #f8f9fa; padding: 12px; border-radius: 12px;">
+            <input type="checkbox" id="debt-ack-checkbox" style="margin-top: 3px; width: 18px; height: 18px; cursor: pointer;">
+            <label for="debt-ack-checkbox" style="font-size: 14px; color: #555; cursor: pointer;">
+              I understand and confirm that the recipient has <b>no outstanding MTN debt</b>.
+            </label>
+          </div>
+          <div style="display: flex; gap: 12px;">
+            <button id="debt-proceed-btn" style="flex:1; padding: 14px; border: none; border-radius: 50px; background: #00bfa5; color: white; font-weight: 600; font-size: 16px; opacity: 0.5; cursor: not-allowed; transition: opacity 0.2s;">
+              Proceed
+            </button>
+            <button id="debt-cancel-btn" style="flex:1; padding: 14px; border: none; border-radius: 50px; background: #e0e0e0; color: #333; font-weight: 600; font-size: 16px; cursor: pointer;">
+              Cancel
+            </button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(backdrop);
+
+      // Checkbox enable/disable proceed
+      const checkbox = backdrop.querySelector('#debt-ack-checkbox');
+      const proceedBtn = backdrop.querySelector('#debt-proceed-btn');
+      checkbox.addEventListener('change', () => {
+        proceedBtn.style.opacity = checkbox.checked ? '1' : '0.5';
+        proceedBtn.style.cursor = checkbox.checked ? 'pointer' : 'not-allowed';
+      });
+
+      // Proceed
+      proceedBtn.addEventListener('click', () => {
+        if (!checkbox.checked) return;
+        backdrop.remove();
+        resolve(true);
+      });
+
+      // Cancel
+      backdrop.querySelector('#debt-cancel-btn').addEventListener('click', () => {
+        backdrop.remove();
+        resolve(false);
+      });
+
+      // Click on backdrop -> cancel
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) {
+          backdrop.remove();
+          resolve(false);
+        }
+      });
+    }
+  });
+}
+
 
 // Synchronous PIN check using localStorage
 function checkPinExists(context = 'checkout') {
@@ -128,7 +215,8 @@ function gatherCheckoutData() {
       price: selectedPlan.price,
       number: number,
       rawNumber: number.replace(/\s/g, ''),
-      planType: selectedPlan.type
+      planType: selectedPlan.type,
+      debt_risk: selectedPlan.debt_risk || false,
     };
 
     console.log('[checkout] Gathered real checkout data:', checkoutInfo);
@@ -214,7 +302,8 @@ function openCheckoutModal(data) {
       price: parseFloat(data.price) || 0,
       number: data.number,
       rawNumber: data.rawNumber || data.number.replace(/\s/g, ''),
-      planType: data.planType || 'GIFTING'
+      planType: data.planType || 'GIFTING',
+      debt_risk: data.debt_risk || false,
     };
     console.log('[checkout] Using explicitly passed data (recommended)');
   } else {
@@ -381,11 +470,21 @@ async function continueCheckoutFlow() {
   payBtn.textContent = 'Processing...';
  
   try {
-    checkoutData = gatherCheckoutData();
-    if (!checkoutData) throw new Error('Invalid checkout data');
- 
-    // authResult holds { success, pinToken } or { success, biometricToken }
-    const authResult = await triggerCheckoutAuthWithDedicatedModal();
+      checkoutData = gatherCheckoutData();
+      if (!checkoutData) throw new Error('Invalid checkout data');
+
+      // ── Debt‑risk warning (MTN plans that auto‑convert to airtime if recipient owes) ──
+      if (checkoutData.debt_risk) {
+        const acknowledged = await showDebtRiskWarning(checkoutData);
+        if (!acknowledged) {
+          // User cancelled – stop flow
+          payBtn.disabled = false;
+          payBtn.textContent = originalText;
+          return;
+        }
+      }
+
+      const authResult = await triggerCheckoutAuthWithDedicatedModal();
  
     if (!authResult?.success) {
       // Biometric path calls showLoader before resolving — make sure it's cleared
