@@ -17452,8 +17452,43 @@ try {
       }
       if (typeof fetchPlans === 'function') await fetchPlans();
       if (typeof dispatchPlansUpdateEvent === 'function') dispatchPlansUpdateEvent();
-      if (typeof loadLatestHistoryAsFallback === 'function') try { loadLatestHistoryAsFallback(); } catch (e) {}
-      if (typeof loadAdminFullHistory === 'function') try { loadAdminFullHistory(); } catch (e) {}
+      // Force a fresh balance — bypass getSession()'s 5-minute cache gate entirely
+try {
+  const res = await fetch(`${window.__SEC_API_BASE}/api/session`, {
+    credentials: 'include',
+    headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' }
+  });
+  if (res.ok) {
+    const payload = await res.json();
+    if (payload?.user) {
+      updateLocalStorageFromUser(payload.user);
+      if (payload.user.wallet_balance != null) {
+        window.updateAllBalances(Number(payload.user.wallet_balance));
+      }
+    }
+  }
+} catch (e) { console.warn('[reauth] balance refresh failed:', e); }
+
+// Force a fresh transaction history — hit the API directly, don't
+// let stale localStorage/server-embedded data short-circuit it
+try {
+  const txRes = await fetch(`${window.__SEC_API_BASE}/api/transactions?limit=50`, {
+    credentials: 'include',
+  });
+  if (txRes.ok) {
+    const txData = await txRes.json();
+    const fresh = (txData.items || []).filter(tx =>
+      tx?.phone?.trim() &&
+      (tx.status || '').toLowerCase() === 'success' &&
+      ['AWOOF', 'CG', 'GIFTING', 'special', 'STANDARD'].includes(tx.category)
+    ).slice(0, 5);
+    localStorage.setItem('recentDataTx', JSON.stringify(fresh));
+    window.recentTransactions = fresh;
+    if (typeof window.renderRecentTransactions === 'function') {
+      window.renderRecentTransactions(fresh);
+    }
+  }
+} catch (e) { console.warn('[reauth] history refresh failed:', e); }
       console.log('[reauth] background data rehydration done');
     } catch (e) {
       console.warn('[reauth] background data rehydration failed:', e);
