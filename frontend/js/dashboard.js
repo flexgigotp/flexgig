@@ -6376,8 +6376,8 @@ function selectPlanById(id) {
   selectedPlanByProvider[activeProvider] = id;
 
   let selectedPlanObj = null;
-  if (window.cachedPlans && Array.isArray(window.cachedPlans)) {
-    selectedPlanObj = window.cachedPlans.find(p => 
+  if (Array.isArray(__allPlansCache)) {
+    selectedPlanObj = __allPlansCache.find(p =>
       p.plan_id === id && 
       p.provider?.toLowerCase() === (activeProvider === 'ninemobile' ? '9mobile' : activeProvider.toLowerCase())
     );
