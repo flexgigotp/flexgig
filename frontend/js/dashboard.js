@@ -6749,6 +6749,16 @@ function restoreEverything() {
         const originalFirstPlan = currentPlans[0];
         const originalSecondPlan = currentPlans[1];
 
+        if (originalFirstPlan && originalFirstPlan.dataset.id === saved.selectedPlanId) {
+          document.querySelectorAll('.plan-box.selected').forEach(p => {
+            p.classList.remove('selected', ...providerClasses);
+          });
+          originalFirstPlan.classList.add('selected', activeProvider);
+          modalPlan.classList.add('selected', activeProvider);
+          attachPlanListeners();
+          console.log(`[restoreEverything] Plan already #1, selected in place: ${saved.selectedPlanId}`);
+        } else {
+
         if (originalSecondPlan) {
           originalSecondPlan.remove();
         }
@@ -6784,6 +6794,7 @@ function restoreEverything() {
         attachPlanListeners();
 
         console.log(`[restoreEverything] Plan restored to #1: ${saved.selectedPlanId}`);
+      }
       } else {
         console.warn('[restoreEverything] Modal plan not found:', saved.selectedPlanId);
       }
