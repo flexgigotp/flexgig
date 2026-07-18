@@ -472,6 +472,9 @@ function getTxIcon(tx) {
   if (tx.provider) text += tx.provider.toLowerCase() + ' ';
   if (tx.service) text += tx.service.toLowerCase() + ' ';
 
+  if (text.includes('refunded to admin') || text.includes('advance repaid by')) {
+    return { cls: tx.type === 'credit' ? 'incoming' : 'outgoing', img: '', alt: 'Advance' };
+  }
   if (text.includes('funding'))      return { cls: 'incoming',       img: '/frontend/svg/bank.svg',      alt: 'Opay' };
   if (text.includes('mtn'))       return { cls: 'mtn targets',    img: '/frontend/img/mtn.svg',       alt: 'MTN' };
   if (text.includes('airtel'))    return { cls: 'airtel targets', img: '/frontend/svg/airtel-icon.svg', alt: 'Airtel' };
@@ -611,6 +614,15 @@ const rawDesc = (() => {
   if (phone) return `Refund — ${phone}`;
   return 'Data Refund';
 }
+  // ✅ Advance recovery (borrow repayment) — check before generic credit/debit fallbacks
+  const descLower = (tx.description || '').toLowerCase();
+  if (descLower.includes('refunded to admin')) {
+    return tx.description; // "₦300 refunded to admin — covers the advance..."
+  }
+  if (descLower.includes('advance repaid by')) {
+    return tx.description; // "₦300 advance repaid by @username..."
+  }
+
   if (tx.type === 'credit') return 'Wallet Funding';
 
   // ✅ Wallet transfer
@@ -742,6 +754,9 @@ function showTransactionReceipt(tx) {
     const provider = (tx.provider || '').toLowerCase();
     const statusLow = (tx.status || '').toLowerCase();
     const descLow = (tx.description || '').toLowerCase();
+    if (descLow.includes('refunded to admin') || descLow.includes('advance repaid by')) {
+      return { name: 'Advance Recovery', color: '#f59e0b' };
+    }
     if (descLow.startsWith('wallet transfer')) return { name: 'Transfer', color: '#6366f1' };
     if (provider.includes('mtn')) return { name: 'MTN', color: '#FFC107' };
     if (provider.includes('airtel')) return { name: 'Airtel', color: '#E4002B' };
