@@ -665,7 +665,30 @@ function showGeneratedAccount(data) {
       iHavePaidBtn.disabled = true; iHavePaidBtn.textContent = 'Verifying...'; iHavePaidBtn.style.background = '#6b7280';
       try {
         const res = await apiFetch('/api/fund-wallet/verify-pending', { method: 'POST', body: { reference: data.reference } });
-        const resData = res.data || {}, status = resData?.status || (res.ok ? 'unknown' : 'error');
+        const resData = res.data || {};
+        const code = resData?.code || '';
+
+        // Backend sends terminal states two different ways:
+        // - completed/pending come back as { status }
+        // - expired/rate-limited come back as { ok:false, code } with no status
+        if (code === 'TX_EXPIRED') {
+          if (countdownTimerInterval) { clearInterval(countdownTimerInterval); countdownTimerInterval = null; }
+          removePendingTxFromStorage();
+          const t = document.createElement('div');
+          t.style.cssText = `position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#ef4444;color:white;padding:14px 22px;border-radius:14px;font-weight:700;font-size:14px;z-index:999999999;box-shadow:0 10px 30px rgba(0,0,0,0.3);text-align:center;max-width:min(90%,380px);transition:opacity .4s;`;
+          t.textContent = 'This account number has expired. Generate a new one to continue.';
+          document.body.appendChild(t);
+          setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, 4000);
+          setTimeout(() => openAddMoneyModalContent(), 600);
+          return;
+        }
+
+        if (code === 'RATE_LIMIT') {
+          showLocalNotify('Checking too fast — please wait a few seconds and try again.', 'error');
+          return;
+        }
+
+        const status = resData?.status || (res.ok ? 'unknown' : 'error');
         const message = resData?.message || res.error?.message || JSON.stringify(resData);
         const colors = { completed: '#10b981', pending: '#f59e0b', failed: '#ef4444', error: '#ef4444' };
         const toast = document.createElement('div');
