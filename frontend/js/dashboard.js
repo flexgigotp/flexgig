@@ -5906,7 +5906,7 @@ async function renderDashboardPlans(provider) {
         const state = getSpecialPlanState(firstSpecial);
  
         // Show the special box on dashboard only when available or daily sold out.
-        // window_closed and monthly_sold_out → hide entirely, fall through to awoof/gifting.
+        // window_closed and monthly_sold_out → hide entirely, fall through to the rest.
         if (state === 'available' || state === 'daily_sold_out') {
           plansToShow.push(firstSpecial);
           specialAvailable = true;
@@ -5916,22 +5916,24 @@ async function renderDashboardPlans(provider) {
         }
       }
  
-      if (!specialAvailable) {
-        if (awoof.length > 0) {
-          plansToShow.push(awoof[0]);
-          console.log('[RENDER] Added first AWOOF (position 1)');
-        }
-        if (gifting.length > 0) {
-          plansToShow.push(gifting[0]);
-          console.log('[RENDER] Added first GIFTING (position 2)');
-        }
-      } else {
-        if (awoof.length > 0) {
-          plansToShow.push(awoof[0]);
-          console.log('[RENDER] Added first AWOOF as second');
-        } else if (gifting.length > 0) {
-          plansToShow.push(gifting[0]);
-          console.log('[RENDER] Added first GIFTING as second');
+      // Fill the remaining preview slot(s) from whichever categories actually
+      // have active plans — CG (Data Share) included — instead of only ever
+      // checking awoof/gifting and silently skipping CG.
+      const fallbackOrder = [
+        { name: 'CG', plans: cg },
+        { name: 'AWOOF', plans: awoof },
+        { name: 'GIFTING', plans: gifting },
+      ];
+ 
+      const slotsToFill = specialAvailable ? 1 : 2;
+      let filled = 0;
+ 
+      for (const { name, plans: catPlans } of fallbackOrder) {
+        if (filled >= slotsToFill) break;
+        if (catPlans.length > 0) {
+          plansToShow.push(catPlans[0]);
+          filled++;
+          console.log(`[RENDER] Added first ${name} to MTN dashboard preview`);
         }
       }
     }
