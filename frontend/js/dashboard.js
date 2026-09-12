@@ -6072,6 +6072,12 @@ if (provider !== 'mtn' && existingSpecialSection) {
   console.log('[RENDER MODAL] SPECIAL section removed for', provider);
 }
 
+const existingCgSection = modal.querySelector('.plan-section.cg-section');
+if (provider !== 'glo' && existingCgSection) {
+  existingCgSection.remove();
+  console.log('[RENDER MODAL] CG section removed for', provider);
+}
+
 
   const sortByPrice = (planArray) => {
     return planArray.sort((a, b) => {
@@ -6178,13 +6184,32 @@ if (provider !== 'mtn' && existingSpecialSection) {
     }
   }
   else if (provider === 'glo') {
-    if (awoofSection) {
+    // GLO has 3 real categories now (CG, AWOOF, GIFTING), so it needs its
+    // own CG section cloned in — same pattern as the MTN special-section above —
+    // instead of sharing (and blocking) the AWOOF slot.
+    let cgSection = modal.querySelector('.plan-section.cg-section');
+    if (!cgSection && cgPlans.length > 0) {
+      cgSection = awoofSection.cloneNode(true);
+      cgSection.classList.add('cg-section');
+      cgSection.classList.remove('awoof-section');
+      cgSection.querySelector('.plans-grid').innerHTML = '';
+      modal.querySelector('.plan-modal-content').insertBefore(cgSection, awoofSection);
+      console.log('[RENDER MODAL] Created new CG section for GLO');
+    }
+
+    if (cgSection) {
       if (cgPlans.length > 0) {
-        fillPlanSection(awoofSection, provider, 'cg', cgPlans,
+        fillPlanSection(cgSection, provider, 'cg', cgPlans,
           'GLO CG', svgShapes[provider]
         );
-        awoofSection.style.display = 'block';
-      } else if (awoofPlans.length > 0) {
+        cgSection.style.display = 'block';
+      } else {
+        cgSection.style.display = 'none';
+      }
+    }
+
+    if (awoofSection) {
+      if (awoofPlans.length > 0) {
         fillPlanSection(awoofSection, provider, 'awoof', awoofPlans,
           'GLO AWOOF', svgShapes[provider]
         );
