@@ -203,6 +203,25 @@ if (!window.__specialPlanRealtimeAttached__) {
   window.__specialPlanRealtimeAttached__ = true;
 }
 
+(function injectNightBadgeStyles() {
+  const style = document.createElement('style');
+  style.textContent = `
+    .plan-data-main { display: block; }
+    .plan-bonus-badge {
+      display: inline-block;
+      margin-top: 2px;
+      font-size: 0.65em;
+      font-weight: 600;
+      color: #1e824c;
+      background: rgba(30, 130, 76, 0.12);
+      border-radius: 6px;
+      padding: 1px 6px;
+      line-height: 1.3;
+    }
+  `;
+  document.head.appendChild(style);
+})();
+
 
 
 const JWT_CACHE = {
@@ -5822,6 +5841,14 @@ function updateSpecialRemainingCount(plan) {
  
 window.updateSpecialRemainingCount = updateSpecialRemainingCount;
 
+function formatPlanDataDisplay(dataAmount) {
+  if (!dataAmount) return '';
+  const match = String(dataAmount).match(/^(.+?)\s*\+\s*(.+)$/);
+  if (!match) return `<span class="plan-data-main">${dataAmount}</span>`;
+  const [, main, bonus] = match;
+  return `<span class="plan-data-main">${main.trim()}</span><span class="plan-bonus-badge">+${bonus.trim()}</span>`;
+}
+
 async function renderDashboardPlans(provider) {
   console.log('%c[RENDER] Starting renderDashboardPlans for:', 'color:cyan;font-weight:bold', provider);
  
@@ -5996,7 +6023,7 @@ async function renderDashboardPlans(provider) {
     box.innerHTML += `
       ${remainingCountHTML}
       <div class="plan-price plan-amount">₦${plan.price}</div>
-      <div class="plan-data plan-gb">${plan.data_amount || plan.data}</div>
+      <div class="plan-data plan-gb">${formatPlanDataDisplay(plan.data_amount || plan.data)}</div>
       <div class="plan-duration">${plan.duration || plan.validity}</div>
       ${tag}
     `;
@@ -6275,7 +6302,7 @@ function fillPlanSection(sectionEl, provider, subType, plans, title, svg) {
     box.innerHTML += `
       ${remainingCountHTML}
       <div class="plan-amount">₦${plan.price}</div>
-      <div class="plan-data">${plan.data_amount || plan.data}</div>
+      <div class="plan-data">${formatPlanDataDisplay(plan.data_amount || plan.data)}</div>
       <div class="plan-days">${plan.duration || plan.validity}</div>
       ${tag}
     `;
