@@ -5958,6 +5958,7 @@ async function renderDashboardPlans(provider) {
     box.dataset.provider = provider;
  
     const categoryUpper = plan.category ? plan.category.toUpperCase() : '';
+    box.dataset.category = categoryUpper;
  
     // ── Special plan: gradient border + state badge ────────────────────────
     let remainingCountHTML = '';
@@ -6052,189 +6053,111 @@ async function renderDashboardPlans(provider) {
 
 async function renderModalPlans(provider) {
   console.log('%c[RENDER MODAL] Starting for:', 'color:purple;font-weight:bold', provider);
-  
+
   const modal = document.getElementById('allPlansModal');
   if (!modal) return;
 
+  const modalContent = modal.querySelector('.plan-modal-content');
   const awoofSection = modal.querySelector('.plan-section.awoof-section');
   const giftingSection = modal.querySelector('.plan-section.gifting-section');
 
+  // One-time snapshot of a section's markup — used as the template for
+  // any category-specific section we need to create on the fly. Captured
+  // once so later mutations (display:none, class changes) never leak in.
+  if (!window.__planSectionTemplate && awoofSection) {
+    window.__planSectionTemplate = awoofSection.cloneNode(true);
+  }
+
   const plans = await loadAllPlansOnce();
-  let providerPlans = plans.filter(p => 
+  let providerPlans = plans.filter(p =>
     p.provider?.toLowerCase() === (provider === 'ninemobile' ? '9mobile' : provider.toLowerCase()) &&
     p.active === true
   );
 
-const existingSpecialSection = modal.querySelector('.plan-section.special-section');
-
-if (provider !== 'mtn' && existingSpecialSection) {
-  existingSpecialSection.remove();
-  console.log('[RENDER MODAL] SPECIAL section removed for', provider);
-}
-
-const existingCgSection = modal.querySelector('.plan-section.cg-section');
-if (provider !== 'glo' && existingCgSection) {
-  existingCgSection.remove();
-  console.log('[RENDER MODAL] CG section removed for', provider);
-}
-
-
-  const sortByPrice = (planArray) => {
-    return planArray.sort((a, b) => {
-      const priceA = parseFloat(a.price) || 0;
-      const priceB = parseFloat(b.price) || 0;
-      return priceA - priceB;
-    });
-  };
-
+  // 9mobile has no categories — flat list, unchanged from before
   if (provider === 'ninemobile') {
     if (awoofSection) {
-      const sortedPlans = sortByPrice([...providerPlans]);
-      fillPlanSection(awoofSection, provider, 'standard', sortedPlans,
-        '9MOBILE PLANS', svgShapes.ninemobile
-      );
+      const sortedPlans = [...providerPlans].sort((a, b) => (parseFloat(a.price) || 0) - (parseFloat(b.price) || 0));
+      fillPlanSection(awoofSection, provider, 'standard', sortedPlans, '9MOBILE PLANS', svgShapes.ninemobile);
       awoofSection.style.display = 'block';
     }
-    if (giftingSection) {
-      giftingSection.style.display = 'none';
-    }
+    if (giftingSection) giftingSection.style.display = 'none';
+    modalContent?.querySelectorAll('.plan-section').forEach(sec => {
+      if (sec !== awoofSection && sec !== giftingSection) sec.style.display = 'none';
+    });
     console.log('[RENDER MODAL] 9mobile sections rendered');
     return;
   }
 
-  const awoofPlans = sortByPrice(providerPlans.filter(p => p.category.toUpperCase() === 'AWOOF'));
-  const cgPlans = sortByPrice(providerPlans.filter(p => p.category.toUpperCase() === 'CG'));
-  const giftingPlans = sortByPrice(providerPlans.filter(p => p.category.toUpperCase() === 'GIFTING'));
-  
-  const specialPlans = sortByPrice(providerPlans.filter(p => p.category.toUpperCase() === 'SPECIAL'));
+  const sortByPrice = (planArray) =>
+    planArray.sort((a, b) => (parseFloat(a.price) || 0) - (parseFloat(b.price) || 0));
 
-  console.log(`[RENDER MODAL] ${provider.toUpperCase()} categories:`, {
-    awoof: awoofPlans.length,
-    cg: cgPlans.length,
-    gifting: giftingPlans.length,
-    special: specialPlans.length
+  // Group by whatever category string actually exists in the data —
+  // no more hardcoding which categories a given provider "should" have.
+  const plansByCategory = {};
+  providerPlans.forEach(p => {
+    const cat = (p.category || 'STANDARD').toUpperCase();
+    (plansByCategory[cat] = plansByCategory[cat] || []).push(p);
+  });
+  Object.keys(plansByCategory).forEach(cat => sortByPrice(plansByCategory[cat]));
+
+  console.log(`[RENDER MODAL] ${provider.toUpperCase()} categories found:`,
+    Object.fromEntries(Object.entries(plansByCategory).map(([k, v]) => [k, v.length]))
+  );
+
+  // Preferred display order; any category not listed here falls in
+  // alphabetically at the end — so a brand-new category just works.
+  const CATEGORY_ORDER = ['SPECIAL', 'CG', 'AWOOF', 'GIFTING'];
+  const TITLE_OVERRIDES = { SPECIAL: 'SPECIAL LIMITED' };
+
+  const allCategories = Object.keys(plansByCategory).sort((a, b) => {
+    const ia = CATEGORY_ORDER.indexOf(a);
+    const ib = CATEGORY_ORDER.indexOf(b);
+    if (ia === -1 && ib === -1) return a.localeCompare(b);
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
   });
 
-  if (provider === 'mtn') {
-    let specialSection = modal.querySelector('.plan-section.special-section');
-    if (!specialSection && specialPlans.length > 0) {
-      specialSection = awoofSection.cloneNode(true);
-      specialSection.classList.add('special-section');
-      specialSection.classList.remove('awoof-section');
-      specialSection.querySelector('.plans-grid').innerHTML = ''; // Clear cloned plans
-      modal.querySelector('.plan-modal-content').insertBefore(specialSection, awoofSection);
-      console.log('[RENDER MODAL] Created new SPECIAL section for MTN');
+  const activeSections = new Set();
+
+  allCategories.forEach(category => {
+    const catPlans = plansByCategory[category];
+    if (!catPlans || catPlans.length === 0) return;
+
+    const slug = category.toLowerCase();
+    let section = modal.querySelector(`.plan-section.${slug}-section`);
+
+    if (!section) {
+      section = window.__planSectionTemplate.cloneNode(true);
+      section.className = `plan-section ${slug}-section`;
+      section.querySelector('.plans-grid').innerHTML = '';
+      modalContent.appendChild(section);
+      console.log(`[RENDER MODAL] Created new ${category} section for ${provider}`);
     }
 
-    if (specialSection) {
-      if (specialPlans.length > 0) {
-        fillPlanSection(specialSection, provider, 'special', specialPlans,
-          'MTN SPECIAL LIMITED', svgShapes[provider]
-        );
-        specialSection.style.display = 'block';
-        console.log('[RENDER MODAL] SPECIAL section rendered with', specialPlans.length, 'plans');
-      } else {
-        specialSection.style.display = 'none';
-      }
-    }
+    // Keeps sections in CATEGORY_ORDER position (appendChild moves an
+    // existing node rather than duplicating it)
+    modalContent.appendChild(section);
 
-    if (awoofSection) {
-      if (awoofPlans.length > 0) {
-        fillPlanSection(awoofSection, provider, 'awoof', awoofPlans,
-          'MTN AWOOF', svgShapes[provider]
-        );
-        awoofSection.style.display = 'block';
-      } else {
-        awoofSection.style.display = 'none';
-      }
-    }
+    // MTN SPECIAL keeps its gradient-border treatment; nothing else needs it
+    section.classList.toggle('special-section', category === 'SPECIAL' && provider === 'mtn');
 
-    if (giftingSection) {
-      if (giftingPlans.length > 0) {
-        fillPlanSection(giftingSection, provider, 'gifting', giftingPlans,
-          'MTN GIFTING', svgShapes[provider]
-        );
-        giftingSection.style.display = 'block';
-      } else {
-        giftingSection.style.display = 'none';
-      }
-    }
-  }
-  else if (provider === 'airtel') {
-    if (awoofSection) {
-      if (awoofPlans.length > 0) {
-        fillPlanSection(awoofSection, provider, 'awoof', awoofPlans,
-          'AIRTEL AWOOF', svgShapes[provider]
-        );
-        awoofSection.style.display = 'block';
-      } else {
-        awoofSection.style.display = 'none';
-      }
-    }
+    const title = `${provider.toUpperCase()} ${TITLE_OVERRIDES[category] || category}`;
+    fillPlanSection(section, provider, slug, catPlans, title, svgShapes[provider]);
+    section.style.display = 'block';
+    activeSections.add(section);
+  });
 
-    if (giftingSection) {
-      if (cgPlans.length > 0) {
-        fillPlanSection(giftingSection, provider, 'cg', cgPlans,
-          'AIRTEL CG', svgShapes[provider]
-        );
-        giftingSection.style.display = 'block';
-      } else {
-        giftingSection.style.display = 'none';
-      }
-    }
-  }
-  else if (provider === 'glo') {
-    // GLO has 3 real categories now (CG, AWOOF, GIFTING), so it needs its
-    // own CG section cloned in — same pattern as the MTN special-section above —
-    // instead of sharing (and blocking) the AWOOF slot.
-    let cgSection = modal.querySelector('.plan-section.cg-section');
-    if (!cgSection && cgPlans.length > 0) {
-      cgSection = awoofSection.cloneNode(true);
-      cgSection.classList.add('cg-section');
-      cgSection.classList.remove('awoof-section');
-      cgSection.querySelector('.plans-grid').innerHTML = '';
-      modal.querySelector('.plan-modal-content').insertBefore(cgSection, awoofSection);
-      console.log('[RENDER MODAL] Created new CG section for GLO');
-    }
+  // Hide any leftover sections — e.g. a GLO CG section shouldn't stay
+  // visible after switching to Airtel, which has no CG-labeled data here
+  modalContent.querySelectorAll('.plan-section').forEach(sec => {
+    if (!activeSections.has(sec)) sec.style.display = 'none';
+  });
 
-    if (cgSection) {
-      if (cgPlans.length > 0) {
-        fillPlanSection(cgSection, provider, 'cg', cgPlans,
-          'GLO CG', svgShapes[provider]
-        );
-        cgSection.style.display = 'block';
-      } else {
-        cgSection.style.display = 'none';
-      }
-    }
-
-    if (awoofSection) {
-      if (awoofPlans.length > 0) {
-        fillPlanSection(awoofSection, provider, 'awoof', awoofPlans,
-          'GLO AWOOF', svgShapes[provider]
-        );
-        awoofSection.style.display = 'block';
-      } else {
-        awoofSection.style.display = 'none';
-      }
-    }
-
-    if (giftingSection) {
-      if (giftingPlans.length > 0) {
-        fillPlanSection(giftingSection, provider, 'gifting', giftingPlans,
-          'GLO GIFTING', svgShapes[provider]
-        );
-        giftingSection.style.display = 'block';
-      } else {
-        giftingSection.style.display = 'none';
-      }
-    }
-  }
-  
   console.log('%c[RENDER MODAL] Complete - sections configured for', 'color:lime;font-weight:bold', provider);
   attachPlanListeners();
   syncSpecialPlanGradientState();
-
 }
 window.renderModalPlans = window.renderModalPlans || renderModalPlans;
 
@@ -6252,6 +6175,7 @@ function fillPlanSection(sectionEl, provider, subType, plans, title, svg) {
     box.dataset.provider = provider;
  
     const categoryUpper = plan.category ? plan.category.toUpperCase() : '';
+    box.dataset.category = categoryUpper;
  
     // ── Determine sold-out state ───────────────────────────────────────────
     const state     = (categoryUpper === 'SPECIAL' && provider === 'mtn')
@@ -6369,10 +6293,7 @@ if (seeAllBtn) {
 
       allPlansModalContent.scrollTop = 0;
 
-      const awoofSection = allPlansModal.querySelector('.plan-section.awoof-section');
-      const giftingSection = allPlansModal.querySelector('.plan-section.gifting-section');
-      if (giftingSection) giftingSection.style.display = activeProvider === 'ninemobile' ? 'none' : 'block';
-      if (awoofSection) awoofSection.style.display = 'block';
+      
 
       if (dashSelected) {
         const id = dashSelected.getAttribute('data-id');
@@ -6586,13 +6507,11 @@ function handlePlanClick(e) {
       cloneForDashboard.classList.add(activeProvider);
       cloneForDashboard.dataset.provider = activeProvider;
 
-      let subType = '';
-      if (activeProvider === 'mtn')
-        subType = id.includes('awoof') ? 'awoof' : id.includes('gifting') ? 'gifting' : '';
-      else if (activeProvider === 'airtel')
-        subType = id.includes('awoof') ? 'awoof' : id.includes('cg') ? 'cg' : '';
-      else if (activeProvider === 'glo')
-        subType = id.includes('cg') ? 'cg' : id.includes('gifting') ? 'gifting' : '';
+      // Read the real category off the plan box's dataset (set at render
+      // time from plan.category) instead of guessing from the plan_id
+      // string — works for any category, on any provider, automatically.
+      const rawCategory = (plan.dataset.category || '').toLowerCase();
+      const subType = ['standard', 'normal', ''].includes(rawCategory) ? '' : rawCategory;
 
       cloneForDashboard.querySelector('.plan-type-tag')?.remove();
 
@@ -6819,15 +6738,10 @@ function restoreEverything() {
         newFirstPlan.classList.remove(...providerClasses);
         newFirstPlan.classList.add(activeProvider, 'selected');
 
-        const planId = saved.selectedPlanId;
-        let subType = '';
-        if (activeProvider === 'mtn') {
-          subType = planId.includes('awoof') ? 'awoof' : planId.includes('gifting') ? 'gifting' : '';
-        } else if (activeProvider === 'airtel') {
-          subType = planId.includes('awoof') ? 'awoof' : planId.includes('cg') ? 'cg' : '';
-        } else if (activeProvider === 'glo') {
-          subType = planId.includes('cg') ? 'cg' : planId.includes('gifting') ? 'gifting' : '';
-        }
+        // Same as handlePlanClick — read the category off the plan box's
+        // dataset instead of guessing from the plan_id string.
+        const rawCategory = (modalPlan.dataset.category || '').toLowerCase();
+        const subType = ['standard', 'normal', ''].includes(rawCategory) ? '' : rawCategory;
 
         if (subType && activeProvider !== 'ninemobile') {
           const existingTag = newFirstPlan.querySelector('.plan-type-tag');
