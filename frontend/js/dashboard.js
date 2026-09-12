@@ -212,7 +212,7 @@ if (!window.__specialPlanRealtimeAttached__) {
       margin-top: 2px;
       font-size: 0.65em;
       font-weight: 600;
-      color: #1e824c;
+      color: #82761e;
       background: rgba(30, 130, 76, 0.12);
       border-radius: 6px;
       padding: 1px 6px;
@@ -5846,7 +5846,7 @@ function formatPlanDataDisplay(dataAmount) {
   const match = String(dataAmount).match(/^(.+?)\s*\+\s*(.+)$/);
   if (!match) return `<span class="plan-data-main">${dataAmount}</span>`;
   const [, main, bonus] = match;
-  return `<span class="plan-data-main">${main.trim()}</span><span class="plan-bonus-badge">+${bonus.trim()}</span>`;
+  return `<span class="plan-data-main">${main.trim()}</span> <span class="plan-bonus-badge">+${bonus.trim()}</span>`;
 }
 
 async function renderDashboardPlans(provider) {
