@@ -5880,7 +5880,7 @@ async function renderDashboardPlans(provider) {
     console.log('[RENDER] 9mobile → showing first 2 plans by price');
   } else {
     const awoof   = providerPlans.filter(p => p.category.toUpperCase() === 'AWOOF').sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
-    const cg      = providerPlans.filter(p => p.category.toUpperCase() === 'CG').sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+    const cg      = providerPlans.filter(p => ['CG', 'DATA SHARE'].includes(p.category.toUpperCase())).sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
     const gifting = providerPlans.filter(p => p.category.toUpperCase() === 'GIFTING').sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
     const special = providerPlans.filter(p => p.category.toUpperCase() === 'SPECIAL').sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
  
@@ -6111,7 +6111,7 @@ async function renderModalPlans(provider) {
 
   // Preferred display order; any category not listed here falls in
   // alphabetically at the end — so a brand-new category just works.
-  const CATEGORY_ORDER = ['SPECIAL', 'CG', 'AWOOF', 'GIFTING'];
+  const CATEGORY_ORDER = ['SPECIAL', 'CG', 'DATA SHARE', 'AWOOF', 'GIFTING'];
   const TITLE_OVERRIDES = { SPECIAL: 'SPECIAL LIMITED' };
 
   const allCategories = Object.keys(plansByCategory).sort((a, b) => {
