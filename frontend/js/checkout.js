@@ -113,6 +113,25 @@ function showDebtRiskWarning(checkoutData) {
   });
 }
 
+const _confirmedNetworkCache = new Map();   // phone -> network string or null
+const _confirmedNetworkPromises = new Map(); // phone -> in-flight promise
+
+function prefetchConfirmedNetwork(phone) {
+  if (_confirmedNetworkCache.has(phone) || _confirmedNetworkPromises.has(phone)) return;
+  const p = getConfirmedNetwork(phone)
+    .then(network => { _confirmedNetworkCache.set(phone, network); _confirmedNetworkPromises.delete(phone); return network; })
+    .catch(() => { _confirmedNetworkCache.set(phone, null); _confirmedNetworkPromises.delete(phone); return null; });
+  _confirmedNetworkPromises.set(phone, p);
+}
+
+function detectProviderWithHistorySync(phone) {
+  if (_confirmedNetworkCache.has(phone)) {
+    const confirmed = _confirmedNetworkCache.get(phone);
+    if (confirmed) return confirmed;
+  }
+  return detectProviderPrefixOnly(phone);
+}
+
 // ==================== NETWORK MISMATCH DETECTION ====================
 // Some networks (GLO in particular) silently accept a purchase for a number
 // that isn't even on their network and still return "success" — so we check
@@ -254,42 +273,58 @@ function renderNumberWithHighlight(historyDigits, typedDigits) {
   return html;
 }
 
-function ensureSimilarSuggestionUI() {
-  let container = document.getElementById('phone-similar-suggestion');
-  if (container) return container;
+function showSimilarNumberModal(typedDigits, matches) {
+  if (!matches.length) return;
 
-  const phoneInput = document.getElementById('phone-input');
-  if (!phoneInput) return null;
+  const backdropId = 'similar-number-backdrop';
+  const existing = document.getElementById(backdropId);
+  if (existing) existing.remove();
 
-  container = document.createElement('div');
-  container.id = 'phone-similar-suggestion';
-  container.className = 'phone-similar-suggestion hidden';
-  container.innerHTML = `
-    <div class="pss-header">
-      <span class="pss-text">This number is similar to a previous recharge, but a digit or 2 is different.</span>
-      <button type="button" class="pss-continue-btn" id="pss-continue-btn">Continue</button>
-    </div>
-    <div class="pss-subheader">Do you mean one of these?</div>
-    <div class="pss-suggestions-list" id="pss-suggestions-list"></div>
+  const backdrop = document.createElement('div');
+  backdrop.id = backdropId;
+  backdrop.className = 'modal-backdrop';
+  backdrop.style.cssText = `
+    position: fixed; top:0; left:0; width:100%; height:100%;
+    background: rgba(0,0,0,0.5); z-index:9999999;
+    display: flex; align-items: center; justify-content: center;
+    animation: fadeIn 0.3s ease;
   `;
-  phoneInput.insertAdjacentElement('afterend', container);
 
-  container.querySelector('#pss-continue-btn').addEventListener('click', () => {
-    container.classList.add('hidden');
-  });
+  const itemsHtml = matches.map(m => {
+    const providerKey = m.network?.toLowerCase() === '9mobile' ? 'ninemobile' : m.network?.toLowerCase();
+    const svg = window.svgShapes?.[providerKey] || '';
+    return `
+      <div class="pss-suggestion-item" data-phone="${m.phone}" data-network="${m.network}">
+        <span class="pss-number">${renderNumberWithHighlight(m.phone, typedDigits)}</span>
+        <span class="pss-network">${svg} ${m.network}</span>
+      </div>
+    `;
+  }).join('');
+
+  backdrop.innerHTML = `
+    <div style="background: white; max-width: 420px; width: 90%; padding: 24px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+      <div class="pss-header" style="display:flex; align-items:flex-start; gap:10px; margin-bottom:16px;">
+        <span class="pss-text" style="flex:1; font-size:14px; line-height:1.5; color:#333;">
+          This number is similar to a previous recharge, but a digit or 2 is different.
+        </span>
+        <button type="button" id="pss-continue-btn" class="pss-continue-btn"
+          style="flex-shrink:0; border:none; background:#333; color:white; border-radius:20px; padding:8px 16px; font-size:13px; font-weight:600; cursor:pointer;">
+          Continue
+        </button>
+      </div>
+      <div class="pss-subheader" style="font-weight:600; color:#555; margin-bottom:8px;">Do you mean one of these?</div>
+      <div class="pss-suggestions-list" style="display:flex; flex-direction:column; gap:8px;">
+        ${itemsHtml}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
 
   if (!document.getElementById('pss-styles')) {
     const style = document.createElement('style');
     style.id = 'pss-styles';
     style.textContent = `
-      .phone-similar-suggestion { margin-top: 8px; padding: 12px; border-radius: 12px; background: #fff8e1; border: 1px solid #ffe082; font-size: 13px; color: #333; }
-      .phone-similar-suggestion.hidden { display: none; }
-      .pss-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-      .pss-text { flex: 1; line-height: 1.4; }
-      .pss-continue-btn { flex-shrink: 0; border: none; background: #333; color: white; border-radius: 20px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
-      .pss-subheader { margin-top: 8px; font-weight: 600; color: #555; }
-      .pss-suggestions-list { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
-      .pss-suggestion-item { display: flex; align-items: center; justify-content: space-between; background: white; border-radius: 8px; padding: 8px 12px; cursor: pointer; border: 1px solid #eee; transition: background 0.15s; }
+      .pss-suggestion-item { display: flex; align-items: center; justify-content: space-between; background: white; border-radius: 8px; padding: 10px 14px; cursor: pointer; border: 1px solid #eee; transition: background 0.15s; }
       .pss-suggestion-item:hover { background: #f5f5f5; }
       .pss-number { font-weight: 600; letter-spacing: 0.5px; }
       .pss-mismatch { color: #e53935; text-decoration: underline; }
@@ -298,55 +333,33 @@ function ensureSimilarSuggestionUI() {
     document.head.appendChild(style);
   }
 
-  return container;
-}
+  const closeModal = () => backdrop.remove();
 
-function renderSimilarNumberSuggestions(typedDigits, matches) {
-  const container = ensureSimilarSuggestionUI();
-  if (!container) return;
+  backdrop.querySelector('#pss-continue-btn').addEventListener('click', closeModal);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
 
-  if (!matches.length) {
-    container.classList.add('hidden');
-    return;
-  }
-
-  const list = container.querySelector('#pss-suggestions-list');
-  list.innerHTML = '';
-
-  matches.forEach(m => {
-    const item = document.createElement('div');
-    item.className = 'pss-suggestion-item';
-
-    const providerKey = m.network?.toLowerCase() === '9mobile' ? 'ninemobile' : m.network?.toLowerCase();
-    const svg = window.svgShapes?.[providerKey] || '';
-
-    item.innerHTML = `
-      <span class="pss-number">${renderNumberWithHighlight(m.phone, typedDigits)}</span>
-      <span class="pss-network">${svg} ${m.network}</span>
-    `;
-
+  backdrop.querySelectorAll('.pss-suggestion-item').forEach(item => {
     item.addEventListener('click', () => {
+      const phone = item.dataset.phone;
+      const network = item.dataset.network;
+
       const phoneInput = document.getElementById('phone-input');
       if (phoneInput) {
         const formatted = (typeof window.formatNigeriaNumber === 'function')
-          ? window.formatNigeriaNumber(m.phone, false, true).value
-          : m.phone;
+          ? window.formatNigeriaNumber(phone, false, true).value
+          : phone;
         phoneInput.value = formatted;
         phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
       }
 
-      const providerClass = m.network?.toLowerCase() === '9mobile' ? 'ninemobile' : m.network?.toLowerCase();
+      const providerClass = network?.toLowerCase() === '9mobile' ? 'ninemobile' : network?.toLowerCase();
       if (providerClass && typeof window.selectProvider === 'function') {
         window.selectProvider(providerClass);
       }
 
-      container.classList.add('hidden');
+      closeModal();
     });
-
-    list.appendChild(item);
   });
-
-  container.classList.remove('hidden');
 }
 
 
@@ -710,7 +723,7 @@ async function continueCheckoutFlow() {
       if (!checkoutData) throw new Error('Invalid checkout data');
 
       // ── Network mismatch warning (some networks silently accept the wrong number) ──
-      const detectedNetwork = await detectProviderWithHistory(
+      const detectedNetwork = detectProviderWithHistorySync(
         formatPhoneForAPI(checkoutData.rawNumber || checkoutData.number)
       );
       if (detectedNetwork && detectedNetwork !== checkoutData.provider.toUpperCase()) {
@@ -1698,6 +1711,10 @@ domReady(() => {
     phoneInputForSuggestions.addEventListener('input', async () => {
       const typedDigits = phoneInputForSuggestions.value.replace(/\D/g, '').slice(0, 11);
 
+      if (typedDigits.length === 11) {
+        prefetchConfirmedNetwork(typedDigits);
+      }
+
       if (typedDigits.length !== 11) {
         document.getElementById('phone-similar-suggestion')?.classList.add('hidden');
         return;
@@ -1712,7 +1729,7 @@ domReady(() => {
           document.getElementById('phone-similar-suggestion')?.classList.add('hidden');
           return;
         }
-        renderSimilarNumberSuggestions(typedDigits, findSimilarNumbers(typedDigits, history));
+        showSimilarNumberModal(typedDigits, findSimilarNumbers(typedDigits, history));
       } catch (e) {
         console.warn('[checkout] similar-number check failed (non-fatal):', e);
       } finally {
@@ -1788,6 +1805,7 @@ function showProcessingReceipt(data) {
 }
 async function updateReceiptToSuccess(result) {
   _numberHistoryCache = null; // force a fresh fetch next time — this number's history just changed
+  _confirmedNetworkCache.delete(data.number?.replace(/\s/g, '') || '');
   const icon = document.getElementById('receipt-icon');
   icon.className = 'receipt-icon success';
   icon.innerHTML = `
