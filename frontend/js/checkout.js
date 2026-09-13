@@ -339,7 +339,7 @@ if (!document.getElementById('pss-styles-v2')) {
   style.id = 'pss-styles-v2';
   style.textContent = `
     .pss-suggestion-item { display: flex; align-items: center; justify-content: space-between; background: white; border-radius: 8px; padding: 10px 14px; cursor: pointer; border: 1px solid #eee; transition: background 0.15s; }
-    .pss-suggestion-item:hover { background: #f5f5f5; }
+    .pss-suggestion-item:hover { background: #172417; }
 
     /* The full number stays on one line and reads as a single unit */
     .pss-number {
