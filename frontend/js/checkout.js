@@ -113,6 +113,242 @@ function showDebtRiskWarning(checkoutData) {
   });
 }
 
+// ==================== NETWORK MISMATCH DETECTION ====================
+// Some networks (GLO in particular) silently accept a purchase for a number
+// that isn't even on their network and still return "success" — so we check
+// against real transaction history first, and fall back to the static prefix
+// table only when no history exists at all for that number.
+
+async function getConfirmedNetwork(phone) {
+  try {
+    const token = localStorage.getItem('token') || '';
+    const res = await fetch(`https://api.flexgig.com.ng/api/phone-network/${encodeURIComponent(phone)}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.network ? String(data.network).toUpperCase() : null;
+  } catch (e) {
+    console.warn('[checkout] getConfirmedNetwork failed (non-fatal):', e);
+    return null;
+  }
+}
+
+function detectProviderPrefixOnly(phone) {
+  if (typeof window.detectProvider === 'function') {
+    const guess = window.detectProvider(phone);
+    return guess ? guess.toUpperCase() : null;
+  }
+  return null;
+}
+
+async function detectProviderWithHistory(phone) {
+  const confirmed = await getConfirmedNetwork(phone);
+  if (confirmed) return confirmed;
+  return detectProviderPrefixOnly(phone);
+}
+
+function showNetworkMismatchWarning(phoneDisplay, providerLabel) {
+  return new Promise((resolve) => {
+    const backdropId = 'network-mismatch-backdrop';
+    const existing = document.getElementById(backdropId);
+    if (existing) existing.remove();
+
+    const backdrop = document.createElement('div');
+    backdrop.id = backdropId;
+    backdrop.className = 'modal-backdrop';
+    backdrop.style.cssText = `
+      position: fixed; top:0; left:0; width:100%; height:100%;
+      background: rgba(0,0,0,0.5); z-index:9999999;
+      display: flex; align-items: center; justify-content: center;
+      animation: fadeIn 0.3s ease;
+    `;
+    backdrop.innerHTML = `
+      <div style="background: white; max-width: 420px; width: 90%; padding: 24px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+        <div style="text-align: center; margin-bottom: 16px;">
+          <span style="font-size: 40px;">📶</span>
+        </div>
+        <div style="font-size: 15px; line-height: 1.6; color: #333; margin-bottom: 20px; text-align:center;">
+          Are you sure the phone number <b>${phoneDisplay}</b> you entered is from <b>${providerLabel}</b>?
+        </div>
+        <div style="display: flex; gap: 12px;">
+          <button id="network-mismatch-yes" style="flex:1; padding: 14px; border: none; border-radius: 50px; background: #00bfa5; color: white; font-weight: 600; font-size: 16px; cursor:pointer;">
+            Yes, go on
+          </button>
+          <button id="network-mismatch-recheck" style="flex:1; padding: 14px; border: none; border-radius: 50px; background: #e0e0e0; color: #333; font-weight: 600; font-size: 16px; cursor: pointer;">
+            Recheck
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+
+    backdrop.querySelector('#network-mismatch-yes').addEventListener('click', () => {
+      backdrop.remove();
+      resolve(true);
+    });
+    backdrop.querySelector('#network-mismatch-recheck').addEventListener('click', () => {
+      backdrop.remove();
+      resolve(false);
+    });
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) { backdrop.remove(); resolve(false); }
+    });
+  });
+}
+
+// ==================== SIMILAR-NUMBER SUGGESTIONS ====================
+// Compares a freshly-typed 11-digit number against the user's own past
+// numbers, and flags a likely typo when exactly 1-2 digits differ.
+
+let _numberHistoryCache = null;
+let _numberHistoryFetchedAt = 0;
+const NUMBER_HISTORY_TTL_MS = 5 * 60 * 1000;
+
+async function getUserNumberHistory(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && _numberHistoryCache && (now - _numberHistoryFetchedAt) < NUMBER_HISTORY_TTL_MS) {
+    return _numberHistoryCache;
+  }
+  try {
+    const token = localStorage.getItem('token') || '';
+    const res = await fetch('https://api.flexgig.com.ng/api/user/number-history', {
+      headers: { 'Authorization': `Bearer ${token}` },
+      credentials: 'include',
+    });
+    if (!res.ok) return _numberHistoryCache || [];
+    const data = await res.json();
+    _numberHistoryCache = data?.history || [];
+    _numberHistoryFetchedAt = now;
+    return _numberHistoryCache;
+  } catch (e) {
+    console.warn('[checkout] getUserNumberHistory failed (non-fatal):', e);
+    return _numberHistoryCache || [];
+  }
+}
+
+function countDigitDiffs(a, b) {
+  if (a.length !== b.length) return Infinity;
+  let diffs = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diffs++;
+  return diffs;
+}
+
+function findSimilarNumbers(typedDigits, history) {
+  return history
+    .map(h => ({ ...h, diffs: countDigitDiffs(h.phone, typedDigits) }))
+    .filter(h => h.diffs >= 1 && h.diffs <= 2)
+    .sort((a, b) => a.diffs - b.diffs || new Date(b.last_used_at) - new Date(a.last_used_at))
+    .slice(0, 3);
+}
+
+function renderNumberWithHighlight(historyDigits, typedDigits) {
+  let html = '';
+  for (let i = 0; i < historyDigits.length; i++) {
+    const digit = historyDigits[i];
+    const isMismatch = digit !== typedDigits[i];
+    html += isMismatch ? `<span class="pss-mismatch">${digit}</span>` : digit;
+    if (i === 3 || i === 6) html += ' ';
+  }
+  return html;
+}
+
+function ensureSimilarSuggestionUI() {
+  let container = document.getElementById('phone-similar-suggestion');
+  if (container) return container;
+
+  const phoneInput = document.getElementById('phone-input');
+  if (!phoneInput) return null;
+
+  container = document.createElement('div');
+  container.id = 'phone-similar-suggestion';
+  container.className = 'phone-similar-suggestion hidden';
+  container.innerHTML = `
+    <div class="pss-header">
+      <span class="pss-text">This number is similar to a previous recharge, but a digit or 2 is different.</span>
+      <button type="button" class="pss-continue-btn" id="pss-continue-btn">Continue</button>
+    </div>
+    <div class="pss-subheader">Do you mean one of these?</div>
+    <div class="pss-suggestions-list" id="pss-suggestions-list"></div>
+  `;
+  phoneInput.insertAdjacentElement('afterend', container);
+
+  container.querySelector('#pss-continue-btn').addEventListener('click', () => {
+    container.classList.add('hidden');
+  });
+
+  if (!document.getElementById('pss-styles')) {
+    const style = document.createElement('style');
+    style.id = 'pss-styles';
+    style.textContent = `
+      .phone-similar-suggestion { margin-top: 8px; padding: 12px; border-radius: 12px; background: #fff8e1; border: 1px solid #ffe082; font-size: 13px; color: #333; }
+      .phone-similar-suggestion.hidden { display: none; }
+      .pss-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .pss-text { flex: 1; line-height: 1.4; }
+      .pss-continue-btn { flex-shrink: 0; border: none; background: #333; color: white; border-radius: 20px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
+      .pss-subheader { margin-top: 8px; font-weight: 600; color: #555; }
+      .pss-suggestions-list { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+      .pss-suggestion-item { display: flex; align-items: center; justify-content: space-between; background: white; border-radius: 8px; padding: 8px 12px; cursor: pointer; border: 1px solid #eee; transition: background 0.15s; }
+      .pss-suggestion-item:hover { background: #f5f5f5; }
+      .pss-number { font-weight: 600; letter-spacing: 0.5px; }
+      .pss-mismatch { color: #e53935; text-decoration: underline; }
+      .pss-network { font-size: 12px; color: #666; display: flex; align-items: center; gap: 4px; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  return container;
+}
+
+function renderSimilarNumberSuggestions(typedDigits, matches) {
+  const container = ensureSimilarSuggestionUI();
+  if (!container) return;
+
+  if (!matches.length) {
+    container.classList.add('hidden');
+    return;
+  }
+
+  const list = container.querySelector('#pss-suggestions-list');
+  list.innerHTML = '';
+
+  matches.forEach(m => {
+    const item = document.createElement('div');
+    item.className = 'pss-suggestion-item';
+
+    const providerKey = m.network?.toLowerCase() === '9mobile' ? 'ninemobile' : m.network?.toLowerCase();
+    const svg = window.svgShapes?.[providerKey] || '';
+
+    item.innerHTML = `
+      <span class="pss-number">${renderNumberWithHighlight(m.phone, typedDigits)}</span>
+      <span class="pss-network">${svg} ${m.network}</span>
+    `;
+
+    item.addEventListener('click', () => {
+      const phoneInput = document.getElementById('phone-input');
+      if (phoneInput) {
+        const formatted = (typeof window.formatNigeriaNumber === 'function')
+          ? window.formatNigeriaNumber(m.phone, false, true).value
+          : m.phone;
+        phoneInput.value = formatted;
+        phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+
+      const providerClass = m.network?.toLowerCase() === '9mobile' ? 'ninemobile' : m.network?.toLowerCase();
+      if (providerClass && typeof window.selectProvider === 'function') {
+        window.selectProvider(providerClass);
+      }
+
+      container.classList.add('hidden');
+    });
+
+    list.appendChild(item);
+  });
+
+  container.classList.remove('hidden');
+}
+
 
 // Synchronous PIN check using localStorage
 function checkPinExists(context = 'checkout') {
@@ -472,6 +708,19 @@ async function continueCheckoutFlow() {
   try {
       checkoutData = gatherCheckoutData();
       if (!checkoutData) throw new Error('Invalid checkout data');
+
+      // ── Network mismatch warning (some networks silently accept the wrong number) ──
+      const detectedNetwork = await detectProviderWithHistory(
+        formatPhoneForAPI(checkoutData.rawNumber || checkoutData.number)
+      );
+      if (detectedNetwork && detectedNetwork !== checkoutData.provider.toUpperCase()) {
+        const proceed = await showNetworkMismatchWarning(checkoutData.number, checkoutData.provider);
+        if (!proceed) {
+          payBtn.disabled = false;
+          payBtn.textContent = originalText;
+          return;
+        }
+      }
 
       // ── Debt‑risk warning (MTN plans that auto‑convert to airtime if recipient owes) ──
       if (checkoutData.debt_risk) {
@@ -1442,6 +1691,36 @@ domReady(() => {
     }
   });
 
+  const phoneInputForSuggestions = document.getElementById('phone-input');
+  if (phoneInputForSuggestions) {
+    let similarCheckInFlight = false;
+
+    phoneInputForSuggestions.addEventListener('input', async () => {
+      const typedDigits = phoneInputForSuggestions.value.replace(/\D/g, '').slice(0, 11);
+
+      if (typedDigits.length !== 11) {
+        document.getElementById('phone-similar-suggestion')?.classList.add('hidden');
+        return;
+      }
+      if (similarCheckInFlight) return;
+      similarCheckInFlight = true;
+
+      try {
+        const history = await getUserNumberHistory();
+        const exactMatch = history.some(h => h.phone === typedDigits);
+        if (exactMatch) {
+          document.getElementById('phone-similar-suggestion')?.classList.add('hidden');
+          return;
+        }
+        renderSimilarNumberSuggestions(typedDigits, findSimilarNumbers(typedDigits, history));
+      } catch (e) {
+        console.warn('[checkout] similar-number check failed (non-fatal):', e);
+      } finally {
+        similarCheckInFlight = false;
+      }
+    });
+  }
+
   console.log('[checkout] Initialized ✓');
 });
 
@@ -1508,6 +1787,7 @@ function showProcessingReceipt(data) {
   window._currentCheckoutData = data;
 }
 async function updateReceiptToSuccess(result) {
+  _numberHistoryCache = null; // force a fresh fetch next time — this number's history just changed
   const icon = document.getElementById('receipt-icon');
   icon.className = 'receipt-icon success';
   icon.innerHTML = `

@@ -5658,6 +5658,8 @@ window.saveUserState = window.saveUserState || saveUserState;
     slider.addEventListener('transitionend', handleTransitionEnd);
   }
 
+  window.selectProvider = window.selectProvider || selectProvider;
+
 
 
 let __allPlansCache = [];
