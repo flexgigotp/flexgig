@@ -263,13 +263,24 @@ function findSimilarNumbers(typedDigits, history) {
 }
 
 function renderNumberWithHighlight(historyDigits, typedDigits) {
+  // Render the FULL number, one span per digit, so the whole thing reads
+  // as a single continuous number — with only the differing digits
+  // visually highlighted inside it.
   let html = '';
+
   for (let i = 0; i < historyDigits.length; i++) {
     const digit = historyDigits[i];
-    const isMismatch = digit !== typedDigits[i];
-    html += isMismatch ? `<span class="pss-mismatch">${digit}</span>` : digit;
-    if (i === 3 || i === 6) html += ' ';
+    const typed  = typedDigits[i];
+    const isMismatch = typed !== undefined && digit !== typed;
+
+    html += isMismatch
+      ? `<span class="pss-digit pss-mismatch" title="You typed ${typed ?? '–'}">${digit}</span>`
+      : `<span class="pss-digit">${digit}</span>`;
+
+    // Nigerian format: 0803 123 4567  → space after 4th and 7th digit
+    if (i === 3 || i === 6) html += '<span class="pss-space"> </span>';
   }
+
   return html;
 }
 
@@ -320,18 +331,41 @@ function showSimilarNumberModal(typedDigits, matches) {
   `;
   document.body.appendChild(backdrop);
 
-  if (!document.getElementById('pss-styles')) {
-    const style = document.createElement('style');
-    style.id = 'pss-styles';
-    style.textContent = `
-      .pss-suggestion-item { display: flex; align-items: center; justify-content: space-between; background: white; border-radius: 8px; padding: 10px 14px; cursor: pointer; border: 1px solid #eee; transition: background 0.15s; }
-      .pss-suggestion-item:hover { background: #f5f5f5; }
-      .pss-number { font-weight: 600; letter-spacing: 0.5px; }
-      .pss-mismatch { color: #e53935; text-decoration: underline; }
-      .pss-network { font-size: 12px; color: #666; display: flex; align-items: center; gap: 4px; }
-    `;
-    document.head.appendChild(style);
-  }
+  // NOTE: id bumped to 'pss-styles-v2' so stale injected styles from the
+// old version don't stick around for users who already loaded the page.
+document.getElementById('pss-styles')?.remove();
+if (!document.getElementById('pss-styles-v2')) {
+  const style = document.createElement('style');
+  style.id = 'pss-styles-v2';
+  style.textContent = `
+    .pss-suggestion-item { display: flex; align-items: center; justify-content: space-between; background: white; border-radius: 8px; padding: 10px 14px; cursor: pointer; border: 1px solid #eee; transition: background 0.15s; }
+    .pss-suggestion-item:hover { background: #f5f5f5; }
+
+    /* The full number stays on one line and reads as a single unit */
+    .pss-number {
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .pss-digit { display: inline-block; }
+    .pss-space { display: inline-block; width: 5px; }
+
+    /* Highlighted digits sit INSIDE the number, chip-style */
+    .pss-mismatch {
+      color: #fff;
+      background: #e53935;
+      border-radius: 4px;
+      padding: 0 3px;
+      margin: 0 1px;
+      font-weight: 700;
+      box-shadow: 0 0 0 1px #e53935;
+    }
+
+    .pss-network { font-size: 12px; color: #666; display: flex; align-items: center; gap: 4px; }
+  `;
+  document.head.appendChild(style);
+}
 
   const closeModal = () => backdrop.remove();
 
