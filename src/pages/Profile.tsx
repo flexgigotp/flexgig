@@ -31,7 +31,7 @@ function Profile() {
           <div>
             <p className="text-gray-600 text-sm">Verification Status</p>
             <p className="text-lg font-semibold">
-              {user.verified ? (
+              {user.kycStatus === 'verified' ? (
                 <span className="text-green-600">✓ Verified</span>
               ) : (
                 <span className="text-yellow-600">Pending Verification</span>
@@ -40,8 +40,12 @@ function Profile() {
           </div>
 
           <div>
-            <p className="text-gray-600 text-sm">Account Created</p>
-            <p className="text-lg font-semibold">{formatDate(user.createdAt)}</p>
+            <p className="text-gray-600 text-sm">Username Last Updated</p>
+            <p className="text-lg font-semibold">
+              {user.lastUsernameUpdate
+                ? formatDate(user.lastUsernameUpdate)
+                : 'Never'}
+            </p>
           </div>
 
           <div className="pt-4">

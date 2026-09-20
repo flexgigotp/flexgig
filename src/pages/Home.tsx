@@ -1,202 +1,287 @@
-import { useState } from 'react'
+import { useEffect } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '@/hooks'
-import Button from '@/components/Button'
-import ServiceCard from '@/components/ServiceCard'
-import AuthModal from '@/components/AuthModal'
+import { useInstallPrompt } from '@/hooks/useInstallPrompt';
 
-function Home() {
+// --- SVG icons as raw strings (matched exactly from the old site) ---
+const LOGO_ICON = `<svg height="30px" width="30px" version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><style>.blue{fill:#007BFF;}.yellow{fill:#FFD700;}</style><g><path class="blue" d="M168.203,192.082c4.093,0.046,7.798-2.039,10.634-5.216c2.822-3.202,4.79-7.504,5.41-12.379c2.806-16.72,8.294-32.85,16.154-47.608c7.875-14.766,18.091-28.16,30.074-39.554c11.983-11.394,25.718-20.78,40.477-27.717c14.758-6.945,30.524-11.434,46.491-13.278c7.085-1.132,13.316-4.147,18.122-8.433c4.775-4.279,8.123-9.874,8.232-16.169c0.124-6.27-3.255-12.084-9.348-16.006c-6.061-3.923-14.836-5.844-24.137-4.356C289.71,5.287,269.836,12.58,251.76,22.758c-18.091,10.177-34.431,23.222-48.228,38.414c-13.828,15.176-25.129,32.516-33.361,51.112c-8.248,18.587-13.394,38.437-15.27,58.467c-0.744,5.813,0.527,11.254,3.023,15.115C160.42,189.742,164.11,192.028,168.203,192.082z"/><path class="blue" d="M343.797,319.922c-4.092-0.054-7.797,2.039-10.634,5.217c-2.838,3.201-4.791,7.495-5.426,12.378c-2.791,16.72-8.294,32.842-16.154,47.608c-7.86,14.758-18.076,28.16-30.059,39.546c-11.984,11.402-25.734,20.788-40.476,27.726c-14.758,6.945-30.524,11.425-46.491,13.277c-7.085,1.124-13.317,4.139-18.138,8.426c-4.759,4.287-8.108,9.882-8.216,16.177c-0.124,6.263,3.255,12.076,9.348,15.998c6.046,3.922,14.836,5.845,24.137,4.364c20.602-3.922,40.461-11.215,58.552-21.4c18.092-10.178,34.431-23.215,48.227-38.415c13.828-15.177,25.114-32.508,33.362-51.104c8.247-18.594,13.394-38.437,15.27-58.467c0.744-5.813-0.527-11.262-3.023-15.115C351.564,322.255,347.875,319.977,343.797,319.922z"/><path class="yellow" d="M88.63,258.464c11.968,16.44,26.586,30.834,42.988,42.461c4.65,3.557,10.014,5.177,14.603,4.937c4.604-0.225,8.433-2.279,10.511-5.782c2.093-3.518,2.155-7.774,0.806-11.813c-1.348-4.062-4.092-7.906-7.999-10.89c-13.084-10.782-24.308-23.603-33.159-37.794c-8.852-14.2-15.348-29.741-19.223-45.817c-3.876-16.076-5.132-32.663-3.767-48.918c1.364-16.238,5.364-32.136,11.75-46.902c2.574-6.704,3.07-13.596,1.752-19.905c-1.318-6.27-4.496-11.968-9.875-15.216c-5.379-3.24-12.092-3.216-18.541,0.101c-6.418,3.279-12.48,9.922-15.843,18.711c-6.899,19.812-10.526,40.663-10.743,61.42c-0.232,20.758,2.899,41.422,9.146,60.971C67.267,223.583,76.631,242.038,88.63,258.464z"/><path class="yellow" d="M423.371,253.534c-11.968-16.432-26.586-30.826-42.988-42.454c-4.666-3.558-10.03-5.185-14.604-4.945c-4.619,0.224-8.433,2.287-10.525,5.79c-2.093,3.512-2.14,7.775-0.791,11.813c1.349,4.053,4.092,7.906,7.999,10.89c13.084,10.775,24.308,23.603,33.159,37.795c8.852,14.192,15.347,29.733,19.207,45.817c3.892,16.068,5.147,32.663,3.767,48.91c-1.364,16.247-5.348,32.136-11.735,46.903c-2.573,6.704-3.069,13.603-1.767,19.913c1.333,6.263,4.496,11.96,9.89,15.216c5.363,3.232,12.092,3.217,18.525-0.109c6.434-3.271,12.495-9.914,15.859-18.711c6.898-19.804,10.51-40.663,10.743-61.412c0.233-20.758-2.898-41.423-9.146-60.978C444.733,288.414,435.354,269.966,423.371,253.534z"/><path class="yellow" d="M232.724,386.179c5.395-2.256,9.487-6.085,11.58-10.185c2.108-4.1,2.232-8.433,0.232-11.991c-1.999-3.574-5.658-5.744-9.828-6.604c-4.186-0.852-8.884-0.411-13.425,1.488c-15.89,5.938-32.602,9.247-49.313,9.813c-16.728,0.574-33.424-1.573-49.282-6.262c-15.86-4.674-30.866-11.883-44.244-21.192c-13.394-9.309-25.161-20.71-34.756-33.624c-4.528-5.573-10.248-9.456-16.356-11.48c-6.092-1.984-12.618-2.085-18.122,0.961c-5.488,3.031-8.836,8.86-9.177,16.099c-0.372,7.193,2.341,15.766,8.278,23.076c13.704,15.882,29.951,29.439,47.825,40.02c17.859,10.58,37.314,18.207,57.374,22.563c20.045,4.38,40.709,5.488,60.924,3.326C194.665,400.03,214.431,394.566,232.724,386.179z"/><path class="yellow" d="M503.688,175.72c-13.704-15.882-29.966-29.439-47.825-40.012c-17.858-10.587-37.313-18.207-57.374-22.563c-20.06-4.38-40.709-5.496-60.94-3.326c-20.215,2.155-39.996,7.612-58.273,16.006c-5.395,2.256-9.487,6.076-11.58,10.178c-2.108,4.1-2.232,8.44-0.248,11.999c1.999,3.573,5.674,5.743,9.844,6.596c4.185,0.853,8.882,0.411,13.425-1.488c15.874-5.937,32.602-9.239,49.313-9.813c16.712-0.574,33.423,1.581,49.282,6.27c15.874,4.674,30.865,11.875,44.244,21.184c13.394,9.309,25.16,20.711,34.756,33.632c4.512,5.565,10.232,9.448,16.355,11.472c6.092,1.984,12.619,2.093,18.122-0.954c5.488-3.038,8.836-8.859,9.177-16.099C512.339,191.601,509.61,183.036,503.688,175.72z"/></g></svg>`
+
+const DATA_ICON = `<svg width="30" height="30" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><path fill="#FFD700" d="M138.94,27.75a9.67,9.67,0,0,0-14,0c-2.5,2.5-3,5.5-3,8.5v129a10,10,0,0,0,20,0V58.75l11,11a9.67,9.67,0,0,0,14,0,10.65,10.65,0,0,0,0-14Z"/><path fill="#007BFF" d="M68.44,24.75a10,10,0,0,0-10,10v106.5l-11-11a9.9,9.9,0,0,0-14,14l28,28a9.67,9.67,0,0,0,14,0c2.5-2.5,3-5.5,3-8.5v-129A10,10,0,0,0,68.44,24.75Z"/></svg>`
+
+const AIRTIME_ICON = `<svg height="30px" width="30px" version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><g><path fill="#FFC107" d="M96.658,148.337l-21.936-8.261c-20.049-7.552-42.424,2.583-49.975,22.616c-7.552,20.053,2.588,42.413,22.635,49.965l49.276,18.575V148.337z"/><path fill="#0D99FF" d="M389.449,164.308c-0.222,0.79-0.439,1.539-0.656,2.308v269.03c0,7.454-3.061,14.306-7.946,19.176c-4.88,4.9-11.722,7.946-19.175,7.946H162.979c0.966-1.577,1.849-3.234,2.529-5.038c1.292-3.45,1.903-6.961,1.903-10.411c0-5.944-1.828-11.751-5.126-16.622c-3.312-4.871-8.059-8.765-14-11.003l-30.577-11.515c-3.44-1.301-6.94-1.913-10.396-1.913c-5.954,0-11.766,1.824-16.627,5.128c-4.87,3.312-8.774,8.064-11.012,14c-1.286,3.43-1.908,6.941-1.908,10.391c0,5.975,1.84,11.782,5.137,16.642c3.313,4.861,8.06,8.774,14,11.003l30.582,11.515c3.446,1.302,6.956,1.912,10.401,1.912c5.956,0,11.766-1.834,16.628-5.127c0.853-0.582,1.636-1.262,2.43-1.932c24.45,20.546,62.683,40.777,119.658,42.137c118.977,2.82,150.62-85.339,167.813-181.976c0,0,41.052-185.13,43.838-194.911C502.171,86.127,415.91,71.379,389.449,164.308z"/><path fill="#FFC107" d="M142.986,248.257V44.029h199.48v326.686h-170.9c-0.39,3.47-1.183,6.931-2.464,10.332c-3.234,8.616-8.982,15.617-16.065,20.427c-1.864,1.262-3.811,2.366-5.827,3.322l5.852,2.199c8.611,3.234,15.627,8.991,20.437,16.07c3.909,5.758,6.369,12.402,7.163,19.363h181.01c1.903,0,3.529-0.749,4.791-1.982c1.242-1.262,1.982-2.898,1.982-4.802V6.782c0-1.912-0.74-3.53-1.982-4.792c-1.262-1.252-2.888-1.982-4.791-1.991H123.78c-1.903,0.009-3.534,0.739-4.792,1.991c-1.242,1.262-1.972,2.879-1.982,4.792v230.62l17.756,6.664C137.701,245.191,140.442,246.601,142.986,248.257z"/><circle fill="#0D99FF" cx="242.724" cy="408.869" r="11.87"/><path fill="#0D99FF" d="M118.378,393.489c3.446,1.291,6.955,1.903,10.4,1.903c5.96,0,11.767-1.824,16.627-5.127c4.87-3.312,8.765-8.074,11.007-14c1.292-3.441,1.903-6.95,1.903-10.401c0-5.956-1.823-11.772-5.126-16.622c-3.307-4.87-8.059-8.774-13.989-11.012l-30.588-11.525c-3.44-1.291-6.946-1.903-10.406-1.903c-5.954,0-11.762,1.824-16.622,5.127c-4.865,3.312-8.769,8.074-11.007,14.01c-1.301,3.431-1.908,6.94-1.912,10.401c0,5.954,1.833,11.761,5.136,16.632c3.308,4.871,8.06,8.755,14.004,11.003L118.378,393.489z"/><path fill="#FFC107" d="M109.165,312.015c3.446,1.322,6.955,1.913,10.4,1.913c5.955,0,11.776-1.814,16.637-5.128c4.86-3.312,8.765-8.054,10.997-13.98c1.302-3.471,1.903-6.971,1.903-10.43c0.01-5.935-1.818-11.752-5.116-16.622c-3.312-4.861-8.069-8.755-14.01-11.003L99.399,245.25c-3.451-1.302-6.951-1.912-10.406-1.912c-5.954,0-11.762,1.823-16.626,5.146c-4.861,3.293-8.765,8.055-11.013,14c-1.286,3.43-1.898,6.941-1.898,10.391c0,5.954,1.829,11.761,5.132,16.632c3.308,4.861,8.065,8.765,14.006,11.012L109.165,312.015z"/><path fill="#0D99FF" d="M226.638,188.541l10.781-6.941c3.456-2.208,4.461-6.802,2.238-10.253l-15.247-23.78c-2.213-3.45-6.808-4.436-10.263-2.237c-0.079,0.048-1.286,0.818-14.335,9.198c-15.203,9.76-7.034,51.572,14.665,85.398c21.704,33.826,56.329,58.67,71.522,48.91c13.054-8.37,14.251-9.14,14.335-9.208c3.45-2.199,4.456-6.812,2.243-10.263l-15.258-23.76c-2.208-3.451-6.807-4.456-10.263-2.228l-10.785,6.92c-3.145,2.011-7.31,1.371-9.711-1.488c0,0-7.247-7.424-18.067-24.293c-10.815-16.848-14.552-26.55-14.552-26.55C222.335,194.595,223.494,190.553,226.638,188.541z"/></g></svg>`
+
+const TV_ICON = `<svg fill="#1E90FF" height="30px" width="30px" version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50"><g><path d="M1,38h23v3H12v2h26v-2H26v-3h23V8H1V38z M3,10h44v26H3V10z"/></g><text x="25" y="27" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="bold" fill="#FFD700">FG</text></svg>`
+
+const A2C_ICON = `<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" height="35px" width="35" fill="#1E90FF"><path fill="#1E90FF" d="M363.783 23.545c-9.782.057-16.583 3.047-20.744 10.22-17.51 30.18-38.432 61.645-48.552 97.245 2.836.83 5.635 1.787 8.373 2.853 7.353 2.863 14.38 6.482 20.542 10.858 27.534-25.542 58.165-45.21 87.45-65.462 11.356-7.854 12.273-13.584 10.183-20.83-2.09-7.246-9.868-16.365-20.525-23.176-10.658-6.81-23.87-11.33-34.73-11.68-.68-.022-1.345-.03-1.997-.027z"/><path fill="#FFD700" d="M294.785 24.291c-10.02-.182-17.792 6.393-23.924 20.24-8.94 20.194-10.212 53.436-1.446 83.185.156-.008.31-.023.467-.03 1.99-.087 3.99-.072 6 .03 9.436-34.822 27.966-64.72 44.013-91.528-10.31-8.496-18.874-11.782-25.108-11.896z"/><path fill="#1E90FF" d="M197.5 82.5L187 97.97c14.82 10.04 29.056 19.725 39.813 31.374 3.916 4.24 7.37 8.722 10.31 13.607 3.77-4.73 8.51-8.378 13.69-10.792.407-.188.82-.355 1.228-.53-3.423-5.44-7.304-10.418-11.51-14.972C227.765 102.83 212.29 92.52 197.5 82.5z"/><path fill="#FFD700" d="M421.27 94.77c-29.255 20.228-58.575 39.152-84.348 62.78.438.576.848 1.168 1.258 1.76 20.68-6.75 49.486-15.333 73.916-19.41 11.484-1.916 15.66-6.552 17.574-13.228 1.914-6.676.447-16.71-5.316-26.983-.924-1.647-1.96-3.29-3.083-4.92z"/><path fill="#1E90FF" d="M197.332 130.37c-14.95.2-29.732 4.3-43.957 12.766l9.563 16.03c21.657-12.89 42.626-14.133 65.232-4.563.52-5.592 1.765-10.66 3.728-15.21.35-.806.73-1.586 1.123-2.354-11.87-4.52-23.83-6.827-35.688-6.67z"/><path fill="#FFD700" d="M273.132 134.3c-5.578-.083-10.597.742-14.427 2.526-4.377 2.038-7.466 4.914-9.648 9.97-.884 2.047-1.572 4.54-1.985 7.494.456-.007.91-.03 1.365-.033 16.053-.084 32.587 2.77 49.313 9.19 7.714 2.96 15.062 7.453 22.047 13.184 3.217-2.445 4.99-4.72 5.773-6.535 1.21-2.798 1.095-5.184-.634-8.82-3.46-7.275-15.207-16.955-28.856-22.27-6.824-2.658-13.98-4.224-20.523-4.614-.818-.05-1.627-.08-2.424-.092z"/><path fill="#1E90FF" d="M248.375 172.76c-22.982.075-44.722 7.386-65 19.782-32.445 19.835-60.565 53.124-80.344 90.032-19.777 36.908-31.133 77.41-31.186 110.53-.053 33.06 10.26 57.27 32.812 67.782.043.02.082.043.125.063h.032c24.872 11.51 65.616 19.337 108.407 20.092 42.79.756 87.79-5.457 121.874-20.187 21.96-9.49 34.545-28.452 40.5-54.156 5.954-25.705 4.518-57.657-2.375-89.314-6.894-31.657-19.2-63.06-34.095-87.875-14.894-24.814-32.614-42.664-48.063-48.593-14.664-5.627-28.898-8.2-42.687-8.156z"/></svg>`
+
+const ELECTRICITY_ICON = `<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" fill="#000000" width="35px" height="35px"><path fill="#2563eb" d="M718.933333 106.666667L469.333333 362.666667l320 106.666666-334.933333 313.6 108.8 59.733334L256 917.333333l57.6-315.733333 61.866667 108.8L576 512l-320-106.666667L533.333333 106.666667h185.6z"/><path fill="#ffeb3b" d="M576 512l-320-106.666667L533.333333 106.666667h185.6L469.333333 362.666667l320 106.666666-334.933333 313.6z"/></svg>`
+
+const GIFTCARDS_ICON = `<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" fill="#000000" width="35px" height="35px"><path fill="#2563eb" d="M43,8H5a2.9,2.9,0,0,0-3,3V37a3,3,0,0,0,3,3H43a3,3,0,0,0,3-3V11A2.9,2.9,0,0,0,43,8Z"/><path fill="#ffeb3b" d="M8,19.2l.3-.2h2.8a1.1,1.1,0,0,1,1.2.8l.5,2.4c0,.2,0,.3-.2.4h-.3a8.8,8.8,0,0,0-4.1-2.9A.5.5,0,0,1,8,19.2ZM14.7,29H12.2a.2.2,0,0,1-.2-.2L9.8,21.5c0-.1,0-.3.2-.3h.3a9.4,9.4,0,0,1,3,3.6l.3,1,2.6-6.6c0-.1.1-.2.3-.2h2.2c.1,0,.1.1.2.2s.1.2,0,.2l-4,9.4A.2.2,0,0,1,14.7,29Zm6.5-.3c0,.2-.1.3-.2.3H18.6v-.3l1.6-9.3a.3.3,0,0,1,.3-.3h2.3v.3Zm7.1-5.6c1.5.6,2.2,1.5,2.2,2.6a2.9,2.9,0,0,1-1.3,2.4,6.2,6.2,0,0,1-3.3.9,10,10,0,0,1-2.6-.5c-.2,0-.3-.2-.2-.3l.2-1.5a.2.2,0,0,1,.2-.2h.3a4.5,4.5,0,0,0,2.4.5c.7,0,1.5-.2,1.5-.9s-.3-.7-1.3-1.2-2.3-1.2-2.3-2.6S25.9,19,28.5,19a9.5,9.5,0,0,1,2.1.3.5.5,0,0,1,.2.4l-.3,1.4c0,.1,0,.2-.1.2h-.3a3.2,3.2,0,0,0-1.7-.4h-.1c-1,0-1.5.4-1.5.9S27.4,22.6,28.3,23.1Zm11.6,5.8c0,.1-.1.1-.2.1H37.8l-.3-.2a6.1,6.1,0,0,0-.3-1.3H33.8c-.1.1-.2.6-.5,1.3s-.1.2-.3.2H30.6a.2.2,0,0,1,0-.3l3.8-8.7a1.4,1.4,0,0,1,1.4-.9h1.9c.1,0,.2.1.2.3L40,28.6A.4.4,0,0,1,39.9,28.9ZM36,21.7l-1.4,3.8h2.2l-.6-2.9Z"/></svg>`
+
+const GOOGLE_ICON = `<svg width="24" height="24" viewBox="0 0 23 22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21.1258 11.2139C21.1258 10.4225 21.0603 9.84497 20.9185 9.24609H11.6973V12.818H17.1099C17.0008 13.7057 16.4115 15.0425 15.102 15.9408L15.0836 16.0603L17.9992 18.2738L18.2012 18.2936C20.0563 16.6145 21.1258 14.1441 21.1258 11.2139Z" fill="#4285F4"/><path d="M11.6967 20.625C14.3484 20.625 16.5745 19.7694 18.2006 18.2936L15.1014 15.9408C14.272 16.5076 13.1589 16.9033 11.6967 16.9033C9.09946 16.9033 6.89512 15.2243 6.10933 12.9036L5.99415 12.9131L2.9625 15.2125L2.92285 15.3205C4.53791 18.4647 7.85536 20.625 11.6967 20.625Z" fill="#34A853"/><path d="M6.11006 12.9036C5.90272 12.3047 5.78273 11.663 5.78273 11C5.78273 10.3369 5.90272 9.69524 6.09915 9.09636L6.09366 8.96881L3.024 6.63257L2.92357 6.67938C2.25792 7.98412 1.87598 9.44929 1.87598 11C1.87598 12.5507 2.25792 14.0158 2.92357 15.3205L6.11006 12.9036Z" fill="#FBBC05"/><path d="M11.6967 5.09664C13.5409 5.09664 14.7849 5.87733 15.4943 6.52974L18.2661 3.8775C16.5638 2.32681 14.3485 1.375 11.6967 1.375C7.85539 1.375 4.53792 3.53526 2.92285 6.6794L6.09844 9.09638C6.89514 6.77569 9.09949 5.09664 11.6967 5.09664Z" fill="#EB4335"/></svg>`
+
+const EMAIL_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M1.5 8.67v8.58a3 3 0 0 0 3 3h15a3 3 0 0 0 3-3V8.67l-8.928 5.493a3 3 0 0 1-3.144 0L1.5 8.67Z"/><path d="M22.5 6.908V6.75a3 3 0 0 0-3-3h-15a3 3 0 0 0-3 3v.158l9.714 5.978a1.5 1.5 0 0 0 1.572 0L22.5 6.908Z"/></svg>`
+
+const WHATSAPP_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>`
+
+const TELEGRAM_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#FFF" d="M21.73 4.16c.06-.28-.04-.56-.25-.74-.22-.19-.51-.23-.77-.13l-18.5 7.5c-.31.12-.5.43-.47.76.03.32.27.6.59.66l4.55.91 1.87 6.56c.08.29.33.5.63.53.3.03.59-.12.74-.39l2.06-3.72 4.8 3.93c.2.16.47.21.71.12s.43-.3.48-.55l3.5-15.5Z"/></svg>`
+
+const TG_FOLLOW_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"><path fill="#5E94FF" d="M21.73 4.16c.06-.28-.04-.56-.25-.74-.22-.19-.51-.23-.77-.13l-18.5 7.5c-.31.12-.5.43-.47.76.03.32.27.6.59.66l4.55.91 1.87 6.56c.08.29.33.5.63.53.3.03.59-.12.74-.39l2.06-3.72 4.8 3.93c.2.16.47.21.71.12s.43-.3.48-.55l3.5-15.5Z"/></svg>`
+
+const FACEBOOK_ICON = `<svg width="18" height="18" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="#FFFFFF"><path d="M7.967.017a8 8 0 1 1 0 16 8 8 0 1 1 0-16zm0 1.6a6.4 6.4 0 0 0-6.4 6.4c0 2.982 2.039 5.487 4.799 6.198l.001-4.598h-.8a.8.8 0 1 1 0-1.6h.8v-1.6a2.4 2.4 0 0 1 2.4-2.4h.8a.8.8 0 1 1 0 1.6h0-.8a.8.8 0 0 0-.8.8h0v1.6h1.6a.8.8 0 1 1 0 1.6h0-1.6v4.8a6.4 6.4 0 0 0 0-12.8z"/></svg>`
+
+const WA_CHANNEL_ICON = `<svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#FFFFFF"><path d="M20.52 3.48A11.82 11.82 0 0 0 12.06 0C5.52 0 .18 5.34.18 11.88c0 2.1.54 4.08 1.62 5.88L0 24l6.42-1.68a11.8 11.8 0 0 0 5.64 1.44h.06c6.54 0 11.88-5.34 11.88-11.88 0-3.18-1.26-6.18-3.48-8.4zM12.12 21.6a9.8 9.8 0 0 1-5.04-1.38l-.36-.18-3.78.96 1.02-3.66-.24-.36a9.7 9.7 0 0 1-1.5-5.1c0-5.4 4.38-9.78 9.78-9.78 2.64 0 5.1 1.02 6.96 2.88a9.75 9.75 0 0 1 2.88 6.9c0 5.4-4.38 9.78-9.72 9.78zm5.34-7.32c-.3-.18-1.8-.9-2.1-1.02-.3-.12-.48-.18-.72.18-.18.3-.72 1.02-.9 1.2-.18.18-.3.18-.6.06-.3-.18-1.26-.48-2.4-1.56-.9-.78-1.5-1.8-1.68-2.1-.18-.3 0-.42.12-.6.12-.12.3-.3.42-.48.12-.18.18-.3.3-.48.12-.18.06-.36 0-.54-.06-.18-.72-1.74-.96-2.4-.24-.6-.48-.54-.72-.54h-.6c-.18 0-.48.06-.72.3-.24.24-.96.96-.96 2.34 0 1.38 1.02 2.7 1.14 2.88.18.18 2.04 3.12 4.92 4.38.72.3 1.26.48 1.68.6.72.24 1.38.18 1.92.12.6-.06 1.8-.72 2.04-1.44.3-.72.3-1.32.24-1.44-.06-.12-.24-.18-.54-.36z"/></svg>`
+
+const X_ICON = `<svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#FFFFFF"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>`
+
+// --- Home page component ---
+export default function Home() {
   const { user } = useAuth()
-  const [showAuthModal, setShowAuthModal] = useState(false)
+  const navigate = useNavigate()
+  const { deferredPrompt, isInstalled, isIOS, promptInstall } = useInstallPrompt();
 
-  const services = [
-    {
-      id: 'data',
-      name: 'Data',
-      icon: '📊',
-      color: 'from-yellow-500 to-yellow-600',
-      columnSpan: 3,
-    },
-    {
-      id: 'airtime',
-      name: 'Airtime',
-      icon: '📱',
-      color: 'from-orange-500 to-orange-600',
-      columnSpan: 3,
-    },
-    {
-      id: 'tv',
-      name: 'TV',
-      icon: '📺',
-      color: 'from-purple-500 to-purple-600',
-      columnSpan: 2,
-    },
-    {
-      id: 'airtime-to-cash',
-      name: 'Airtime 2 Cash',
-      icon: '💰',
-      color: 'from-green-500 to-green-600',
-      columnSpan: 4,
-    },
-    {
-      id: 'electricity',
-      name: 'Electricity',
-      icon: '⚡',
-      color: 'from-red-500 to-red-600',
-      columnSpan: 3,
-    },
-    {
-      id: 'giftcards',
-      name: 'Giftcards',
-      icon: '🎁',
-      color: 'from-pink-500 to-pink-600',
-      columnSpan: 3,
-    },
-  ]
+  useEffect(() => {
+    if (user) navigate('/dashboard', { replace: true })
+  }, [user, navigate])
 
-  const socialLinks = [
-    {
-      name: 'Telegram',
-      url: 'https://t.me/flexgigng',
-      icon: '📲',
-      bgColor: 'bg-blue-500',
-    },
-    {
-      name: 'Facebook',
-      url: 'https://www.facebook.com/flexgigng',
-      icon: 'f',
-      bgColor: 'bg-blue-600',
-    },
-    {
-      name: 'WhatsApp',
-      url: 'https://whatsapp.com/channel/0029VbDFobWGE56rppyHSt3J',
-      icon: 'W',
-      bgColor: 'bg-green-500',
-    },
-    {
-      name: 'Twitter',
-      url: 'https://x.com/FlexgigNG',
-      icon: 'X',
-      bgColor: 'bg-black',
-    },
-  ]
+
+
+  const handleGoogleLogin = () => {
+  const API_BASE =
+    import.meta.env.VITE_BACKEND_URL || 'https://api.flexgig.com.ng'
+
+  // When running on localhost or ngrok, tell the backend to come back here.
+  const host = window.location.hostname
+  const isDevHost =
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host.endsWith('.ngrok-free.app') ||
+    host.endsWith('.ngrok.app') ||
+    host.endsWith('.ngrok-free.dev') ||
+    host.endsWith('.ngrok.io')
+
+  const redirect = isDevHost
+    ? `&redirect=${encodeURIComponent(`${window.location.origin}/dashboard`)}`
+    : ''
+
+  window.location.href = `${API_BASE}/auth/google?prompt=select_account${redirect}`
+}
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900">
+    <>
+      {/* Header */}
+      <header className="flex items-center justify-between p-4 w-full fixed top-0 z-50 backdrop-blur-sm bg-n05 dark:bg-n8/80">
+        <div className="flex items-center gap-3">
+          <span dangerouslySetInnerHTML={{ __html: LOGO_ICON }} />
+          <span className="text-xl sm:text-2xl font-bold text-blue-600 tracking-wide">
+            FlexGig
+          </span>
+        </div>
+        {/* Install Button Logic */}
+        <div className="flex items-center gap-3">
+          {!isInstalled && deferredPrompt && (
+            <button
+              onClick={promptInstall}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-full hover:bg-blue-700 transition-colors"
+            >
+              Install App
+            </button>
+          )}
+
+          {!isInstalled && isIOS && (
+            <button
+              onClick={() => alert('To install, tap the Share icon in Safari and select "Add to Home Screen".')}
+              className="px-4 py-2 text-sm font-medium text-blue-600 border border-blue-600 rounded-full hover:bg-blue-50 dark:text-blue-400 dark:border-blue-400 dark:hover:bg-gray-700 transition-colors"
+            >
+              Install App
+            </button>
+          )}
+        </div>
+      </header>
+
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-16 pt-24 space-y-12">
-        {/* Service Cards Grid */}
+      <main className="flex p-4 flex-col pt-[6rem] space-y-10 mx-auto min-h-screen relative">
+        {/* Service Grid */}
         <section className="space-y-8">
-          <div className="grid grid-cols-6 gap-1 rounded-sm overflow-hidden w-full">
-            {services.map((service) => (
-              <ServiceCard
-                key={service.id}
-                {...service}
-              />
-            ))}
+          <div className="grid grid-cols-6 rounded-sm overflow-hidden gap-0.5 mx-auto cursor-pointer w-full">
+            {/* Data */}
+            <div className="flex relative shadow-none bg-[#292929] items-center col-span-3">
+              <div className="size-14 flex items-center justify-center">
+                <span dangerouslySetInnerHTML={{ __html: DATA_ICON }} />
+              </div>
+              <p className="font-poppins uppercase text-[0.75rem] font-semibold tracking-wider text-gray-100 text-center leading-tight">
+                Data
+              </p>
+            </div>
+            {/* Airtime */}
+            <div className="flex relative shadow-none bg-[#292929] dark:bg-opacity-70 items-center col-span-3">
+              <div className="size-14 flex items-center justify-center">
+                <span dangerouslySetInnerHTML={{ __html: AIRTIME_ICON }} />
+              </div>
+              <p className="font-poppins uppercase text-[0.75rem] font-semibold tracking-wider text-gray-100 text-center leading-tight">
+                Airtime
+              </p>
+            </div>
+            {/* TV */}
+            <div className="flex relative shadow-none bg-[#292929] dark:bg-opacity-70 items-center col-span-2">
+              <div className="size-14 flex items-center justify-center">
+                <span dangerouslySetInnerHTML={{ __html: TV_ICON }} />
+              </div>
+              <p className="font-poppins uppercase text-[0.75rem] font-semibold tracking-wider text-gray-100 text-center leading-tight">
+                Tv
+              </p>
+            </div>
+            {/* Airtime 2 Cash */}
+            <div className="flex relative shadow-none bg-[#292929] items-center col-span-4">
+              <div className="size-14 flex items-center justify-center">
+                <span dangerouslySetInnerHTML={{ __html: A2C_ICON }} />
+              </div>
+              <p className="font-poppins uppercase text-[0.75rem] font-semibold tracking-wider text-gray-100 text-center leading-tight">
+                Airtime 2 Cash
+              </p>
+            </div>
+            {/* Electricity */}
+            <div className="flex relative shadow-none bg-[#292929] items-center col-span-3">
+              <div className="size-14 flex items-center justify-center">
+                <span dangerouslySetInnerHTML={{ __html: ELECTRICITY_ICON }} />
+              </div>
+              <p className="font-poppins uppercase text-[0.75rem] font-semibold tracking-wider text-gray-100 text-center leading-tight">
+                Electricity
+              </p>
+            </div>
+            {/* Giftcards */}
+            <div className="flex relative shadow-none bg-[#292929] dark:bg-opacity-70 items-center col-span-3">
+              <div className="size-14 flex items-center justify-center">
+                <span dangerouslySetInnerHTML={{ __html: GIFTCARDS_ICON }} />
+              </div>
+              <p className="font-poppins uppercase text-[0.75rem] font-semibold tracking-wider text-gray-100 text-center leading-tight">
+                Giftcards
+              </p>
+            </div>
           </div>
         </section>
 
-        {/* Call-to-Action Section */}
-        <section className="space-y-8 w-full">
-          <div className="space-y-3">
-            <p className="text-sm sm:text-base font-semibold tracking-wide text-blue-400 flex items-center gap-2">
-              🚀 <span>Join <span className="font-bold text-yellow-400">thousands</span> of active users</span>
+        {/* Join + Auth Buttons */}
+        <section className="space-y-6 w-full font-poppins flex flex-col">
+          <div className="space-y-2 sm:space-y-3 flex flex-col">
+            <p className="text-sm sm:text-base font-semibold tracking-wide text-blue-600/90 dark:text-blue-400 flex items-center gap-2">
+              🚀{' '}
+              <span>
+                Join <span className="font-bold text-yellow-500">thousands</span> of
+                active users
+              </span>
             </p>
-            <h2 className="text-2xl sm:text-4xl font-bold text-white leading-tight">
+            <h4 className="text-2xl sm:text-3xl font-poppins leading-snug tracking-wide text-gray-100">
               Get connected now
-            </h2>
+            </h4>
           </div>
 
-          {user ? (
-            <div className="space-y-4">
-              <p className="text-lg text-gray-300">
-                Welcome back, <span className="font-bold text-blue-400">{user.fullName}</span>!
-              </p>
-              <a href="/dashboard" className="inline-block">
-                <Button size="lg">Go to Dashboard</Button>
-              </a>
-            </div>
-          ) : (
-            <div className="flex flex-col w-full gap-2 lg:flex-row lg:gap-4">
-              {/* Google Login Button */}
-              <button
-                onClick={() => setShowAuthModal(true)}
-                className="flex-1 max-w-sm px-6 py-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-full font-semibold hover:from-blue-700 hover:to-blue-800 transition flex items-center justify-center gap-3 shadow-lg"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                </svg>
-                Continue with Google
-              </button>
+          <div className="flex flex-col w-full space-y-2 mt-auto lg:justify-center gap-1 lg:flex-row lg:gap-6">
+            {/* Google */}
+            <button
+              onClick={handleGoogleLogin}
+              className="w-full max-w-sm"
+              aria-label="Continue with Google"
+            >
+              <span className="relative w-full bg-[#1f1f1f] border border-gray-700 shadow-md h-16 rounded-full flex items-center space-x-4 hover:bg-[#2a2a2a] transition-colors duration-200">
+                <span className="h-16 w-20 flex items-center justify-center absolute left-0">
+                  <span dangerouslySetInnerHTML={{ __html: GOOGLE_ICON }} />
+                </span>
+                <span className="text-body2 w-full text-center font-poppins text-white font-semibold tracking-wide">
+                  Continue with Google
+                </span>
+              </span>
+            </button>
 
-              {/* Email Login Button */}
-              <button
-                onClick={() => setShowAuthModal(true)}
-                className="flex-1 max-w-sm px-6 py-4 bg-slate-700 hover:bg-slate-600 text-white rounded-full font-semibold transition flex items-center justify-center gap-3 shadow-lg"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
-                </svg>
+            {/* Email */}
+            <Link
+              to="/login"
+              className="relative w-full text-center text-white shadow-none bg-[#292929] font-poppins max-w-sm h-16 rounded-full flex items-center space-x-4"
+            >
+              <span className="h-16 w-20 flex items-center justify-center absolute">
+                <span dangerouslySetInnerHTML={{ __html: EMAIL_ICON }} />
+              </span>
+              <span className="text-body2 w-full font-poppins font-semibold tracking-wide">
                 Continue with Email
-              </button>
+              </span>
+            </Link>
 
-              {/* WhatsApp Button */}
-              <a
-                href="https://wa.me/2349039542070?text=Hello"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 max-w-sm px-6 py-4 bg-green-500 hover:bg-green-600 text-white rounded-full font-semibold transition flex items-center justify-center gap-3 shadow-lg"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
-                </svg>
+            {/* WhatsApp */}
+            <a
+              href="https://wa.me/2349039542070?text=Hello"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="relative w-full text-center text-white font-poppins max-w-sm h-16 rounded-full flex items-center space-x-4 bg-[#25D366] hover:bg-[#20b858] transition"
+            >
+              <span className="h-16 w-20 flex items-center justify-center absolute left-0">
+                <span dangerouslySetInnerHTML={{ __html: WHATSAPP_ICON }} />
+              </span>
+              <span className="text-body2 w-full font-poppins font-semibold tracking-wide">
                 Continue with WhatsApp
-              </a>
+              </span>
+            </a>
 
-              {/* Telegram Button */}
+            {/* Telegram */}
+            <a
+              href="https://t.me/FlexgigOfficialBot"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="relative w-full text-center text-white font-poppins max-w-sm h-16 rounded-full flex items-center space-x-4 bg-[#229ED9] hover:bg-[#1a8ec4] transition"
+            >
+              <span className="h-16 w-20 flex items-center justify-center absolute left-0">
+                <span dangerouslySetInnerHTML={{ __html: TELEGRAM_ICON }} />
+              </span>
+              <span className="text-body2 w-full font-poppins font-semibold tracking-wide">
+                Continue with Telegram
+              </span>
+            </a>
+          </div>
+
+          {/* Follow Us */}
+          <div className="text-center my-4 space-y-[0.5px] font-poppins rounded tracking-wider leading-relaxed">
+            <p className="font-semibold text-[0.7rem] text-gray-100">Follow Us</p>
+            <div className="flex flex-wrap justify-center space-x-2">
               <a
-                href="https://t.me/FlexgigOfficialBot"
+                href="tg://resolve?domain=flexgigng"
+                className="flex items-center font-poppins bg-[#292929] w-fit shadow-none rounded-full"
+                aria-label="Telegram Channel"
+              >
+                <span className="size-10 flex items-center justify-center rounded-full">
+                  <span dangerouslySetInnerHTML={{ __html: TG_FOLLOW_ICON }} />
+                </span>
+              </a>
+              <a
+                className="w-10 h-10 flex items-center justify-center bg-[#1877F2] rounded-full shadow-button"
+                href="https://www.facebook.com/flexgigng"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1 max-w-sm px-6 py-4 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-semibold transition flex items-center justify-center gap-3 shadow-lg"
+                aria-label="Visit our Facebook page"
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M21.73 4.16c.06-.28-.04-.56-.25-.74-.22-.19-.51-.23-.77-.13l-18.5 7.5c-.31.12-.5.43-.47.76.03.32.27.6.59.66l4.55.91 1.87 6.56c.08.29.33.5.63.53.3.03.59-.12.74-.39l2.06-3.72 4.8 3.93c.2.16.47.21.71.12s.43-.3.48-.55l3.5-15.5z"/>
-                </svg>
-                Continue with Telegram
+                <span dangerouslySetInnerHTML={{ __html: FACEBOOK_ICON }} />
               </a>
-            </div>
-          )}
-
-          <div className="text-center space-y-3 pt-4">
-            <p className="text-xs sm:text-sm font-semibold text-gray-300">Follow Us</p>
-            <div className="flex flex-wrap justify-center gap-3">
-              {socialLinks.map((social) => (
-                <a
-                  key={social.name}
-                  href={social.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`w-10 h-10 flex items-center justify-center rounded-full shadow-lg transition hover:scale-110 ${social.bgColor} text-white font-bold`}
-                  aria-label={social.name}
-                >
-                  {social.icon}
-                </a>
-              ))}
+              <a
+                className="w-10 h-10 flex items-center justify-center rounded-full shadow-button"
+                href="https://whatsapp.com/channel/0029VbDFobWGE56rppyHSt3J"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Join our WhatsApp Channel"
+                style={{ background: '#25D366' }}
+              >
+                <span dangerouslySetInnerHTML={{ __html: WA_CHANNEL_ICON }} />
+              </a>
+              <a
+                className="w-10 h-10 flex items-center justify-center bg-black rounded-full shadow-button"
+                href="https://x.com/FlexgigNG"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Visit our X profile"
+              >
+                <span dangerouslySetInnerHTML={{ __html: X_ICON }} />
+              </a>
             </div>
           </div>
         </section>
       </main>
-
-      {/* Auth Modal */}
-      {showAuthModal && (
-        <AuthModal onClose={() => setShowAuthModal(false)} />
-      )}
-    </div>
+    </>
   )
 }
-
-export default Home

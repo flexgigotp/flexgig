@@ -16,7 +16,7 @@ export function useAsync<T>(
     error: null,
   })
 
-  const execute = useCallback(async () => {
+  const execute = useCallback(async (): Promise<T | null> => {
     setState({ status: 'pending', data: null, error: null })
     try {
       const result = await asyncFunction()
@@ -24,6 +24,7 @@ export function useAsync<T>(
       return result
     } catch (error) {
       setState({ status: 'error', data: null, error: error as Error })
+      return null
     }
   }, [asyncFunction])
 

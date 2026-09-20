@@ -1,22 +1,26 @@
-import { Navigate } from 'react-router-dom'
-import { useProtectedRoute } from '@/hooks'
+import { ReactNode } from 'react'
+import { Navigate, useLocation } from 'react-router-dom'
+import { useSession } from '@/hooks'
+import Loader from '@/components/Loader'
 
 interface ProtectedRouteProps {
-  children: React.ReactNode
+  children: ReactNode
 }
 
-function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isProtected, isLoading } = useProtectedRoute()
+export default function ProtectedRoute({ children }: ProtectedRouteProps) {
+  const { user, isLoading, hasFetched } = useSession()
+  const location = useLocation()
 
-  if (isLoading) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>
+  // Show loading screen until the first session fetch resolves.
+  // Prevents redirecting an actually-logged-in user during cold load.
+    if (!hasFetched || isLoading) {
+    return <Loader />
   }
 
-  if (!isProtected) {
-    return <Navigate to="/" replace />
+  if (!user) {
+    // Not authenticated → kick to home, remember where they wanted to go
+    return <Navigate to="/" replace state={{ from: location.pathname }} />
   }
 
   return <>{children}</>
 }
-
-export default ProtectedRoute
