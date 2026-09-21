@@ -1,9 +1,18 @@
+import type { Config } from 'tailwindcss'
 
-module.exports = {
-  content: ["./*.html"],
+const config: Config = {
+  content: [
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
+  ],
   theme: {
     extend: {
       colors: {
+        primary: '#007AFF',
+        secondary: '#5AC8FA',
+        danger: '#FF3B30',
+        success: '#34C759',
+        warning: '#FF9500',
         n0: '#FFFFFF',
         n05: '#F5F5F5',
         n3: '#A0A0A0',
@@ -26,11 +35,15 @@ module.exports = {
         h3: ['1.5rem', { lineHeight: '2rem' }],
       },
       spacing: {
-        '15': '3.75rem', /* For Tawk.to widget height */
+        '15': '3.75rem',
+        '18': '4.5rem',
       },
       boxShadow: {
         button: '0 4px 6px rgba(0, 0, 0, 0.1)',
       },
     },
   },
-};
+  plugins: [],
+}
+
+export default config
