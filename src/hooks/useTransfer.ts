@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { pinApi } from '@/hooks/usePin'
 import { walletApi } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import { useSession } from '@/hooks'
@@ -35,13 +34,18 @@ export type TransferReceipt =
       currentBalance: number
     }
 
+type TransferAuth = {
+  pinToken?: string
+  rawPin?: string
+  webauthnAssertion?: string
+}
+
 export function useTransfer() {
   const { balance } = useSession()
   const setBalance = useAuthStore((s) => s.setBalance)
   const location = useLocation()
   const navigate = useNavigate()
 
-  // Stage is derived from the URL — browser back automatically steps through
   const stage: TransferStage = useMemo(() => {
     const step = new URLSearchParams(location.search).get('step')
     if (step === 'confirm') return 'confirm'
@@ -72,23 +76,19 @@ export function useTransfer() {
     navigate(-1)
   }, [navigate])
 
-  const submitPin = useCallback(
-    async (pin: string): Promise<{ ok: boolean; message?: string }> => {
-      // 1. Verify PIN with the 'transfer' action
-      const verify = await pinApi.verifyPin(pin, 'transfer')
-      if (!verify.ok || !verify.pinToken) {
-        return { ok: false, message: verify.message || 'Incorrect PIN' }
-      }
-
-      // 2. Advance to receipt with replace so PIN is not in history
+  /**
+   * Shared completion path — sends whichever auth we have.
+   * Precedence: webauthnAssertion > rawPin > pinToken.
+   */
+  const completeTransfer = useCallback(
+    async (auth: TransferAuth): Promise<{ ok: boolean; message?: string }> => {
       navigate('/transfer?step=receipt', { replace: true })
       setReceipt({ status: 'processing' })
 
-      // 3. Call transfer API
       const result = await walletApi.transfer({
         recipient: formData.recipient,
         amount: formData.amount,
-        pinToken: verify.pinToken,
+        ...auth,
       })
 
       if (result.ok) {
@@ -127,6 +127,22 @@ export function useTransfer() {
     [formData, balance, setBalance, navigate]
   )
 
+  /** Raw PIN — one round trip. */
+  const submitPin = useCallback(
+    async (pin: string): Promise<{ ok: boolean; message?: string }> => {
+      return completeTransfer({ rawPin: pin })
+    },
+    [completeTransfer]
+  )
+
+  /** WebAuthn assertion — one round trip. */
+  const submitBiometric = useCallback(
+    async (assertion: string): Promise<{ ok: boolean; message?: string }> => {
+      return completeTransfer({ webauthnAssertion: assertion })
+    },
+    [completeTransfer]
+  )
+
   const reset = useCallback(() => {
     setFormData({ recipient: '', amount: 0 })
     setReceipt(null)
@@ -146,6 +162,7 @@ export function useTransfer() {
     goToPin,
     goBack,
     submitPin,
+    submitBiometric,
     reset,
     retryFromReceipt,
   }

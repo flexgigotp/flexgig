@@ -1,3 +1,5 @@
+// src\components\dashboard\AllTimeStats.tsx
+
 interface AllTimeStatsProps {
   funded?: number
   spent?: number

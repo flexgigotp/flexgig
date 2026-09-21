@@ -13,6 +13,7 @@ import PinChangePage from '@/pages/PinChangePage'
 import ProfileUpdatePage from '@/pages/ProfileUpdatePage'
 import ToastContainer from '@/components/ToastContainer'
 import ReauthManager from '@/components/ReauthManager'
+import BiometricPrompt from '@/components/biometric/BiometricPrompt'
 import TransferPage from '@/pages/TransferPage'
 
 /**
@@ -46,6 +47,7 @@ function App() {
     <BrowserRouter>
       <SessionWatcher />
       <ReauthManager />
+      <BiometricPrompt />
       <ToastContainer />
       <Routes>
         {/* Home — standalone, public */}
@@ -74,38 +76,37 @@ function App() {
           />
         </Route>
         <Route
-  path="/pin-setup"
-  element={
-    <ProtectedRoute>
-      <PinSetupPage />
-    </ProtectedRoute>
-  }
-/>
-<Route
-  path="/pin-change"
-  element={
-    <ProtectedRoute>
-      <PinChangePage />
-    </ProtectedRoute>
-  }
-/>
-<Route
-  path="/profile-update"
-  element={
-    <ProtectedRoute>
-      <ProfileUpdatePage />
-    </ProtectedRoute>
-  }
-/>
-<Route
-  path="/transfer"
-  element={
-    <ProtectedRoute>
-      <TransferPage />
-    </ProtectedRoute>
-  }
-/>
-
+          path="/pin-setup"
+          element={
+            <ProtectedRoute>
+              <PinSetupPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/pin-change"
+          element={
+            <ProtectedRoute>
+              <PinChangePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile-update"
+          element={
+            <ProtectedRoute>
+              <ProfileUpdatePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/transfer"
+          element={
+            <ProtectedRoute>
+              <TransferPage />
+            </ProtectedRoute>
+          }
+        />
 
         <Route path="/404" element={<NotFound />} />
         <Route path="*" element={<Navigate to="/404" replace />} />

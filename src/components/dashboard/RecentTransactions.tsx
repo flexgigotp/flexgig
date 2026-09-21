@@ -1,53 +1,42 @@
+// src/components/dashboard/RecentTransactions.tsx
 import { useTransactions } from '@/hooks/useTransactions'
-import type { Transaction } from '@/types/api'
+import TxIcon from '@/components/history/TxIcon'
+import {
+  displayDescription,
+  formatDateTime,
+  formatSignedAmount,
+  isCreditTx,
+  statusKind,
+  statusLabel,
+} from '@/lib/history'
+import { useHistoryStore } from '@/stores/historyStore'
 
-const PROVIDER_COLORS: Record<string, string> = {
-  mtn: '#FFCC00',
-  airtel: '#FF0000',
-  glo: '#00B140',
-  '9mobile': '#7DB700',
-}
-
-function providerFromTx(tx: Transaction): string {
-  const p = (tx.provider || '').toLowerCase()
-  if (p === 'ninemobile' || p === '9mobile') return '9mobile'
-  return p
-}
-
-function formatAmount(tx: Transaction): string {
-  const n = Number(tx.amount)
-  const sign = tx.type === 'credit' || tx.status === 'refund' ? '+' : '-'
-  return `${sign}₦${Math.abs(n).toLocaleString('en-NG', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`
-}
-
-function formatDate(iso: string): string {
-  try {
-    const d = new Date(iso)
-    return d.toLocaleString('en-NG', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    })
-  } catch {
-    return iso
-  }
-}
-
-export default function RecentTransactions() {
+export default function RecentTransactions({
+  onViewAll,
+  onSelectTransaction,
+}: {
+  onViewAll?: () => void
+  onSelectTransaction?: (tx: import('@/types/api').Transaction) => void
+}) {
   const { items, isLoading, hasFetched, error } = useTransactions({ limit: 10 })
+  const ensureLoaded = useHistoryStore((s) => s.ensureLoaded)
 
   const isEmpty = hasFetched && items.length === 0 && !isLoading
+
+  const handleViewAll = () => {
+    void ensureLoaded()
+    onViewAll?.()
+  }
 
   return (
     <div className="dash-tx-section-wrapper">
       <div className="dash-tx-header-row">
         <h3 className="dash-tx-main-title">Recent Transactions</h3>
-        <button type="button" className="dash-tx-view-full-link">
+        <button
+          type="button"
+          className="dash-tx-view-full-link"
+          onClick={handleViewAll}
+        >
           <span>View All</span>
           <span className="arrow">→</span>
         </button>
@@ -72,43 +61,31 @@ export default function RecentTransactions() {
       {items.length > 0 && (
         <div className="db-recent-tx-container" id="dbRecentTransactionsHolder">
           {items.map((tx) => {
-            const provider = providerFromTx(tx)
-            const color = PROVIDER_COLORS[provider] || '#666'
+            const credit = isCreditTx(tx)
+            const kind = statusKind(tx.status)
             return (
-              <div key={tx.id} className="tx-item">
-                <div
-                  className="tx-icon"
-                  style={{
-                    background: `${color}22`,
-                    borderRadius: 10,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 12,
-                      height: 12,
-                      borderRadius: '50%',
-                      background: color,
-                      display: 'inline-block',
-                    }}
-                  />
-                </div>
+              <div
+                key={tx.id}
+                className="tx-item"
+                onClick={() => onSelectTransaction?.(tx)}
+                style={{ cursor: onSelectTransaction ? 'pointer' : 'default' }}
+              >
+                <TxIcon tx={tx} />
                 <div className="tx-content" style={{ flex: 1 }}>
                   <div className="tx-row">
-                    <span className="tx-desc">
-                      {tx.description || `${tx.provider || 'Transaction'}`}
-                    </span>
-                    <span className={`tx-amount ${tx.type === 'credit' ? 'credit' : 'debit'}`}>
-                      {formatAmount(tx)}
+                    <span className="tx-desc">{displayDescription(tx)}</span>
+                    <span
+                      className={`tx-amount ${credit ? 'credit' : 'debit'}`}
+                    >
+                      {formatSignedAmount(tx)}
                     </span>
                   </div>
                   <div className="tx-row meta">
-                    <span className="tx-time">{formatDate(tx.created_at)}</span>
-                    <span className="tx-status" data-status={tx.status}>
-                      {tx.status}
+                    <span className="tx-time">
+                      {formatDateTime(tx.created_at)}
+                    </span>
+                    <span className="tx-status" data-status={kind}>
+                      {statusLabel(tx.status)}
                     </span>
                   </div>
                 </div>

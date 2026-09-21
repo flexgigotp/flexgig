@@ -1,3 +1,4 @@
+// src/components/plans/PlanDataDisplay.tsx
 interface PlanDataDisplayProps {
   dataAmount: string
 }

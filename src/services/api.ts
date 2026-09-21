@@ -308,7 +308,9 @@ export const walletApi = {
   async transfer(params: {
     recipient: string
     amount: number
-    pinToken: string
+    pinToken?: string
+    rawPin?: string
+    webauthnAssertion?: string
     isBorrow?: boolean
   }): Promise<{
     ok: boolean
@@ -337,6 +339,15 @@ export const walletApi = {
           ? crypto.randomUUID()
           : `tx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
+      const authHeaders: Record<string, string> = {}
+      if (params.webauthnAssertion) {
+        authHeaders['X-WebAuthn-Assertion'] = params.webauthnAssertion
+      } else if (params.rawPin) {
+        authHeaders['X-PIN'] = params.rawPin
+      } else if (params.pinToken) {
+        authHeaders['X-PIN-TOKEN'] = params.pinToken
+      }
+
       const res = await api.post(
         '/api/wallet/transfer',
         {
@@ -347,8 +358,8 @@ export const walletApi = {
         {
           headers: {
             Authorization: `Bearer ${sessionToken}`,
-            'X-PIN-TOKEN': params.pinToken,
             'X-Idempotency-Key': idempotencyKey,
+            ...authHeaders,
           },
         }
       )
@@ -390,7 +401,9 @@ export const dataApi = {
     planId: string
     phone: string
     provider: string
-    pinToken: string
+    pinToken?: string
+    rawPin?: string
+    webauthnAssertion?: string
   }): Promise<{
     ok: boolean
     reference?: string
@@ -402,6 +415,15 @@ export const dataApi = {
     httpStatus?: number
   }> {
     try {
+      const headers: Record<string, string> = {}
+      if (params.webauthnAssertion) {
+        headers['X-WebAuthn-Assertion'] = params.webauthnAssertion
+      } else if (params.rawPin) {
+        headers['X-PIN'] = params.rawPin
+      } else if (params.pinToken) {
+        headers['X-PIN-TOKEN'] = params.pinToken
+      }
+
       const res = await api.post(
         '/api/transactions/buy-data',
         {
@@ -409,11 +431,7 @@ export const dataApi = {
           phone: params.phone,
           provider: params.provider.toUpperCase(),
         },
-        {
-          headers: {
-            'X-PIN-TOKEN': params.pinToken,
-          },
-        }
+        { headers }
       )
 
       const data = res.data || {}

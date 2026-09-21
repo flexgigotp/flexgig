@@ -30,23 +30,28 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
   // Guard so success can only complete once
   const finishedRef = useRef(false)
 
-  // Show the fingerprint only when all four conditions are true
   const bioEligible =
     bio.isReady && bio.isSupported && bio.enabled && bio.forLogin
 
-  const isBusy = submitting || bio.isAuthenticating
+  // Keypad must be inert while either ceremony is running
+  const keypadDisabled = submitting || bio.isAuthenticating
 
-  // Warm the auth-options cache as soon as the modal mounts, so
-  // tapping the fingerprint feels instant
+  // Loader shows only during active server round trips, never during
+  // the OS-native prompt — that window is owned by the OS.
+  const showLoader = submitting || bio.phase === 'verifying'
+
+  // Toast shows while we're fetching the WebAuthn options. Once the
+  // native prompt is up, the OS takes over — no app UI needed.
+  const showBioToast = bio.phase === 'preparing'
+
+  // Warm the auth-options cache as soon as the modal mounts
   useEffect(() => {
     if (bioEligible) bio.prefetch()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bioEligible])
 
-  // Fire-and-forget: the lock is already cleared server-side
-  // (/webauthn/auth/verify and /api/reauth-pin both clear it), so
-  // this is belt-and-braces only. Never await — closing the modal
-  // must not wait on a network round trip.
+  // Fire-and-forget on success: /webauthn/auth/verify already cleared
+  // the server lock, so /reauth/complete is belt-and-braces only.
   const finishWithSuccess = () => {
     if (finishedRef.current) return
     finishedRef.current = true
@@ -55,12 +60,11 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
     onSuccess()
   }
 
-  // ── Auto-attempt biometrics (only when the browser allows it) ──
-  // The native prompt requires recent user activation (Safari:
-  // always, Android Chrome: usually). Without it the request is
-  // rejected and the user just sees a pointless loader — so only
-  // auto-fire while transient activation is still alive; otherwise
-  // skip silently and let the fingerprint button do the work.
+  // ── Auto-attempt biometrics on mount (when browser permits) ──
+  // Native prompt requires recent user activation (Safari: always,
+  // Android Chrome: usually). Without it the request rejects and the
+  // user sees a pointless loader — so only auto-fire while transient
+  // activation is alive; otherwise wait for the fingerprint button.
   useEffect(() => {
     if (autoAttemptedRef.current) return
     if (!bioEligible) return
@@ -79,7 +83,7 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
         finishWithSuccess()
         return
       }
-      if (result.message === 'Cancelled') return // blocked/dismissed — silent
+      if (result.message === 'Cancelled') return
 
       setError(result.message || 'Biometric authentication failed')
     })()
@@ -88,7 +92,7 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
 
   // ── PIN path ─────────────────────────────────────────────
   const handleDigit = (d: string) => {
-    if (isBusy || pin.length >= PIN_LENGTH) return
+    if (keypadDisabled || pin.length >= PIN_LENGTH) return
     const next = pin + d
     setPin(next)
 
@@ -113,13 +117,13 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
   }
 
   const handleDelete = () => {
-    if (isBusy) return
+    if (keypadDisabled) return
     setPin((p) => p.slice(0, -1))
   }
 
   // ── Biometric path ───────────────────────────────────────
   const handleBiometric = async () => {
-    if (isBusy) return
+    if (keypadDisabled) return
     setError('')
 
     const result = await bio.authenticate('reauth')
@@ -128,8 +132,6 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
       finishWithSuccess()
       return
     }
-
-    // User dismissed the native prompt — no error, just return
     if (result.message === 'Cancelled') return
 
     setError(result.message || 'Biometric authentication failed')
@@ -143,11 +145,9 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
 
   const handleForgotPin = () => {
     toast.info('PIN reset — check your email', 4000)
-    // Full reset flow is Phase 4c
   }
 
-  // Keyboard input works for both PIN and no-op when bio is running
-  usePinKeyboard(handleDigit, handleDelete, isBusy)
+  usePinKeyboard(handleDigit, handleDelete, keypadDisabled)
 
   const displayName =
     user?.username ||
@@ -156,14 +156,14 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
     'User'
   const avatarUrl = user?.profilePicture
 
-  // ── Fingerprint button injected into the keypad's "7" slot ──
+  // ── Fingerprint button injected into the keypad's blank slot ──
   const bioSlot = bioEligible ? (
     <button
       type="button"
       className="fg-pin-bio"
       aria-label="Use biometric authentication"
       onClick={handleBiometric}
-      disabled={isBusy}
+      disabled={keypadDisabled}
     >
       <svg
         width="34"
@@ -217,7 +217,7 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
         <PinKeypad
           onDigit={handleDigit}
           onDelete={handleDelete}
-          disabled={isBusy}
+          disabled={keypadDisabled}
           bioSlot={bioSlot}
         />
 
@@ -259,9 +259,20 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
             Forgot PIN?
           </button>
         </div>
-
-        {isBusy && <Loader transparent />}
       </div>
+
+      {/* Loading toast — appears while we fetch WebAuthn options so
+          the user knows the fingerprint prompt is on its way. */}
+      {showBioToast && (
+        <div className="bio-loading-toast" role="status" aria-live="polite">
+          <span className="bio-loading-spinner" aria-hidden />
+          Waiting for fingerprint…
+        </div>
+      )}
+
+      {/* Loader — only during server round trips (PIN verify or
+          biometric verify). Hidden during the OS-native prompt. */}
+      {showLoader && <Loader transparent />}
     </div>
   )
 }

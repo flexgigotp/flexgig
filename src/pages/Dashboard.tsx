@@ -19,14 +19,20 @@ import KYCSheet from '@/components/kyc/KYCSheet'
 import SettingsTab from '@/components/settings/SettingsTab'
 import HelpSupportSheet from '@/components/settings/HelpSupportSheet'
 import SecuritySheet from '@/components/settings/SecuritySheet'
+import HistorySheet from '@/components/history/HistorySheet'
+import TransactionReceiptSheet from '@/components/history/TransactionReceiptSheet'
+import type { Transaction } from '@/types/api'
 import { useSession } from '@/hooks'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import { useBackTrap } from '@/hooks/useBackTrap'
 import { useModalParam } from '@/hooks/useModalParam'
 import { useDataPurchaseStore } from '@/stores/dataPurchaseStore'
+import { useHistoryStore } from '@/stores/historyStore'
+import { useBiometricPromptStore } from '@/stores/biometricPromptStore'
 import { getKYCState } from '@/lib/addMoneyStorage'
 import { safeCloseModal } from '@/lib/safeCloseModal'
 import { toast } from '@/stores/toastStore'
+import { useBiometric } from '@/hooks/useBiometric'
 
 export default function Dashboard() {
   const { user, balance, logout } = useSession()
@@ -55,6 +61,15 @@ export default function Dashboard() {
   const settingsModal = useModalParam('settings')
   const securityModal = useModalParam('security')
 
+  // Biometric prompt owns the back button while it's visible — we must
+  // not let useBackTrap also grab it, or the two fight over popstate.
+  const bioPromptVisible = useBiometricPromptStore((s) => s.visible)
+
+  // History sheet + receipt (stackable)
+  const historyModal = useModalParam('history')
+  const setHistoryMonth = useHistoryStore((s) => s.setSelectedMonth)
+  const [receiptTx, setReceiptTx] = useState<Transaction | null>(null)
+
   const handleOpenAddMoney = () => {
     const kyc = getKYCState()
     if (kyc?.verified) {
@@ -70,12 +85,25 @@ export default function Dashboard() {
       return
     }
 
+    if (newTab === 'history') {
+      historyModal.open()
+      return
+    }
+
     // Switching away from Settings → close the sheet if it's open
     if (settingsModal.isOpen) {
       settingsModal.close()
     }
     setTab(newTab)
   }
+
+  const bio = useBiometric()
+
+  useEffect(() => {
+    if (bio.enabled && (bio.forTx || bio.forLogin) && bio.isSupported) {
+      bio.prefetch()
+    }
+  }, [bio.enabled, bio.forTx, bio.forLogin, bio.isSupported, bio.prefetch])
 
   // Ref on the DataPurchasePanel wrapper
   const plansSectionRef = useRef<HTMLDivElement | null>(null)
@@ -104,7 +132,10 @@ export default function Dashboard() {
     !checkoutActive &&
       !plansOpen &&
       !settingsModal.isOpen &&
-      !securityModal.isOpen
+      !securityModal.isOpen &&
+      !bioPromptVisible &&
+      !historyModal.isOpen &&
+      !receiptTx
   )
 
   return (
@@ -139,20 +170,15 @@ export default function Dashboard() {
             <div ref={plansSectionRef}>
               <DataPurchasePanel />
             </div>
-            <RecentTransactions />
+            <RecentTransactions
+              onViewAll={historyModal.open}
+              onSelectTransaction={(tx) => setReceiptTx(tx)}
+            />
             <AllTimeStats
               funded={user?.allTimeIn ?? 0}
               spent={user?.allTimeOut ?? 0}
               count={user?.totalDataTxCount ?? 0}
             />
-          </div>
-        )}
-
-        {tab === 'history' && (
-          <div className="stack">
-            <p style={{ padding: 40, textAlign: 'center', color: '#999' }}>
-              History tab — coming later
-            </p>
           </div>
         )}
 
@@ -166,7 +192,13 @@ export default function Dashboard() {
       </main>
 
       <BottomNav
-        active={settingsModal.isOpen ? 'settings' : tab}
+        active={
+          settingsModal.isOpen
+            ? 'settings'
+            : historyModal.isOpen
+              ? 'history'
+              : tab
+        }
         onTabChange={handleTabChange}
         isAdmin={user?.is_admin === true}
       />
@@ -234,6 +266,27 @@ export default function Dashboard() {
       {kycModal.isOpen && <KYCSheet onClose={kycModal.close} />}
 
       {helpModal.isOpen && <HelpSupportSheet onClose={helpModal.close} />}
+
+      {historyModal.isOpen && (
+        <HistorySheet
+          onClose={historyModal.close}
+          onSelectTransaction={(tx) => setReceiptTx(tx)}
+          onSelectMonth={(m) => {
+            setHistoryMonth(m)
+            // month picker comes in the next pass; for now just store it
+          }}
+        />
+      )}
+
+      {/* Receipt is independent of the history sheet — it can be opened
+          from the dashboard's Recent Transactions widget OR from inside
+          the history sheet. Render it whenever there's a receipt to show. */}
+      {receiptTx && (
+        <TransactionReceiptSheet
+          tx={receiptTx}
+          onClose={() => setReceiptTx(null)}
+        />
+      )}
     </div>
   )
 }

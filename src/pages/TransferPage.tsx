@@ -1,14 +1,19 @@
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTransfer } from '@/hooks/useTransfer'
+import { useBiometric } from '@/hooks/useBiometric'
+import { useBiometricPromptStore } from '@/stores/biometricPromptStore'
+import { isBiometricEnabled, isBioForTx } from '@/lib/biometricStorage'
 import TransferForm from '@/components/transfer/TransferForm'
 import TransferConfirm from '@/components/transfer/TransferConfirm'
 import CheckoutPinSheet from '@/components/pin/CheckoutPinSheet'
 import TransferReceiptView from '@/components/transfer/TransferReceipt'
+import Loader from '@/components/Loader'
 import { toast } from '@/stores/toastStore'
-import { useEffect } from 'react'
 
 export default function TransferPage() {
   const navigate = useNavigate()
+  const bio = useBiometric()
   const {
     stage,
     formData,
@@ -18,39 +23,40 @@ export default function TransferPage() {
     goToPin,
     goBack,
     submitPin,
+    submitBiometric,
     reset,
     retryFromReceipt,
   } = useTransfer()
 
-  // If the user goes back from receipt and lands on an earlier stage,
-    // and the receipt is already complete, redirect straight to dashboard.
-    useEffect(() => {
-    if (
-        stage !== 'receipt' &&
-        receipt &&
-        receipt.status !== 'processing'
-    ) {
-        navigate('/dashboard', { replace: true })
+  useEffect(() => {
+    if (stage !== 'receipt' && receipt && receipt.status !== 'processing') {
+      navigate('/dashboard', { replace: true })
     }
-    }, [stage, receipt, navigate])
+  }, [stage, receipt, navigate])
+
+  useEffect(() => {
+    if (stage === 'confirm' && bio.enabled && bio.forTx && bio.isSupported) {
+      bio.prefetch()
+    }
+  }, [stage, bio.enabled, bio.forTx, bio.isSupported, bio.prefetch])
 
   const handleClose = () => {
-  if (stage === 'form' || stage === 'receipt') {
-    navigate('/dashboard', { replace: true })
-  } else if (window.history.length > 1) {
-    goBack()
-  } else {
-    // No history to pop (deep link) — go to the previous stage manually
-    navigate(
-      stage === 'pin'
-        ? '/transfer?step=confirm'
-        : '/transfer'
-    )
+    if (stage === 'form' || stage === 'receipt') {
+      navigate('/dashboard', { replace: true })
+    } else if (window.history.length > 1) {
+      goBack()
+    } else {
+      navigate(stage === 'pin' ? '/transfer?step=confirm' : '/transfer')
+    }
   }
-}
 
   const handleDone = () => {
     reset()
+
+    if (!isBiometricEnabled() || !isBioForTx()) {
+      useBiometricPromptStore.getState().prompt()
+    }
+
     navigate('/dashboard', { replace: true })
   }
 
@@ -60,7 +66,39 @@ export default function TransferPage() {
     navigate('/dashboard', { replace: true })
   }
 
-  // Receipt has its own full-screen layout (no header)
+  const handleConfirm = async () => {
+    if (
+      bio.enabled &&
+      bio.forTx &&
+      bio.isSupported &&
+      !bio.isAuthenticating
+    ) {
+      const res = await bio.authenticate('transfer', { inline: true })
+
+      if (res.ok && res.assertion) {
+        await submitBiometric(res.assertion)
+        return
+      }
+
+      if (res.message && res.message !== 'Cancelled') {
+        toast.error(res.message || 'Biometric failed')
+      }
+    }
+
+    goToPin()
+  }
+
+  const handleBiometricFromPin = async () => {
+    const res = await bio.authenticate('transfer', { inline: true })
+    if (!res.ok) {
+      if (res.message !== 'Cancelled') {
+        toast.error(res.message || 'Biometric failed')
+      }
+      return
+    }
+    await submitBiometric(res.assertion!)
+  }
+
   if (stage === 'receipt' && receipt) {
     return (
       <div className="fg-transfer-overlay">
@@ -104,7 +142,8 @@ export default function TransferPage() {
 
         {stage === 'form' && (
           <div className="fg-transfer-balance" aria-live="polite">
-            Balance: ₦{balance.toLocaleString('en-NG', {
+            Balance: ₦
+            {balance.toLocaleString('en-NG', {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}
@@ -126,20 +165,32 @@ export default function TransferPage() {
             recipient={formData.recipient}
             amount={formData.amount}
             onCancel={goBack}
-            onConfirm={goToPin}
+            onConfirm={handleConfirm}
           />
         )}
 
         {stage === 'pin' && (
-        <CheckoutPinSheet
+          <CheckoutPinSheet
             onSubmit={submitPin}
             onClose={goBack}
             onForgotPin={() =>
-            toast.info('PIN reset — check your email', 4000)
+              toast.info('PIN reset — check your email', 4000)
             }
-        />
+            biometricEnabled={bio.enabled && bio.forTx}
+            onBiometric={handleBiometricFromPin}
+            biometricBusy={bio.isAuthenticating}
+          />
         )}
       </div>
+
+      {bio.phase === 'preparing' && (
+        <div className="bio-loading-toast" role="status" aria-live="polite">
+          <span className="bio-loading-spinner" aria-hidden />
+          Waiting for fingerprint…
+        </div>
+      )}
+
+      {bio.phase === 'verifying' && <Loader transparent />}
     </div>
   )
 }

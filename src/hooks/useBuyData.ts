@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { pinApi } from '@/hooks/usePin'
 import { dataApi } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import { useSession } from '@/hooks'
@@ -53,6 +52,12 @@ const POLL_INTERVAL_MS = 8000
 const POLL_MAX_ATTEMPTS = 15
 const PENDING_TIMEOUT_MS = 8000
 
+type PurchaseAuth = {
+  pinToken?: string
+  rawPin?: string
+  webauthnAssertion?: string
+}
+
 export function useBuyData(payload: BuyDataPayload) {
   const { balance } = useSession()
   const setBalance = useAuthStore((s) => s.setBalance)
@@ -72,7 +77,6 @@ export function useBuyData(payload: BuyDataPayload) {
     return 'summary'
   }, [urlStep, receipt])
 
-  // All navigation stays on /dashboard — we just mutate search params.
   const buildSearch = useCallback(
     (extra?: Record<string, string>) => {
       const params = new URLSearchParams(location.search)
@@ -100,68 +104,6 @@ export function useBuyData(payload: BuyDataPayload) {
     setReceipt(null)
     navigate(`/dashboard?${buildSearch({ step: 'pin' })}`, { replace: true })
   }, [navigate, buildSearch])
-
-  const submitPin = useCallback(
-    async (pin: string): Promise<{ ok: boolean; message?: string }> => {
-      const verify = await pinApi.verifyPin(pin, 'buy-data')
-      if (!verify.ok || !verify.pinToken) {
-        return { ok: false, message: verify.message || 'Incorrect PIN' }
-      }
-
-      navigate(`/dashboard?${buildSearch({ step: 'receipt' })}`, {
-        replace: true,
-      })
-      setReceipt({ status: 'processing' })
-
-      const result = await dataApi.buyData({
-        planId: payload.plan.plan_id,
-        phone: payload.phone,
-        provider: payload.provider,
-        pinToken: verify.pinToken,
-      })
-
-      if (!result.ok) {
-        if (result.insufficient) {
-          setReceipt({
-            status: 'insufficient',
-            plan: payload.plan,
-            phone: payload.phone,
-            provider: payload.provider,
-            currentBalance: balance,
-          })
-          return { ok: false }
-        }
-        setReceipt({
-          status: 'failed',
-          message: result.error || 'Purchase failed',
-          plan: payload.plan,
-          phone: payload.phone,
-          provider: payload.provider,
-        })
-        return { ok: false }
-      }
-
-      if (typeof result.newBalance === 'number') {
-        setBalance(result.newBalance)
-      }
-
-      const reference = result.reference
-      if (!reference) {
-        setReceipt({
-          status: 'failed',
-          message: 'No transaction reference returned',
-          plan: payload.plan,
-          phone: payload.phone,
-          provider: payload.provider,
-        })
-        return { ok: false }
-      }
-
-      pollForFinalStatus(reference, result.newBalance ?? balance)
-      return { ok: true }
-    },
-    [payload, balance, setBalance, navigate, buildSearch]
-  )
 
   const pollForFinalStatus = useCallback(
     (reference: string, initialBalance: number) => {
@@ -263,6 +205,83 @@ export function useBuyData(payload: BuyDataPayload) {
     [payload, setBalance]
   )
 
+  /**
+   * Shared completion path — sends whichever auth we have.
+   * Order of precedence: webauthnAssertion > rawPin > pinToken.
+   */
+  const completePurchase = useCallback(
+    async (auth: PurchaseAuth): Promise<{ ok: boolean; message?: string }> => {
+      navigate(`/dashboard?${buildSearch({ step: 'receipt' })}`, {
+        replace: true,
+      })
+      setReceipt({ status: 'processing' })
+
+      const result = await dataApi.buyData({
+        planId: payload.plan.plan_id,
+        phone: payload.phone,
+        provider: payload.provider,
+        ...auth,
+      })
+
+      if (!result.ok) {
+        if (result.insufficient) {
+          setReceipt({
+            status: 'insufficient',
+            plan: payload.plan,
+            phone: payload.phone,
+            provider: payload.provider,
+            currentBalance: balance,
+          })
+          return { ok: false }
+        }
+        setReceipt({
+          status: 'failed',
+          message: result.error || 'Purchase failed',
+          plan: payload.plan,
+          phone: payload.phone,
+          provider: payload.provider,
+        })
+        return { ok: false }
+      }
+
+      if (typeof result.newBalance === 'number') {
+        setBalance(result.newBalance)
+      }
+
+      const reference = result.reference
+      if (!reference) {
+        setReceipt({
+          status: 'failed',
+          message: 'No transaction reference returned',
+          plan: payload.plan,
+          phone: payload.phone,
+          provider: payload.provider,
+        })
+        return { ok: false }
+      }
+
+      pollForFinalStatus(reference, result.newBalance ?? balance)
+      return { ok: true }
+    },
+    [payload, balance, setBalance, navigate, buildSearch, pollForFinalStatus]
+  )
+
+  /** Raw PIN — one round trip, server verifies inline. */
+  const submitPin = useCallback(
+    async (pin: string): Promise<{ ok: boolean; message?: string }> => {
+      return completePurchase({ rawPin: pin })
+    },
+    [completePurchase]
+  )
+
+  /** WebAuthn assertion — one round trip, server verifies inline. */
+  const submitBiometric = useCallback(
+    async (assertion: string): Promise<{ ok: boolean; message?: string }> => {
+      return completePurchase({ webauthnAssertion: assertion })
+    },
+    [completePurchase]
+  )
+
   return {
     stage,
     receipt,
@@ -272,5 +291,6 @@ export function useBuyData(payload: BuyDataPayload) {
     reset,
     retry,
     submitPin,
+    submitBiometric,
   }
 }

@@ -25,9 +25,14 @@ async function fetchPlans(): Promise<DataPlan[]> {
   return inFlight
 }
 
+// ✅ Let the reauth-cleared handler blow the cache away so the next
+// mount doesn't serve a stale list from before the lock was active.
+function invalidatePlanCache() {
+  cache = []
+  cacheFetchedAt = 0
+}
+
 // ── Module-level realtime subscription (singleton) ──────────────
-// Only one channel ever exists, no matter how many usePlans() hooks
-// are mounted. Every hook instance joins the same listener set.
 type Listener = (plans: DataPlan[]) => void
 const listeners = new Set<Listener>()
 let channel: ReturnType<typeof supabase.channel> | null = null
@@ -63,7 +68,6 @@ function addListener(fn: Listener) {
 
 function removeListener(fn: Listener) {
   listeners.delete(fn)
-  // Don't tear down the channel — keep it alive for future consumers.
 }
 
 // ── Hook ────────────────────────────────────────────────────────
@@ -75,7 +79,6 @@ export function usePlans() {
   useEffect(() => {
     let cancelled = false
 
-    // Fresh cache → no fetch needed
     if (cache.length > 0 && Date.now() - cacheFetchedAt < CACHE_TTL_MS) {
       setPlans(cache)
       setIsLoading(false)
@@ -97,7 +100,6 @@ export function usePlans() {
         })
     }
 
-    // Join the shared realtime listener set
     const onChange: Listener = (fresh) => {
       if (cancelled) return
       setPlans(fresh)
@@ -110,13 +112,55 @@ export function usePlans() {
     }
   }, [])
 
+  // ✅ Retry after a successful reauth.
+  // The initial fetch may have hit a 423 and set `error` — nothing
+  // would have cleared it until a full reload remounted this hook.
+  useEffect(() => {
+    let cancelled = false
+    const onCleared = () => {
+      // Cache might be empty (the failed fetch never populated it) or
+      // stale. Wipe it so the next read is guaranteed fresh.
+      invalidatePlanCache()
+      setIsLoading(true)
+      setError(null)
+      fetchPlans()
+        .then((fresh) => {
+          if (cancelled) return
+          setPlans(fresh)
+          listeners.forEach((fn) => fn(fresh))
+        })
+        .catch((err) => {
+          if (cancelled) return
+          setError(err?.message || 'Failed to load plans')
+        })
+        .finally(() => {
+          if (cancelled) return
+          setIsLoading(false)
+        })
+    }
+    window.addEventListener('session:reauth-cleared', onCleared)
+    return () => {
+      cancelled = true
+      window.removeEventListener('session:reauth-cleared', onCleared)
+    }
+  }, [])
+
   return {
     plans,
     isLoading,
     error,
     refetch: async () => {
-      const fresh = await fetchPlans()
-      setPlans(fresh)
+      invalidatePlanCache()
+      setError(null)
+      try {
+        const fresh = await fetchPlans()
+        setPlans(fresh)
+      } catch (err: unknown) {
+        setError(
+          (err as { message?: string })?.message || 'Failed to load plans'
+        )
+        throw err
+      }
     },
   }
 }

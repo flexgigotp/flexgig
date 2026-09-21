@@ -31,6 +31,26 @@ import {
   setCeremonyActive,
 } from '@/lib/biometricStorage'
 
+/**
+ * Encode a string as base64url. WebAuthn assertions are plain JSON
+ * (ASCII-safe inside — base64url strings and numbers), so btoa is
+ * safe here.
+ */
+function toBase64Url(str: string): string {
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+export type CeremonyPhase = 'idle' | 'preparing' | 'prompting' | 'verifying'
+
+interface AuthenticateResult {
+  ok: boolean
+  /** Set in legacy mode — single-use JWT from /webauthn/auth/verify */
+  token?: string
+  /** Set in inline mode — base64url JSON assertion for the action endpoint */
+  assertion?: string
+  message?: string
+}
+
 interface UseBiometricReturn {
   isSupported: boolean
   isReady: boolean
@@ -39,13 +59,14 @@ interface UseBiometricReturn {
   forTx: boolean
   isRegistering: boolean
   isAuthenticating: boolean
+  phase: CeremonyPhase
   register: () => Promise<{ ok: boolean; message?: string }>
   revoke: () => Promise<{ ok: boolean; message?: string }>
   authenticate: (
-    action: BiometricAction
-  ) => Promise<{ ok: boolean; token?: string; message?: string }>
+    action: BiometricAction,
+    opts?: { inline?: boolean }
+  ) => Promise<AuthenticateResult>
   setChildEnabled: (which: 'login' | 'tx', value: boolean) => void
-  /** Fire-and-forget: refresh the auth-options cache. */
   prefetch: () => void
 }
 
@@ -63,10 +84,10 @@ export function useBiometric(): UseBiometricReturn {
 
   const [isRegistering, setIsRegistering] = useState(false)
   const [isAuthenticating, setIsAuthenticating] = useState(false)
+  const [phase, setPhase] = useState<CeremonyPhase>('idle')
 
-  // Shared in-flight prefetch promise — lets a user tap JOIN the
-  // already-running options fetch instead of starting a second one
   const prefetchPromiseRef = useRef<Promise<unknown> | null>(null)
+  const ceremonyLockRef = useRef(false)
 
   // ── Feature detection ────────────────────────────────────────
   useEffect(() => {
@@ -111,7 +132,7 @@ export function useBiometric(): UseBiometricReturn {
     return () => window.removeEventListener('storage', handler)
   }, [])
 
-  // ── Local helpers that keep storage + state in sync ──────────
+  // ── Local helpers ────────────────────────────────────────────
   const applyEnabled = useCallback((v: boolean) => {
     setBiometricEnabled(v)
     setEnabledState(v)
@@ -132,6 +153,7 @@ export function useBiometric(): UseBiometricReturn {
     if (!uid) return
     if (!isBiometricEnabled()) return
     if (!getCredentialId()) return
+    if (ceremonyLockRef.current) return
     if (prefetchPromiseRef.current) return
 
     const p = webauthnApi
@@ -140,13 +162,35 @@ export function useBiometric(): UseBiometricReturn {
         setCachedOptions(opts)
         return opts
       })
-      .catch(() => null /* cache just stays empty */)
+      .catch(() => null)
       .finally(() => {
         prefetchPromiseRef.current = null
       })
 
     prefetchPromiseRef.current = p
   }, [uid])
+
+  // ── Keep the challenge warm on tab focus ─────────────────────
+  useEffect(() => {
+    if (!enabled) return
+    if (!forTx && !forLogin) return
+
+    const maybeRefresh = () => {
+      if (document.visibilityState !== 'visible') return
+      if (ceremonyLockRef.current) return
+      const cached = getCachedOptions()
+      if (cached && cached.fresh) return
+      clearCachedOptions()
+      prefetch()
+    }
+
+    window.addEventListener('focus', maybeRefresh)
+    document.addEventListener('visibilitychange', maybeRefresh)
+    return () => {
+      window.removeEventListener('focus', maybeRefresh)
+      document.removeEventListener('visibilitychange', maybeRefresh)
+    }
+  }, [enabled, forTx, forLogin, prefetch])
 
   // ── REGISTER ─────────────────────────────────────────────────
   const register = useCallback(async () => {
@@ -163,10 +207,9 @@ export function useBiometric(): UseBiometricReturn {
 
     setIsRegistering(true)
     setCeremonyActive(true)
+    setPhase('preparing')
+    ceremonyLockRef.current = true
     try {
-      // 1. Revoke any existing credentials first — server enforces
-      //    one-per-user, and a stale excludeCredentials entry makes
-      //    navigator.credentials.create throw InvalidStateError.
       try {
         const existing = await webauthnApi.list(uid).catch(() => [])
         if (Array.isArray(existing) && existing.length > 0) {
@@ -178,33 +221,26 @@ export function useBiometric(): UseBiometricReturn {
             }
           }
         } else {
-          // Defensive: tell the server to clear anything it has for us
           await webauthnApi.revoke(uid, null).catch(() => null)
         }
       } catch {
-        /* non-fatal — continue to registration */
+        /* non-fatal */
       }
 
-      // 2. Fetch registration options
       const options = await webauthnApi.registerOptions(
         uid,
         user?.username || user?.email || uid,
         user?.fullName || user?.firstName || user?.username || 'User'
       )
 
-      // 3. Trigger the native prompt — the library decodes
-      //    challenge / user.id / excludeCredentials itself, so the
-      //    server JSON is passed through untouched.
-      //    (Boundary cast: api.ts returns loose types; the server
-      //    actually sends the standard JSON shape.)
+      setPhase('prompting')
       const credential = await startRegistration({
         optionsJSON: options as unknown as PublicKeyCredentialCreationOptionsJSON,
       })
 
-      // 4. Persist credential ID (already a base64url string)
       setCredentialId(credential.id)
 
-      // 5. Verify server-side
+      setPhase('verifying')
       const verify = await webauthnApi.registerVerify(uid, credential)
 
       if (!verify.verified) {
@@ -212,16 +248,15 @@ export function useBiometric(): UseBiometricReturn {
         return { ok: false, message: 'Registration not verified' }
       }
 
-      // 6. Server's ID wins
       if (verify.credentialId) {
         setCredentialId(verify.credentialId)
       }
 
-      // 7. Set all flags on
       applyEnabled(true)
       applyForLogin(true)
       applyForTx(true)
       refetch()
+      clearCachedOptions()
       prefetch()
 
       return { ok: true }
@@ -248,6 +283,8 @@ export function useBiometric(): UseBiometricReturn {
       const { message } = extractApiError(err)
       return { ok: false, message: message || 'Registration failed' }
     } finally {
+      ceremonyLockRef.current = false
+      setPhase('idle')
       setCeremonyActive(false)
       setIsRegistering(false)
     }
@@ -275,7 +312,6 @@ export function useBiometric(): UseBiometricReturn {
         await webauthnApi.revoke(uid, credentialId ?? null)
       } catch (revokeErr) {
         console.error('[biometric] revoke request failed:', revokeErr)
-        /* best-effort — clear local anyway */
       }
 
       clearAllBiometricState()
@@ -296,60 +332,108 @@ export function useBiometric(): UseBiometricReturn {
 
   // ── AUTHENTICATE ─────────────────────────────────────────────
   const authenticate = useCallback(
-    async (action: BiometricAction) => {
+    async (
+      action: BiometricAction,
+      opts?: { inline?: boolean }
+    ): Promise<AuthenticateResult> => {
       if (!uid) return { ok: false, message: 'Not signed in' }
-      if (!enabled) {
-        return { ok: false, message: 'Biometrics not enabled' }
-      }
-      if (action === 'reauth' && !forLogin) {
-        return { ok: false, message: 'Biometric reauth is disabled' }
-      }
-      if (action === 'buy-data' && !forTx) {
-        return { ok: false, message: 'Biometric checkout is disabled' }
+      if (!enabled) return { ok: false, message: 'Biometrics not enabled' }
+
+      if (action === 'reauth') {
+        if (!forLogin) return { ok: false, message: 'Biometric reauth is disabled' }
+      } else {
+        if (!forTx) return { ok: false, message: 'Biometric checkout is disabled' }
       }
 
       const storedId = getCredentialId()
       if (!storedId) {
-        return {
-          ok: false,
-          message: 'No biometric credential on this device',
-        }
+        return { ok: false, message: 'No biometric credential on this device' }
       }
 
-      setIsAuthenticating(true)
+      const inline = opts?.inline === true
+
+            setIsAuthenticating(true)
       setCeremonyActive(true)
+      setPhase('preparing')
+      ceremonyLockRef.current = true
+
+      // Track how long the toast has been visible so we can enforce a
+      // minimum duration. Without this, a warm cache makes the toast
+      // flash for <100ms and disappear before the OS prompt renders.
+      const preparingStartedAt = Date.now()
+      const MIN_TOAST_MS = 500
+
       try {
-                // 1. Get options — cached if fresh; otherwise JOIN the
-        //    in-flight prefetch so the first tap never pays for a
-        //    second round trip.
+        // ── 1. Get options (cached, in-flight, or fresh) ──
         let options: PublicKeyCredentialRequestOptionsJSON
 
-        const cached = getCachedOptions()
-        if (cached && cached.fresh) {
-          options = cached.options as PublicKeyCredentialRequestOptionsJSON
+        const inFlight = prefetchPromiseRef.current
+        if (inFlight) {
+          const joined = await inFlight
+          options =
+            (joined as PublicKeyCredentialRequestOptionsJSON) ??
+            (await webauthnApi.authOptions(uid))
         } else {
-          prefetch() // no-op if one is already in flight
-          const joined = await prefetchPromiseRef.current
-          if (joined) {
-            options = joined as PublicKeyCredentialRequestOptionsJSON
+          const cached = getCachedOptions()
+          if (cached && cached.fresh) {
+            options = cached.options as PublicKeyCredentialRequestOptionsJSON
           } else {
-            // prefetch failed or wasn't eligible — direct fetch.
-            // Assignable now that WebAuthnAuthOptionsResponse.userVerification
-            // is the proper union type.
-            options = await webauthnApi.authOptions(uid)
+            const fresh = await webauthnApi.authOptions(uid)
+            setCachedOptions(fresh)
+            options = fresh as PublicKeyCredentialRequestOptionsJSON
           }
         }
 
-        // 2. Prompt the user — pass the JSON straight through
+        // ── 1.5. Minimum toast duration ────────────────────────
+        // Keep the "Waiting for fingerprint…" toast on screen long
+        // enough for the user to register it AND for the OS-native
+        // prompt to be laid out on top. Only waits if the options
+        // fetch was faster than MIN_TOAST_MS — a cold fetch that
+        // already took longer proceeds immediately.
+        const elapsed = Date.now() - preparingStartedAt
+        if (elapsed < MIN_TOAST_MS) {
+          await new Promise((r) => setTimeout(r, MIN_TOAST_MS - elapsed))
+        }
+
+        // ── 2. Native prompt ──
+        setPhase('prompting')
         const assertion = await startAuthentication({ optionsJSON: options })
 
-        // 3. Verify — the assertion is already the JSON shape
-        //    @simplewebauthn/server expects
+        // ── 3a. Inline mode ─────────────────────────────────────
+        // Skip /webauthn/auth/verify entirely. Hand the raw assertion
+        // to the caller, which will pass it to the action endpoint
+        // (buy-data / transfer). That endpoint verifies the assertion
+        // inline and executes the transaction in the same round trip.
+        if (inline) {
+          // Release the ceremony lock BEFORE prefetch so prefetch
+          // can actually run.
+          ceremonyLockRef.current = false
+          // Challenge will be consumed by the action endpoint — drop
+          // the client cache immediately so we never sign it twice.
+          clearCachedOptions()
+          // Warm a fresh challenge for the *next* payment.
+          prefetch()
+
+          return {
+            ok: true,
+            assertion: toBase64Url(JSON.stringify(assertion)),
+          }
+        }
+
+        // ── 3b. Legacy mode (reauth) ────────────────────────────
+        // Verify against /webauthn/auth/verify, which also clears
+        // the reauth lock server-side as a side effect.
+        setPhase('verifying')
         const verify = await webauthnApi.authVerify(uid, assertion, action)
 
         if (!verify.verified) {
+          clearCachedOptions()
           return { ok: false, message: 'Authentication not verified' }
         }
+
+        ceremonyLockRef.current = false
+        clearCachedOptions()
+        prefetch()
 
         return { ok: true, token: verify.token }
       } catch (err) {
@@ -361,15 +445,20 @@ export function useBiometric(): UseBiometricReturn {
           e?.name === 'AbortError' ||
           e?.message === 'The operation either timed out or was not allowed.'
         ) {
+          // Cancelled — challenge wasn't signed. Keep the cache;
+          // the next tap reuses it for free.
+          ceremonyLockRef.current = false
           return { ok: false, message: 'Cancelled' }
         }
 
-        // Cache may have been stale; blow it away for next attempt
+        ceremonyLockRef.current = false
         clearCachedOptions()
 
         const { message } = extractApiError(err)
         return { ok: false, message: message || 'Authentication failed' }
       } finally {
+        ceremonyLockRef.current = false
+        setPhase('idle')
         setCeremonyActive(false)
         setIsAuthenticating(false)
       }
@@ -377,7 +466,7 @@ export function useBiometric(): UseBiometricReturn {
     [uid, enabled, forLogin, forTx, prefetch]
   )
 
-  // ── Set a child flag (with parent auto-enable/disable) ──────
+  // ── Set a child flag ────────────────────────────────────────
   const setChildEnabled = useCallback(
     (which: 'login' | 'tx', value: boolean) => {
       if (which === 'login') {
@@ -388,9 +477,6 @@ export function useBiometric(): UseBiometricReturn {
         if (value && !enabled) applyEnabled(true)
       }
 
-      // If BOTH children end up off, drop the parent too.
-      // We defer by a microtask so the two setChildEnabled calls
-      // from a single user action don't race.
       Promise.resolve().then(() => {
         const loginNow = which === 'login' ? value : isBioForLogin()
         const txNow = which === 'tx' ? value : isBioForTx()
@@ -411,6 +497,7 @@ export function useBiometric(): UseBiometricReturn {
     forTx,
     isRegistering,
     isAuthenticating,
+    phase,
     register,
     revoke,
     authenticate,
