@@ -28,8 +28,8 @@ export function useSession() {
   const clear = useAuthStore((s) => s.clear)
 
   const fetchSession = useCallback(
-    async (opts: { force?: boolean } = {}) => {
-      const { force = false } = opts
+    async (opts: { force?: boolean; silent?: boolean } = {}) => {
+      const { force = false, silent = false } = opts
 
       // Cache hit
       if (
@@ -46,7 +46,10 @@ export function useSession() {
         return
       }
 
-      setLoading(true)
+      // Silent refreshes (e.g. after reauth success) update data in
+      // place WITHOUT triggering any loading UI — the dashboard keeps
+      // rendering cached values while the numbers refresh.
+      if (!silent) setLoading(true)
 
       inFlight = (async () => {
         try {
@@ -81,7 +84,7 @@ export function useSession() {
           // Anything else → surface as error but keep any existing user
           setError(message)
         } finally {
-          setLoading(false)
+          if (!silent) setLoading(false)
           inFlight = null
         }
       })()
@@ -93,10 +96,7 @@ export function useSession() {
 
   // Auto-fetch on mount when we don't have fresh data
   useEffect(() => {
-    if (
-      !hasFetched ||
-      Date.now() - lastFetchedAt > SESSION_TTL_MS
-    ) {
+    if (!hasFetched || Date.now() - lastFetchedAt > SESSION_TTL_MS) {
       fetchSession()
     }
   }, [hasFetched, lastFetchedAt, fetchSession])
@@ -121,7 +121,8 @@ export function useSession() {
     isLoading,
     hasFetched,
     error,
-    refetch: () => fetchSession({ force: true }),
+    refetch: (opts?: { silent?: boolean }) =>
+      fetchSession({ force: true, silent: !!opts?.silent }),
     logout,
   }
 }

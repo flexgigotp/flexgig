@@ -8,8 +8,21 @@ const KEYS = {
   cachedOptions: 'flexgig.bio.cachedOptions',
 } as const
 
-/** Cached WebAuthn options are trusted for this long. */
-export const OPTIONS_TTL_MS = 25_000
+/** Cached WebAuthn options are trusted for this long.
+ *  Must stay BELOW the server's challenge TTL (90s). */
+export const OPTIONS_TTL_MS = 60_000
+
+// ── WebAuthn ceremony flag (module-level, cross-instance) ──
+// Lets ReauthManager (a different component tree) know that a native
+// WebAuthn prompt is open somewhere — during which no DOM activity
+// events fire and idle timers must not trigger reauth.
+let ceremonyActive = false
+export function setCeremonyActive(v: boolean): void {
+  ceremonyActive = v
+}
+export function isCeremonyActive(): boolean {
+  return ceremonyActive
+}
 
 // ── Flags ─────────────────────────────────────────────
 

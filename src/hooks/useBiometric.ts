@@ -5,6 +5,8 @@ import {
   startAuthentication,
   browserSupportsWebAuthn,
   platformAuthenticatorIsAvailable,
+  type PublicKeyCredentialCreationOptionsJSON,
+  type PublicKeyCredentialRequestOptionsJSON,
 } from '@simplewebauthn/browser'
 import {
   webauthnApi,
@@ -12,12 +14,6 @@ import {
   type BiometricAction,
 } from '@/services/api'
 import { useSession } from '@/hooks'
-import {
-  base64UrlToUint8,
-  uint8ToBase64Url,
-  uuidToUint8,
-  coerceToUint8,
-} from '@/lib/webauthnHelpers'
 import {
   getCredentialId,
   setCredentialId,
@@ -32,6 +28,7 @@ import {
   setCachedOptions,
   clearCachedOptions,
   clearAllBiometricState,
+  setCeremonyActive,
 } from '@/lib/biometricStorage'
 
 interface UseBiometricReturn {
@@ -67,7 +64,9 @@ export function useBiometric(): UseBiometricReturn {
   const [isRegistering, setIsRegistering] = useState(false)
   const [isAuthenticating, setIsAuthenticating] = useState(false)
 
-  const prefetchInFlight = useRef(false)
+  // Shared in-flight prefetch promise — lets a user tap JOIN the
+  // already-running options fetch instead of starting a second one
+  const prefetchPromiseRef = useRef<Promise<unknown> | null>(null)
 
   // ── Feature detection ────────────────────────────────────────
   useEffect(() => {
@@ -133,20 +132,20 @@ export function useBiometric(): UseBiometricReturn {
     if (!uid) return
     if (!isBiometricEnabled()) return
     if (!getCredentialId()) return
-    if (prefetchInFlight.current) return
+    if (prefetchPromiseRef.current) return
 
-    prefetchInFlight.current = true
-    webauthnApi
+    const p = webauthnApi
       .authOptions(uid)
       .then((opts) => {
         setCachedOptions(opts)
+        return opts
       })
-      .catch(() => {
-        /* silent — cache just stays empty */
-      })
+      .catch(() => null /* cache just stays empty */)
       .finally(() => {
-        prefetchInFlight.current = false
+        prefetchPromiseRef.current = null
       })
+
+    prefetchPromiseRef.current = p
   }, [uid])
 
   // ── REGISTER ─────────────────────────────────────────────────
@@ -163,6 +162,7 @@ export function useBiometric(): UseBiometricReturn {
     }
 
     setIsRegistering(true)
+    setCeremonyActive(true)
     try {
       // 1. Revoke any existing credentials first — server enforces
       //    one-per-user, and a stale excludeCredentials entry makes
@@ -192,46 +192,19 @@ export function useBiometric(): UseBiometricReturn {
         user?.fullName || user?.firstName || user?.username || 'User'
       )
 
-      // 3. Convert base64url → Uint8Array for the fields the browser expects
-      let userUint8: Uint8Array
-      try {
-        userUint8 = coerceToUint8(options.user.id) ?? uuidToUint8(uid)
-      } catch {
-        userUint8 = uuidToUint8(uid)
-      }
+      // 3. Trigger the native prompt — the library decodes
+      //    challenge / user.id / excludeCredentials itself, so the
+      //    server JSON is passed through untouched.
+      //    (Boundary cast: api.ts returns loose types; the server
+      //    actually sends the standard JSON shape.)
+      const credential = await startRegistration({
+        optionsJSON: options as unknown as PublicKeyCredentialCreationOptionsJSON,
+      })
 
-      const publicKey: PublicKeyCredentialCreationOptions = {
-        ...(options as unknown as PublicKeyCredentialCreationOptions),
-        challenge: base64UrlToUint8(options.challenge),
-        user: {
-          ...options.user,
-          id: userUint8,
-        } as PublicKeyCredentialUserEntity,
-        excludeCredentials:
-          options.excludeCredentials?.map((c) => ({
-            ...c,
-            id: base64UrlToUint8(c.id),
-          })) ?? [],
-      }
+      // 4. Persist credential ID (already a base64url string)
+      setCredentialId(credential.id)
 
-      // 4. Trigger the native prompt
-      const credential = (await startRegistration({
-        optionsJSON: publicKey as never,
-      })) as unknown as {
-        id: string
-        rawId: ArrayBuffer
-        type: PublicKeyCredentialType
-        response: {
-          clientDataJSON: ArrayBuffer
-          attestationObject: ArrayBuffer
-          getTransports?: () => string[]
-        }
-      }
-
-      // 5. Persist credential ID before verification (fallback)
-      setCredentialId(uint8ToBase64Url(credential.rawId))
-
-      // 6. Verify server-side
+      // 5. Verify server-side
       const verify = await webauthnApi.registerVerify(uid, credential)
 
       if (!verify.verified) {
@@ -239,12 +212,12 @@ export function useBiometric(): UseBiometricReturn {
         return { ok: false, message: 'Registration not verified' }
       }
 
-      // 7. Server's ID wins
+      // 6. Server's ID wins
       if (verify.credentialId) {
         setCredentialId(verify.credentialId)
       }
 
-      // 8. Set all flags on
+      // 7. Set all flags on
       applyEnabled(true)
       applyForLogin(true)
       applyForTx(true)
@@ -253,6 +226,7 @@ export function useBiometric(): UseBiometricReturn {
 
       return { ok: true }
     } catch (err) {
+      console.error('[biometric] register failed:', err)
       clearCredentialId()
 
       const e = err as { name?: string; message?: string }
@@ -260,8 +234,7 @@ export function useBiometric(): UseBiometricReturn {
       if (
         e?.name === 'NotAllowedError' ||
         e?.name === 'AbortError' ||
-        e?.message ===
-          'The operation either timed out or was not allowed.'
+        e?.message === 'The operation either timed out or was not allowed.'
       ) {
         return { ok: false, message: 'Cancelled' }
       }
@@ -275,6 +248,7 @@ export function useBiometric(): UseBiometricReturn {
       const { message } = extractApiError(err)
       return { ok: false, message: message || 'Registration failed' }
     } finally {
+      setCeremonyActive(false)
       setIsRegistering(false)
     }
   }, [
@@ -299,7 +273,8 @@ export function useBiometric(): UseBiometricReturn {
 
       try {
         await webauthnApi.revoke(uid, credentialId ?? null)
-      } catch {
+      } catch (revokeErr) {
+        console.error('[biometric] revoke request failed:', revokeErr)
         /* best-effort — clear local anyway */
       }
 
@@ -311,6 +286,7 @@ export function useBiometric(): UseBiometricReturn {
 
       return { ok: true }
     } catch (err) {
+      console.error('[biometric] revoke failed:', err)
       const { message } = extractApiError(err)
       return { ok: false, message: message || 'Failed to disable biometrics' }
     } finally {
@@ -341,65 +317,35 @@ export function useBiometric(): UseBiometricReturn {
       }
 
       setIsAuthenticating(true)
+      setCeremonyActive(true)
       try {
-        // 1. Get options — cached if fresh, else fetch
+                // 1. Get options — cached if fresh; otherwise JOIN the
+        //    in-flight prefetch so the first tap never pays for a
+        //    second round trip.
+        let options: PublicKeyCredentialRequestOptionsJSON
+
         const cached = getCachedOptions()
-        const options =
-          cached && cached.fresh
-            ? (cached.options as Awaited<ReturnType<typeof webauthnApi.authOptions>>)
-            : await webauthnApi.authOptions(uid)
-
-        // 2. Convert to the shape the browser needs
-        const publicKey: PublicKeyCredentialRequestOptions = {
-          ...(options as unknown as PublicKeyCredentialRequestOptions),
-          challenge: base64UrlToUint8(options.challenge),
-          allowCredentials: (options.allowCredentials || [])
-  .map((c) => ({
-    id: base64UrlToUint8(c.id),
-    type: 'public-key' as const,
-    transports: c.transports as AuthenticatorTransport[] | undefined,
-  }))
-  .filter((c) => c.id && c.id.length > 0),
-        }
-
-        // 3. Prompt the user
-        const assertion = (await startAuthentication({
-          optionsJSON: publicKey as never,
-        })) as unknown as {
-          id: string
-          rawId: ArrayBuffer
-          type: PublicKeyCredentialType
-          response: {
-            clientDataJSON: ArrayBuffer
-            authenticatorData: ArrayBuffer
-            signature: ArrayBuffer
-            userHandle: ArrayBuffer | null
+        if (cached && cached.fresh) {
+          options = cached.options as PublicKeyCredentialRequestOptionsJSON
+        } else {
+          prefetch() // no-op if one is already in flight
+          const joined = await prefetchPromiseRef.current
+          if (joined) {
+            options = joined as PublicKeyCredentialRequestOptionsJSON
+          } else {
+            // prefetch failed or wasn't eligible — direct fetch.
+            // Assignable now that WebAuthnAuthOptionsResponse.userVerification
+            // is the proper union type.
+            options = await webauthnApi.authOptions(uid)
           }
         }
 
-        // 4. Build the payload the server expects
-        const credentialPayload = {
-          id: assertion.id,
-          rawId: uint8ToBase64Url(assertion.rawId),
-          type: assertion.type,
-          response: {
-            clientDataJSON: uint8ToBase64Url(assertion.response.clientDataJSON),
-            authenticatorData: uint8ToBase64Url(
-              assertion.response.authenticatorData
-            ),
-            signature: uint8ToBase64Url(assertion.response.signature),
-            userHandle: assertion.response.userHandle
-              ? uint8ToBase64Url(assertion.response.userHandle)
-              : null,
-          },
-        }
+        // 2. Prompt the user — pass the JSON straight through
+        const assertion = await startAuthentication({ optionsJSON: options })
 
-        // 5. Verify
-        const verify = await webauthnApi.authVerify(
-          uid,
-          credentialPayload,
-          action
-        )
+        // 3. Verify — the assertion is already the JSON shape
+        //    @simplewebauthn/server expects
+        const verify = await webauthnApi.authVerify(uid, assertion, action)
 
         if (!verify.verified) {
           return { ok: false, message: 'Authentication not verified' }
@@ -407,13 +353,13 @@ export function useBiometric(): UseBiometricReturn {
 
         return { ok: true, token: verify.token }
       } catch (err) {
+        console.error('[biometric] auth failed:', err)
         const e = err as { name?: string; message?: string }
 
         if (
           e?.name === 'NotAllowedError' ||
           e?.name === 'AbortError' ||
-          e?.message ===
-            'The operation either timed out or was not allowed.'
+          e?.message === 'The operation either timed out or was not allowed.'
         ) {
           return { ok: false, message: 'Cancelled' }
         }
@@ -424,10 +370,11 @@ export function useBiometric(): UseBiometricReturn {
         const { message } = extractApiError(err)
         return { ok: false, message: message || 'Authentication failed' }
       } finally {
+        setCeremonyActive(false)
         setIsAuthenticating(false)
       }
     },
-    [uid, enabled, forLogin, forTx]
+    [uid, enabled, forLogin, forTx, prefetch]
   )
 
   // ── Set a child flag (with parent auto-enable/disable) ──────

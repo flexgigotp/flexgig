@@ -1,5 +1,5 @@
 // src/components/reauth/ReauthModal.tsx
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PinInputs from '@/components/pin/PinInputs'
 import PinKeypad from '@/components/pin/PinKeypad'
@@ -25,6 +25,11 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  // Auto-attempt the biometric prompt at most once per modal open
+  const autoAttemptedRef = useRef(false)
+  // Guard so success can only complete once
+  const finishedRef = useRef(false)
+
   // Show the fingerprint only when all four conditions are true
   const bioEligible =
     bio.isReady && bio.isSupported && bio.enabled && bio.forLogin
@@ -38,11 +43,48 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bioEligible])
 
+  // Fire-and-forget: the lock is already cleared server-side
+  // (/webauthn/auth/verify and /api/reauth-pin both clear it), so
+  // this is belt-and-braces only. Never await — closing the modal
+  // must not wait on a network round trip.
   const finishWithSuccess = () => {
-    // Defensive: also tell the server the lock can be released
+    if (finishedRef.current) return
+    finishedRef.current = true
+
     void reauthApi.complete()
     onSuccess()
   }
+
+  // ── Auto-attempt biometrics (only when the browser allows it) ──
+  // The native prompt requires recent user activation (Safari:
+  // always, Android Chrome: usually). Without it the request is
+  // rejected and the user just sees a pointless loader — so only
+  // auto-fire while transient activation is still alive; otherwise
+  // skip silently and let the fingerprint button do the work.
+  useEffect(() => {
+    if (autoAttemptedRef.current) return
+    if (!bioEligible) return
+
+    const nav = navigator as Navigator & {
+      userActivation?: { isActive: boolean }
+    }
+    if (!nav.userActivation?.isActive) return
+
+    autoAttemptedRef.current = true
+
+    void (async () => {
+      const result = await bio.authenticate('reauth')
+
+      if (result.ok) {
+        finishWithSuccess()
+        return
+      }
+      if (result.message === 'Cancelled') return // blocked/dismissed — silent
+
+      setError(result.message || 'Biometric authentication failed')
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bioEligible])
 
   // ── PIN path ─────────────────────────────────────────────
   const handleDigit = (d: string) => {

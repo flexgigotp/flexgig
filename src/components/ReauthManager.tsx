@@ -7,10 +7,13 @@ import { useInactivity } from '@/hooks/useInactivity'
 import ReauthModal from '@/components/reauth/ReauthModal'
 import InactivityPrompt from '@/components/reauth/InactivityPrompt'
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock'
+import { isCeremonyActive } from '@/lib/biometricStorage'
 
-const SOFT_IDLE_MS = 10 * 1000
-const HARD_IDLE_MS = 15 * 1000
-const PROMPT_DURATION_MS = 5000
+// ⚠️ 10s soft idle means "read one screen → reauth". Fine for dev testing;
+// for production raise these (see note below this file). Overridable via env.
+const SOFT_IDLE_MS = Number(import.meta.env.VITE_SOFT_IDLE_MS ?? 15 * 1000)
+const HARD_IDLE_MS = Number(import.meta.env.VITE_HARD_IDLE_MS ?? 20 * 1000)
+const PROMPT_DURATION_MS = Number(import.meta.env.VITE_PROMPT_DURATION_MS ?? 10000)
 
 export default function ReauthManager() {
   const { user, refetch } = useSession()
@@ -34,7 +37,7 @@ export default function ReauthManager() {
     }
   }, [reauthRequiredFromStore])
 
-    useBodyScrollLock(promptOpen || reauthOpen)
+  useBodyScrollLock(promptOpen || reauthOpen)
 
   const triggerReauth = useCallback(
     (reason: string) => {
@@ -46,28 +49,50 @@ export default function ReauthManager() {
     [setReauthRequired]
   )
 
-  // Global 423 from axios interceptor
+  // Global 423 from axios interceptor.
+  // A poll that was in flight when the lock was cleared can deliver its
+  // 423 AFTER a successful reauth — verify with the server before
+  // reopening, or the modal resurrects itself "sometimes".
   useEffect(() => {
+    let alive = true
     const handler = () => {
-      setReauthRequired(true)
-      setPromptOpen(false)
-      setReauthOpen(true)
-    }
+  void (async () => {
+    const required = await reauthApi.checkStatus()
+    if (!alive || !required) return
+    setReauthRequired(true)
+    setPromptOpen(false)
+    setReauthOpen(true)
+  })()
+}
     window.addEventListener('session:reauth-required', handler)
-    return () => window.removeEventListener('session:reauth-required', handler)
+    return () => {
+      alive = false
+      window.removeEventListener('session:reauth-required', handler)
+    }
   }, [setReauthRequired])
 
-  // Inactivity timers
+  // Inactivity timers.
+  // enabled=false while a modal is open (covers the reauth modal's own
+  // ceremony). The isCeremonyActive() guards cover ceremonies that run
+  // OUTSIDE this modal — checkout / transfer fingerprint prompts —
+  // during which no DOM activity events fire and the soft timer would
+  // otherwise lock the user mid-prompt.
   useInactivity({
     enabled: !!user && !reauthOpen && !promptOpen,
     softIdleMs: SOFT_IDLE_MS,
     hardIdleMs: HARD_IDLE_MS,
     promptDurationMs: PROMPT_DURATION_MS,
-    onSoftIdle: () => setPromptOpen(true),
+    onSoftIdle: () => {
+      if (isCeremonyActive()) return
+      setPromptOpen(true)
+    },
     onPromptTimeout: () => {
       /* handled below */
     },
-    onHardIdle: () => triggerReauth('hard_idle_timeout'),
+    onHardIdle: () => {
+      if (isCeremonyActive()) return
+      triggerReauth('hard_idle_timeout')
+    },
   })
 
   // Prompt auto-timeout
@@ -79,12 +104,12 @@ export default function ReauthManager() {
     return () => window.clearTimeout(t)
   }, [promptOpen, triggerReauth])
 
-  const handleReauthSuccess = useCallback(() => {
+    const handleReauthSuccess = useCallback(() => {
     setReauthOpen(false)
     setPromptOpen(false)
     setReauthRequired(false)
-    void reauthApi.complete()
-    void refetch()
+    // Silent refresh — data updates in place, no loading UI
+    void refetch({ silent: true })
   }, [refetch, setReauthRequired])
 
   if (!user) return null

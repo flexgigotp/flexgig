@@ -631,7 +631,8 @@ export interface WebAuthnAuthOptionsResponse {
   challenge: string
   rpId: string
   timeout: number
-  userVerification: string
+  // was: userVerification: string
+  userVerification: 'required' | 'preferred' | 'discouraged'
   allowCredentials: Array<{
     id: string
     type: 'public-key'
