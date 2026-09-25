@@ -4,10 +4,19 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlans } from '@/hooks/usePlans'
 import { useDataPurchaseStore } from '@/stores/dataPurchaseStore'
+import { usePhoneNetworkCheck } from '@/hooks/usePhoneNetworkCheck'
+import { useSimilarNumbers } from '@/hooks/useSimilarNumbers'
+import NetworkMismatchModal from '@/components/buy-data/NetworkMismatchModal'
+import SimilarNumberModal from '@/components/buy-data/SimilarNumberModal'
+import {
+  networkToProviderId,
+  type SimilarMatch,
+} from '@/services/phoneHistory'
 import PlanDataDisplay from '@/components/plans/PlanDataDisplay'
 import {
   PROVIDERS,
@@ -40,6 +49,15 @@ export default function DataPurchasePanel() {
   const setProvider = useDataPurchaseStore((s) => s.setProvider)
   const selectPlanInPlace = useDataPurchaseStore((s) => s.selectPlanInPlace)
 
+  const { resolveNetwork } = usePhoneNetworkCheck(phone)
+  const {
+    matches,
+    check: checkSimilar,
+    dismiss: dismissSimilar,
+  } = useSimilarNumbers()
+  const [mismatchOpen, setMismatchOpen] = useState(false)
+  const checkingRef = useRef(false)
+
   const phoneRef = useRef<HTMLInputElement>(null)
   const gridRef = useRef<HTMLDivElement | null>(null)
   const sliderRef = useRef<HTMLDivElement | null>(null)
@@ -61,7 +79,7 @@ export default function DataPurchasePanel() {
     [navigate]
   )
 
-  const handleContinue = useCallback(() => {
+  const goToCheckout = useCallback(() => {
     const selected = plansForProvider(plans, provider).find(
       (p) => p.plan_id === selectedPlanId
     )
@@ -78,6 +96,24 @@ export default function DataPurchasePanel() {
     })
     navigate(`/dashboard?${params.toString()}`)
   }, [navigate, plans, phone, provider, selectedPlanId])
+
+  const handleContinue = useCallback(async () => {
+    if (checkingRef.current) return
+    const cleaned = normalizeNgPhone(phone)
+    if (!isValidNgPhone(cleaned)) return
+
+    checkingRef.current = true
+    try {
+      const detected = await resolveNetwork(cleaned)
+      if (detected && detected !== provider) {
+        setMismatchOpen(true)
+        return
+      }
+      goToCheckout()
+    } finally {
+      checkingRef.current = false
+    }
+  }, [phone, provider, resolveNetwork, goToCheckout])
 
   // ── Derived provider info ─────────────────────────────────────────
   const currentProviderInfo = useMemo(
@@ -162,11 +198,20 @@ export default function DataPurchasePanel() {
       digits = digits.slice(0, MAX_PHONE_DIGITS)
     }
     setPhone(digits)
+    void checkSimilar(digits)
   }
 
   const handleClear = () => {
     setPhone('')
+    dismissSimilar()
     window.setTimeout(() => phoneRef.current?.focus(), FOCUS_DELAY_MS)
+  }
+
+  const handlePickSimilar = (m: SimilarMatch) => {
+    setPhone(m.phone)
+    const id = networkToProviderId(m.network)
+    if (id) setProvider(id)
+    dismissSimilar()
   }
 
   const handleContactPick = async () => {
@@ -447,6 +492,30 @@ export default function DataPurchasePanel() {
       >
         Continue
       </button>
+
+      {matches.length > 0 && (
+        <SimilarNumberModal
+          typedDigits={cleanedPhone}
+          matches={matches}
+          onPick={handlePickSimilar}
+          onContinue={dismissSimilar}
+        />
+      )}
+
+      {mismatchOpen && (
+        <NetworkMismatchModal
+          phoneDisplay={formatNgPhone(phone)}
+          providerLabel={currentProviderInfo.label}
+          onConfirm={() => {
+            setMismatchOpen(false)
+            goToCheckout()
+          }}
+          onRecheck={() => {
+            setMismatchOpen(false)
+            window.setTimeout(() => phoneRef.current?.focus(), FOCUS_DELAY_MS)
+          }}
+        />
+      )}
     </div>
   )
 }

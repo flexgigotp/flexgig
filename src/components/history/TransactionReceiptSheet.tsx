@@ -17,9 +17,14 @@ import {
 interface ReceiptProps {
   tx: Transaction
   onClose: () => void
+  onReport?: (tx: Transaction) => void
 }
 
-export default function TransactionReceiptSheet({ tx, onClose }: ReceiptProps) {
+export default function TransactionReceiptSheet({
+  tx,
+  onClose,
+  onReport,
+}: ReceiptProps) {
   const onCloseRef = useRef(onClose)
   useEffect(() => {
     onCloseRef.current = onClose
@@ -38,6 +43,11 @@ export default function TransactionReceiptSheet({ tx, onClose }: ReceiptProps) {
    *
    * On popstate:
    *   - just call onClose. The browser already popped the URL.
+   *
+   * When the parent replaces the URL entry with ?report before this
+   * sheet unmounts (Report Issue flow), the __fgReceipt state is gone
+   * and the cleanup skips its replaceState so it doesn't clobber the
+   * report URL.
    */
   useEffect(() => {
     const url = new URL(window.location.href)
@@ -222,6 +232,28 @@ export default function TransactionReceiptSheet({ tx, onClose }: ReceiptProps) {
             <Row label="Reference" value={tx.reference || tx.id || '—'} mono />
             <Row label="Date" value={formatDateTime(tx.created_at)} />
           </div>
+
+          {onReport && (
+            <button
+              type="button"
+              onClick={() => onReport(tx)}
+              style={{
+                marginTop: 20,
+                width: '100%',
+                padding: '14px 16px',
+                background: '#2c2c2c',
+                color: '#00D4AA',
+                border: '1.5px solid #00D4AA',
+                borderRadius: 50,
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              Report Issue
+            </button>
+          )}
         </div>
       </div>
     </div>,

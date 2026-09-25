@@ -964,10 +964,12 @@ body:has(.flexgig-dashboard) {
   text-align: center;
   padding: 48px 20px;
   color: #777;
+  position: relative;
 }
 
 .db-no-activity-placeholder svg {
-  margin-bottom: 16px;
+  display: block;
+  margin: 0 auto 16px;
   opacity: 0.55;
 }
 
@@ -4611,17 +4613,34 @@ a[style*="color: #f00"] { color: var(--danger); }
 }
 
 /* Month Section Headers - FIXED: Proper pushing behavior */
+/* the month header card */
 .month-section-header {
   position: sticky;
-  top: 0; /* remove the -1px offset */
+  top: 0;
   z-index: 10;
   background: #1e1e1e;
-  margin: 0 15px 0 15px;  /* remove top margin */
+  margin: 0;                     /* ← must be 0, not "0 15px" */
+  padding: 0;                    /* ← must be 0 — padding lives on children */
   border-top-left-radius: 10px;
   border-top-right-radius: 10px;
-  
-  isolation: isolate;
-  contain: layout style paint;
+  overflow: hidden;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* the rows wrapper — same gutter as the header */
+.month-txs {
+  margin: 0 15px 24px;
+  background: #1e1e1e;
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+  overflow: hidden;
+}
+
+
+/* rows share the header's inner padding so text aligns */
+.month-txs .tx-item {
+  padding: 12px;
 }
 
 
@@ -4638,6 +4657,8 @@ a[style*="color: #f00"] { color: var(--danger); }
   background: #1e1e1e; 
   gap: 12px;
   flex-wrap: wrap;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
 }
 
 .opay-month-selector { 
@@ -7004,7 +7025,10 @@ body:has(.fxg-modal.show) {
   inset: 0;
   background: #000;
   color: #fff;
-  z-index: 10000;
+  /* Must sit ABOVE the dashboard bottom nav (z-index 10001) — a
+     full-screen modal that lets the nav poke through is a security
+     hole during reauth / PIN flows. */
+  z-index: 50000;
   display: flex;
   flex-direction: column;
   animation: fg-fs-slide-in 0.22s ease-out;
@@ -8089,7 +8113,7 @@ body:has(.fxg-modal.show) {
 }
 
 .fg-cpin-forgot-btn:hover:not(:disabled) {
-  text-decoration: underline;
+  text-decoration: none;
 }
 
 .fg-cpin-forgot-btn:disabled {
@@ -10221,17 +10245,8 @@ body:has(.security-modal) {
   overflow-y: auto;
 }
 
-/* Disable the vanilla `contain: layout style paint` on the header
-   — it can suppress the sticky push effect on some browsers. */
-.month-section-header {
-  contain: none;
-}
 
-/* `.month-txs` is a plain wrapper; no overflow, no border-radius. */
-.month-txs {
-  /* nothing — intentionally empty. Keep it as a marker so the
-     last-child selectors still target the right element. */
-}
+
 
 /* Last row of each month carries the rounded bottom + the gap
    before the next month's header. */

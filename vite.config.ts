@@ -42,7 +42,7 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       injectRegister: null, // we register manually in main.tsx
       manifest: {
         id: '/',

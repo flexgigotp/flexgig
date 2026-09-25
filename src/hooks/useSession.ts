@@ -102,15 +102,29 @@ export function useSession() {
   }, [hasFetched, lastFetchedAt, fetchSession])
 
   const logout = useCallback(async () => {
+    // Needs the session cookie, so it must run before authApi.logout()
+    // clears it. Never blocks logout — pushLogoutCleanup times out on its own.
+    const { pushLogoutCleanup } = await import('@/hooks/usePush')
+    await pushLogoutCleanup()
+
     try {
       await authApi.logout()
     } catch (err) {
       console.warn('[useSession] logout backend call failed:', err)
     } finally {
+      // 1. Supabase session — this is what actually removes
+      //    sb-<ref>-auth-token from localStorage. Awaited so the
+      //    token is gone BEFORE the login screen renders.
       const { resetSupabaseAuth } = await import('@/lib/supabaseAuth')
-      resetSupabaseAuth()
       const { supabase } = await import('@/lib/supabase')
-      void supabase.auth.signOut().catch(() => null)
+      resetSupabaseAuth()
+      await supabase.auth.signOut().catch(() => null)
+
+      // 2. Every per-user store + persisted key
+      const { clearUserStorage } = await import('@/lib/clearUserStorage')
+      clearUserStorage()
+
+      // 3. Auth store last
       clear()
     }
   }, [clear])

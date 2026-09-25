@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlans } from '@/hooks/usePlans'
 import { useBuyData } from '@/hooks/useBuyData'
@@ -6,6 +6,10 @@ import { useBiometric } from '@/hooks/useBiometric'
 import { useDataPurchaseStore } from '@/stores/dataPurchaseStore'
 import { useBiometricPromptStore } from '@/stores/biometricPromptStore'
 import { isBiometricEnabled, isBioForTx } from '@/lib/biometricStorage'
+import {
+  invalidateNumberHistory,
+  invalidateConfirmedNetwork,
+} from '@/services/phoneHistory'
 import CheckoutSheet from '@/components/buy-data/CheckoutSheet'
 import DataReceipt from '@/components/buy-data/DataReceipt'
 import CheckoutPinSheet from '@/components/pin/CheckoutPinSheet'
@@ -76,6 +80,7 @@ interface FlowProps {
 
 function Flow({ plan, phone, provider, onFinish }: FlowProps) {
   const bio = useBiometric()
+  const [confirming, setConfirming] = useState(false)
   const {
     stage,
     receipt,
@@ -87,6 +92,14 @@ function Flow({ plan, phone, provider, onFinish }: FlowProps) {
     submitPin,
     submitBiometric,
   } = useBuyData({ plan, phone, provider })
+
+  // A receipt means this number's history just changed; refetch next time.
+  useEffect(() => {
+    if (stage === 'receipt' && receipt) {
+      invalidateNumberHistory()
+      invalidateConfirmedNetwork(phone)
+    }
+  }, [stage, receipt, phone])
 
   useEffect(() => {
     if (stage === 'summary' && bio.enabled && bio.forTx && bio.isSupported) {
@@ -129,7 +142,12 @@ function Flow({ plan, phone, provider, onFinish }: FlowProps) {
       const res = await bio.authenticate('buy-data', { inline: true })
 
       if (res.ok && res.assertion) {
-        await submitBiometric(res.assertion)
+        setConfirming(true)
+        try {
+          await submitBiometric(res.assertion)
+        } finally {
+          setConfirming(false)
+        }
         return
       }
 
@@ -149,7 +167,12 @@ function Flow({ plan, phone, provider, onFinish }: FlowProps) {
       }
       return
     }
-    await submitBiometric(res.assertion!)
+    setConfirming(true)
+    try {
+      await submitBiometric(res.assertion!)
+    } finally {
+      setConfirming(false)
+    }
   }
 
   return (
@@ -169,10 +192,9 @@ function Flow({ plan, phone, provider, onFinish }: FlowProps) {
         <CheckoutPinSheet
           onSubmit={submitPin}
           onClose={handleClosePin}
-          onForgotPin={() => toast.info('PIN reset — check your email', 4000)}
           biometricEnabled={bio.enabled && bio.forTx}
           onBiometric={handleBiometricFromPin}
-          biometricBusy={bio.isAuthenticating}
+          biometricBusy={bio.isAuthenticating || confirming}
         />
       )}
 
@@ -192,7 +214,7 @@ function Flow({ plan, phone, provider, onFinish }: FlowProps) {
         </div>
       )}
 
-      {bio.phase === 'verifying' && <Loader transparent />}
+      {(bio.phase === 'verifying' || confirming) && <Loader transparent />}
     </>
   )
 }

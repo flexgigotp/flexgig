@@ -3,18 +3,20 @@ import { precacheAndRoute } from 'workbox-precaching'
 
 declare const self: ServiceWorkerGlobalScope
 
-const APP_VERSION = '1.0.5'
+const APP_VERSION = '1.0.6'
 const CACHE_NAME = `flexgig-${APP_VERSION}`
 
 // Vite injects the hashed build assets here automatically
 precacheAndRoute(self.__WB_MANIFEST)
 
-// --- Install: activate immediately ---
-self.addEventListener('install', () => {
-  self.skipWaiting()
-})
+// --- Install: DO NOT skip waiting. The new SW stays in the "waiting"
+// state until the page explicitly tells it to activate (via
+// updateSW(true) in main.tsx), so a live session is never interrupted
+// without the user's say-so. ---
+self.addEventListener('install', () => {})
 
-// --- Activate: clean old caches, don't reload tabs (avoids dev reload loops) ---
+// --- Activate: clean old caches, claim clients (only runs once the
+// waiting SW has been told to skip waiting) ---
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
@@ -80,8 +82,71 @@ self.addEventListener('message', (ev: ExtendableMessageEvent) => {
   })
 })
 
+interface PushPayload {
+  title?: string
+  body?: string
+  url?: string
+  tag?: string
+  kind?: 'credit' | 'broadcast'
+}
+
+// Safari/iOS require every push to show a notification, so never skip there.
+function isWebKitPush(): boolean {
+  const ua = self.navigator.userAgent
+  return (
+    /iPhone|iPad|iPod/.test(ua) ||
+    (/Safari/.test(ua) && !/Chrome|Chromium|Edg|Firefox|OPR/.test(ua))
+  )
+}
+
+self.addEventListener('push', (event: PushEvent) => {
+  event.waitUntil(
+    (async () => {
+      let data: PushPayload = {}
+      try {
+        data = event.data ? (event.data.json() as PushPayload) : {}
+      } catch {
+        data = { body: event.data?.text() }
+      }
+
+      // Credit alerts already show as an in-app toast while the app is open
+      if (data.kind === 'credit' && !isWebKitPush()) {
+        const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+        if (windows.some((w) => w.visibilityState === 'visible')) return
+      }
+
+      const options: NotificationOptions & { renotify?: boolean } = {
+        body: data.body || '',
+        icon: '/pwa/logo-192x192.png',
+        badge: '/pwa/logo-192x192.png',
+        tag: data.tag,
+        data: { url: data.url || '/dashboard' },
+      }
+      if (data.tag) options.renotify = true // renotify without a tag throws
+
+      await self.registration.showNotification(data.title || 'FlexGig', options)
+    })()
+  )
+})
+
 self.addEventListener('notificationclick', (ev: NotificationEvent) => {
   ev.notification.close()
-  const url = (ev.notification.data && ev.notification.data.url) || '/'
-  ev.waitUntil(self.clients.openWindow(url))
+  const target = new URL(ev.notification.data?.url || '/dashboard', self.location.origin)
+  const url = target.origin === self.location.origin ? target.href : self.location.origin + '/dashboard'
+
+  ev.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      for (const w of windows) {
+        await w.focus()
+        try {
+          await w.navigate(url)
+        } catch {
+          /* uncontrolled client — focusing is enough */
+        }
+        return
+      }
+      await self.clients.openWindow(url)
+    })()
+  )
 })

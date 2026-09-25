@@ -1,41 +1,38 @@
-// src/components/settings/ChangePasswordSheet.tsx
+// src/components/settings/SetPasswordSheet.tsx
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useSession } from '@/hooks'
 import { accountApi, extractApiError } from '@/services/api'
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock'
 import { toast } from '@/stores/toastStore'
 
-interface ChangePasswordSheetProps {
+interface SetPasswordSheetProps {
   onClose: () => void
-  onForgotPassword?: () => void
 }
 
 const MIN_PASSWORD_LENGTH = 8
 
-type Field = 'current' | 'new' | 'confirm' | 'global'
+type Field = 'new' | 'confirm' | 'global'
 
-export default function ChangePasswordSheet({
+export default function SetPasswordSheet({
   onClose,
-  onForgotPassword,
-}: ChangePasswordSheetProps) {
-  const [currentPwd, setCurrentPwd] = useState('')
+}: SetPasswordSheetProps) {
+  const { user } = useSession()
+
   const [newPwd, setNewPwd] = useState('')
   const [confirmPwd, setConfirmPwd] = useState('')
-  const [showCurrent, setShowCurrent] = useState(false)
   const [showNew, setShowNew] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [errorField, setErrorField] = useState<Field | null>(null)
-  // Flag: user has no password at all (OAuth-only account)
-  const [noPasswordYet, setNoPasswordYet] = useState(false)
 
-  const currentRef = useRef<HTMLInputElement | null>(null)
+  const newRef = useRef<HTMLInputElement | null>(null)
 
   useBodyScrollLock(true)
 
   useEffect(() => {
-    const t = window.setTimeout(() => currentRef.current?.focus(), 450)
+    const t = window.setTimeout(() => newRef.current?.focus(), 420)
     return () => window.clearTimeout(t)
   }, [])
 
@@ -45,7 +42,6 @@ export default function ChangePasswordSheet({
   }
 
   const canSubmit =
-    currentPwd.length > 0 &&
     newPwd.length >= MIN_PASSWORD_LENGTH &&
     newPwd === confirmPwd &&
     !submitting
@@ -54,49 +50,34 @@ export default function ChangePasswordSheet({
     clearError()
 
     if (newPwd.length < MIN_PASSWORD_LENGTH) {
-      setError(
-        `New password must be at least ${MIN_PASSWORD_LENGTH} characters.`
-      )
+      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`)
       setErrorField('new')
       return
     }
     if (newPwd !== confirmPwd) {
-      setError('New passwords do not match.')
+      setError('Passwords do not match.')
       setErrorField('confirm')
       return
     }
-    if (newPwd === currentPwd) {
-      setError('New password must be different from your current one.')
-      setErrorField('new')
+    if (!user?.uid) {
+      setError('Session expired. Please close and reopen this screen.')
+      setErrorField('global')
       return
     }
 
     setSubmitting(true)
     try {
-      await accountApi.changePassword(currentPwd, newPwd)
-      toast.success('Password changed successfully')
+      await accountApi.setPassword(user.uid, newPwd)
+      toast.success('Password created successfully')
+      delete (window as unknown as { __rp_reset_token?: string }).__rp_reset_token
       onClose()
     } catch (err) {
       const { message, code } = extractApiError(err)
-
-      if (code === 'INVALID_CURRENT_PASSWORD') {
-        setError('Current password is incorrect.')
-        setErrorField('current')
-        currentRef.current?.focus()
-      } else if (code === 'NO_CURRENT_PASSWORD') {
-        setNoPasswordYet(true)
-        setError(
-          'Your account has no password yet. Reset it via email to create one.'
-        )
-        setErrorField('global')
-      } else if (code === 'INVALID_INPUT') {
-        setError(
-          message ||
-            `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
-        )
+      if (code === 'INVALID_INPUT') {
+        setError(message || `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`)
         setErrorField('new')
       } else {
-        setError(message || 'Failed to change password. Please try again.')
+        setError(message || 'Failed to set password. Try again.')
         setErrorField('global')
       }
     } finally {
@@ -115,6 +96,7 @@ export default function ChangePasswordSheet({
   return createPortal(
     <div className="fg-sheet-overlay" role="dialog" aria-modal="true">
       <div className="cp-page">
+        {/* Header */}
         <header className="cp-header">
           <button
             type="button"
@@ -133,10 +115,11 @@ export default function ChangePasswordSheet({
               />
             </svg>
           </button>
-          <h2 className="cp-title">Change Password</h2>
+          <h2 className="cp-title">Create New Password</h2>
           <div className="cp-spacer" aria-hidden />
         </header>
 
+        {/* Body */}
         <main className="cp-body">
           <form
             className="cp-form"
@@ -146,39 +129,25 @@ export default function ChangePasswordSheet({
               if (canSubmit) void handleSubmit()
             }}
           >
-            <div className="form-row">
-              <label htmlFor="cpCurrent">Current password</label>
-              <div className="input-with-toggle">
-                <input
-                  id="cpCurrent"
-                  ref={currentRef}
-                  type={showCurrent ? 'text' : 'password'}
-                  value={currentPwd}
-                  onChange={(e) => {
-                    setCurrentPwd(e.target.value)
-                    clearError()
-                  }}
-                  autoComplete="current-password"
-                  disabled={submitting}
-                  style={{ borderColor: inputBorder('current') }}
-                />
-                <button
-                  type="button"
-                  className="pwd-toggle"
-                  aria-label={showCurrent ? 'Hide' : 'Show'}
-                  onClick={() => setShowCurrent((v) => !v)}
-                  tabIndex={-1}
-                >
-                  <EyeIcon open={showCurrent} />
-                </button>
-              </div>
-            </div>
+            <p
+              style={{
+                margin: '0 0 4px',
+                color: '#cfcfcf',
+                fontSize: 14,
+                lineHeight: 1.5,
+              }}
+            >
+              Your OTP has been verified. Choose a strong password to
+              secure your account.
+            </p>
 
+            {/* New */}
             <div className="form-row">
-              <label htmlFor="cpNew">New password</label>
+              <label htmlFor="spwNew">New password</label>
               <div className="input-with-toggle">
                 <input
-                  id="cpNew"
+                  id="spwNew"
+                  ref={newRef}
                   type={showNew ? 'text' : 'password'}
                   value={newPwd}
                   onChange={(e) => {
@@ -204,11 +173,12 @@ export default function ChangePasswordSheet({
               </div>
             </div>
 
+            {/* Confirm */}
             <div className="form-row">
-              <label htmlFor="cpConfirm">Confirm new password</label>
+              <label htmlFor="spwConfirm">Confirm password</label>
               <div className="input-with-toggle">
                 <input
-                  id="cpConfirm"
+                  id="spwConfirm"
                   type={showConfirm ? 'text' : 'password'}
                   value={confirmPwd}
                   onChange={(e) => {
@@ -231,73 +201,11 @@ export default function ChangePasswordSheet({
               </div>
             </div>
 
-            {error && (
-              <div
-                className="cp-error"
-                style={
-                  errorField === 'global'
-                    ? undefined
-                    : { marginTop: -4, marginBottom: 4 }
-                }
-              >
-                {error}
-                {noPasswordYet && onForgotPassword && (
-                  <button
-                    type="button"
-                    onClick={onForgotPassword}
-                    style={{
-                      display: 'block',
-                      marginTop: 12,
-                      padding: '10px 14px',
-                      borderRadius: 10,
-                      background:
-                        'linear-gradient(90deg,#00d4aa,#00bfa5)',
-                      color: '#fff',
-                      border: 'none',
-                      fontWeight: 600,
-                      fontSize: 14,
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
-                      width: '100%',
-                    }}
-                  >
-                    Reset via email
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Forgot link */}
-            {onForgotPassword && !noPasswordYet && (
-              <div
-                style={{
-                  textAlign: 'center',
-                  marginTop: 6,
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={onForgotPassword}
-                  disabled={submitting}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#4da6ff',
-                    cursor: submitting ? 'not-allowed' : 'pointer',
-                    fontSize: 13,
-                    fontFamily: 'inherit',
-                    textDecoration: 'none',
-                    padding: '4px 8px',
-                    opacity: submitting ? 0.5 : 1,
-                  }}
-                >
-                  Forgot your current password?
-                </button>
-              </div>
-            )}
+            {error && <div className="cp-error">{error}</div>}
           </form>
         </main>
 
+        {/* Footer */}
         <footer className="cp-footer">
           <button
             type="button"
@@ -322,17 +230,17 @@ export default function ChangePasswordSheet({
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2.5"
-                  style={{ animation: 'cp-spin 0.8s linear infinite' }}
+                  style={{ animation: 'spw-spin 0.8s linear infinite' }}
                 >
                   <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
                   <path d="M12 2a10 10 0 0 1 10 10" strokeOpacity="0.9" />
                 </svg>
-                Changing…
+                Creating…
               </span>
             ) : (
-              'Change password'
+              'Create password'
             )}
-            <style>{`@keyframes cp-spin { to { transform: rotate(360deg); } }`}</style>
+            <style>{`@keyframes spw-spin { to { transform: rotate(360deg); } }`}</style>
           </button>
         </footer>
       </div>

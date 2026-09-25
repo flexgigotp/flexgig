@@ -9,6 +9,7 @@ import { usePinKeyboard } from '@/hooks/usePinKeyboard'
 interface ChangePinModalProps {
   onClose: () => void
   onSuccess: () => Promise<void> | void
+  onForgotPin?: () => void
 }
 
 type Stage = 'current' | 'new' | 'confirm'
@@ -30,6 +31,7 @@ const HEADINGS: Record<Stage, string> = {
 export default function ChangePinModal({
   onClose,
   onSuccess,
+  onForgotPin,
 }: ChangePinModalProps) {
   const [stage, setStage] = useState<Stage>('current')
   const [pin, setPin] = useState('')
@@ -106,6 +108,8 @@ export default function ChangePinModal({
 
   usePinKeyboard(handleDigit, handleDelete, submitting)
 
+  const showForgotLink = stage === 'current' && !!onForgotPin
+
   return (
     <FullScreenModal title={TITLES[stage]} onClose={onClose}>
       <div className="fg-pin-icon">
@@ -130,6 +134,28 @@ export default function ChangePinModal({
         onDelete={handleDelete}
         disabled={submitting}
       />
+
+      {showForgotLink && (
+        <button
+          type="button"
+          onClick={onForgotPin}
+          disabled={submitting}
+          style={{
+            marginTop: 24,
+            background: 'none',
+            border: 'none',
+            color: '#4da6ff',
+            fontSize: 14,
+            fontFamily: 'inherit',
+            textDecoration: 'none',
+            cursor: submitting ? 'not-allowed' : 'pointer',
+            padding: '8px 16px',
+            opacity: submitting ? 0.5 : 1,
+          }}
+        >
+          Forgot your PIN?
+        </button>
+      )}
 
       {submitting && <Loader transparent />}
     </FullScreenModal>

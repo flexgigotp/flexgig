@@ -141,3 +141,21 @@ export interface ApiErrorBody {
   message?: string
   code?: string
 }
+
+// ============================================================
+// PROFILE UPDATE
+// ============================================================
+
+export interface ProfileUpdatePayload {
+  fullName: string
+  username: string
+  phoneNumber: string
+  address: string
+  email: string
+  profilePicture?: File
+}
+
+export interface ProfileUpdateResponse {
+  success: true
+  message: string
+}

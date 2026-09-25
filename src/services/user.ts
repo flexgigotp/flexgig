@@ -1,24 +1,28 @@
+// src/services/user.ts
 import apiClient from './api'
 import { API_ENDPOINTS } from '@/constants/config'
-import { UserProfile, UpdateProfileData } from '@/types/user'
+import type { ProfileUpdatePayload, ProfileUpdateResponse } from '@/types/api'
 
 export const userService = {
-  async getProfile(): Promise<UserProfile> {
-    const response = await apiClient.get(API_ENDPOINTS.USER_PROFILE)
-    return response.data.data
-  },
-
-  async updateProfile(data: UpdateProfileData): Promise<UserProfile> {
-    const response = await apiClient.put(API_ENDPOINTS.USER_UPDATE_PROFILE, data)
-    return response.data.data
-  },
-
-  async uploadAvatar(file: File): Promise<{ url: string }> {
+  async updateProfile(data: ProfileUpdatePayload): Promise<ProfileUpdateResponse> {
     const formData = new FormData()
-    formData.append('file', file)
-    const response = await apiClient.post(API_ENDPOINTS.USER_AVATAR, formData, {
+    formData.set('fullName', data.fullName)
+    formData.set('username', data.username)
+    formData.set('phoneNumber', data.phoneNumber)
+    formData.set('address', data.address)
+    formData.set('email', data.email)
+    if (data.profilePicture) {
+      formData.set('profilePicture', data.profilePicture)
+    }
+
+    const response = await apiClient.post(API_ENDPOINTS.PROFILE_UPDATE, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
-    return response.data.data
+    return response.data
+  },
+
+  async checkUsername(username: string): Promise<boolean> {
+    const response = await apiClient.post(API_ENDPOINTS.PROFILE_CHECK_USERNAME, { username })
+    return !!response.data?.available
   },
 }

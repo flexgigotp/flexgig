@@ -97,6 +97,32 @@ api.interceptors.response.use(
     const url = original?.url || ''
     const isAuthEndpoint = AUTH_SKIP.some((p) => url.includes(p))
 
+        // A 401 whose body identifies a PIN failure is NOT a session
+    // expiry — don't try to refresh, don't fire session:expired,
+    // just pass it through to the caller.
+    if (status === 401) {
+      const body = error.response?.data as
+        | { code?: string; error?: { code?: string } }
+        | undefined
+      const errCode = body?.error?.code || body?.code
+      const PIN_CODES = new Set([
+        'INVALID_PIN',
+        'INCORRECT_PIN',
+        'WRONG_PIN',
+        'PIN_MISMATCH',
+        'PIN_LOCKED',
+        'INVALID_PIN_FORMAT',
+        'INVALID_CURRENT_PIN',
+      ])
+      if (errCode && PIN_CODES.has(errCode.toUpperCase())) {
+        return Promise.reject(error)
+      }
+    }
+
+    if (status === 401 && original && !original._retry && !isAuthEndpoint) {
+      // ... existing refresh logic
+    }
+
     if (status === 401 && original && !original._retry && !isAuthEndpoint) {
       original._retry = true
 
@@ -320,10 +346,11 @@ export const walletApi = {
     error?: string
     insufficient?: boolean
     status?: number
+    code?: string
+    attemptsLeft?: number
+    lockoutUntil?: string | null
   }> {
     try {
-      // The transfer endpoint requires a Bearer token — grab one from
-      // the session endpoint (cookies alone aren't enough there).
       const sessionRes = await api.get('/api/session')
       const sessionToken = sessionRes.data?.token
       if (!sessionToken) {
@@ -373,15 +400,27 @@ export const walletApi = {
         status: res.status,
       }
     } catch (err: unknown) {
-      const body = (err as { response?: { data?: unknown; status?: number } })
-        ?.response
+      const body = (err as {
+        response?: { data?: unknown; status?: number }
+      })?.response
       const status = body?.status
       const data = body?.data as
-        | { error?: string; message?: string; code?: string }
+        | {
+            error?: string | { message?: string; code?: string }
+            message?: string
+            code?: string
+            meta?: { attemptsLeft?: number; lockoutUntil?: string }
+          }
         | undefined
 
+      const errorObj =
+        data?.error && typeof data.error === 'object' ? data.error : null
+      const errorStr =
+        typeof data?.error === 'string' ? data.error : null
+
       const message =
-        data?.error || data?.message || 'Transfer failed'
+        errorObj?.message || errorStr || data?.message || 'Transfer failed'
+      const code = errorObj?.code || data?.code
       const insufficient =
         typeof message === 'string' &&
         message.toLowerCase().includes('insufficient')
@@ -391,6 +430,9 @@ export const walletApi = {
         error: message,
         insufficient,
         status,
+        code,
+        attemptsLeft: data?.meta?.attemptsLeft,
+        lockoutUntil: data?.meta?.lockoutUntil ?? null,
       }
     }
   },
@@ -413,6 +455,9 @@ export const dataApi = {
     error?: string
     insufficient?: boolean
     httpStatus?: number
+    code?: string
+    attemptsLeft?: number
+    lockoutUntil?: string | null
   }> {
     try {
       const headers: Record<string, string> = {}
@@ -444,29 +489,41 @@ export const dataApi = {
         httpStatus: res.status,
       }
     } catch (err: unknown) {
-      const body = (err as { response?: { data?: unknown; status?: number } })
-        ?.response
+      const body = (err as {
+        response?: { data?: unknown; status?: number }
+      })?.response
       const status = body?.status
       const data = body?.data as
         | {
-            error?: string
+            error?: string | { message?: string; code?: string }
             message?: string
             code?: string
             current_balance?: number
+            meta?: { attemptsLeft?: number; lockoutUntil?: string }
           }
         | undefined
 
-      const message = data?.error || data?.message || 'Purchase failed'
+      const errorObj =
+        data?.error && typeof data.error === 'object' ? data.error : null
+      const errorStr =
+        typeof data?.error === 'string' ? data.error : null
+
+      const message =
+        errorObj?.message || errorStr || data?.message || 'Purchase failed'
+      const code = errorObj?.code || data?.code
       const insufficient =
         typeof message === 'string' &&
         (message.toLowerCase().includes('insufficient') ||
-          data?.code === 'INSUFFICIENT_BALANCE')
+          code === 'INSUFFICIENT_BALANCE')
 
       return {
         ok: false,
         error: message,
         insufficient,
         httpStatus: status,
+        code,
+        attemptsLeft: data?.meta?.attemptsLeft,
+        lockoutUntil: data?.meta?.lockoutUntil ?? null,
       }
     }
   },
@@ -497,6 +554,41 @@ export const dataApi = {
       return { ok: false }
     }
   },
+}
+
+export interface PhoneNumberHistoryEntry {
+  phone: string
+  network: string
+  last_used_at: string
+}
+
+export const phoneApi = {
+  /** Network confirmed by real past transactions for this number (null if none). */
+  network: (phone: string): Promise<{ network?: string | null }> =>
+    api
+      .get<{ network?: string | null }>(
+        `/api/phone-network/${encodeURIComponent(phone)}`
+      )
+      .then((r) => r.data),
+
+  /** Numbers this user has bought for before. */
+  numberHistory: (): Promise<{ history?: PhoneNumberHistoryEntry[] }> =>
+    api
+      .get<{ history?: PhoneNumberHistoryEntry[] }>('/api/user/number-history')
+      .then((r) => r.data),
+}
+
+export const pushApi = {
+  status: () =>
+    api
+      .get<{ enabled: boolean; publicKey: string | null }>('/api/push/status')
+      .then((r) => r.data),
+  subscribe: (subscription: PushSubscriptionJSON) =>
+    api.post('/api/push/subscribe', { subscription }).then((r) => r.data),
+  unsubscribe: (endpoint: string) =>
+    api.delete('/api/push/subscribe', { data: { endpoint } }).then((r) => r.data),
+  setEnabled: (enabled: boolean) =>
+    api.patch('/api/push/preference', { enabled }).then((r) => r.data),
 }
 
 export const reauthApi = {
@@ -612,6 +704,11 @@ export const accountApi = {
   sendOtp: (email: string): Promise<{ status: string }> =>
     api
       .post<{ status: string }>('/auth/send-otp', { email })
+      .then((r) => r.data),
+  /** Resend the reset OTP (used by the forgot-password flow). */
+  resendOtp: (email: string): Promise<{ status: string }> =>
+    api
+      .post<{ status: string }>('/auth/resend-otp', { email })
       .then((r) => r.data),
 
   /** Verify OTP — returns a short-lived token the user can use to set a new password. */

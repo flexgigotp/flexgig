@@ -58,6 +58,81 @@ type PurchaseAuth = {
   webauthnAssertion?: string
 }
 
+interface FailureAnalysis {
+  pinRejected: boolean
+  displayMessage: string
+}
+
+function analyzeFailure(
+  code: string | undefined,
+  message: string | undefined,
+  attemptsLeft: number | undefined,
+  lockoutUntil: string | null | undefined
+): FailureAnalysis {
+  const m = (message || '').toLowerCase()
+  const c = (code || '').toUpperCase()
+
+  if (m.includes('forget pin') || m.includes('pin entry limit')) {
+    return {
+      pinRejected: true,
+      displayMessage:
+        'PIN entry limit reached. Please use Forgot PIN to reset it.',
+    }
+  }
+
+  if (m.includes('pin not set')) {
+    return {
+      pinRejected: true,
+      displayMessage: 'No PIN on this account. Please set one first.',
+    }
+  }
+
+  if (lockoutUntil) {
+    const until = new Date(lockoutUntil)
+    const mins = Math.max(
+      1,
+      Math.ceil((until.getTime() - Date.now()) / 60000)
+    )
+    return {
+      pinRejected: true,
+      displayMessage: `Too many incorrect attempts. Try again in ${mins} min.`,
+    }
+  }
+  if (m.includes('too many') && m.includes('attempts')) {
+    return {
+      pinRejected: true,
+      displayMessage: 'Too many incorrect attempts. Try again later.',
+    }
+  }
+
+  const isPinFailure =
+    (m.includes('pin') &&
+      (m.includes('incorrect') ||
+        m.includes('invalid') ||
+        m.includes('wrong'))) ||
+    c === 'INVALID_PIN' ||
+    c === 'INCORRECT_PIN' ||
+    c === 'WRONG_PIN' ||
+    c === 'INVALID_CURRENT_PIN'
+
+  if (isPinFailure) {
+    if (typeof attemptsLeft === 'number' && attemptsLeft > 0) {
+      return {
+        pinRejected: true,
+        displayMessage: `Incorrect PIN — ${attemptsLeft} ${
+          attemptsLeft === 1 ? 'attempt' : 'attempts'
+        } left before lock`,
+      }
+    }
+    return { pinRejected: true, displayMessage: 'Incorrect PIN' }
+  }
+
+  return {
+    pinRejected: false,
+    displayMessage: message || 'Something went wrong',
+  }
+}
+
 export function useBuyData(payload: BuyDataPayload) {
   const { balance } = useSession()
   const setBalance = useAuthStore((s) => s.setBalance)
@@ -205,17 +280,8 @@ export function useBuyData(payload: BuyDataPayload) {
     [payload, setBalance]
   )
 
-  /**
-   * Shared completion path — sends whichever auth we have.
-   * Order of precedence: webauthnAssertion > rawPin > pinToken.
-   */
   const completePurchase = useCallback(
     async (auth: PurchaseAuth): Promise<{ ok: boolean; message?: string }> => {
-      navigate(`/dashboard?${buildSearch({ step: 'receipt' })}`, {
-        replace: true,
-      })
-      setReceipt({ status: 'processing' })
-
       const result = await dataApi.buyData({
         planId: payload.plan.plan_id,
         phone: payload.phone,
@@ -224,6 +290,22 @@ export function useBuyData(payload: BuyDataPayload) {
       })
 
       if (!result.ok) {
+        const failure = analyzeFailure(
+          result.code,
+          result.error,
+          result.attemptsLeft,
+          result.lockoutUntil
+        )
+
+        if (failure.pinRejected) {
+          return { ok: false, message: failure.displayMessage }
+        }
+
+        setReceipt({ status: 'processing' })
+        navigate(`/dashboard?${buildSearch({ step: 'receipt' })}`, {
+          replace: true,
+        })
+
         if (result.insufficient) {
           setReceipt({
             status: 'insufficient',
@@ -236,13 +318,18 @@ export function useBuyData(payload: BuyDataPayload) {
         }
         setReceipt({
           status: 'failed',
-          message: result.error || 'Purchase failed',
+          message: failure.displayMessage,
           plan: payload.plan,
           phone: payload.phone,
           provider: payload.provider,
         })
         return { ok: false }
       }
+
+      setReceipt({ status: 'processing' })
+      navigate(`/dashboard?${buildSearch({ step: 'receipt' })}`, {
+        replace: true,
+      })
 
       if (typeof result.newBalance === 'number') {
         setBalance(result.newBalance)
@@ -266,7 +353,6 @@ export function useBuyData(payload: BuyDataPayload) {
     [payload, balance, setBalance, navigate, buildSearch, pollForFinalStatus]
   )
 
-  /** Raw PIN — one round trip, server verifies inline. */
   const submitPin = useCallback(
     async (pin: string): Promise<{ ok: boolean; message?: string }> => {
       return completePurchase({ rawPin: pin })
@@ -274,7 +360,6 @@ export function useBuyData(payload: BuyDataPayload) {
     [completePurchase]
   )
 
-  /** WebAuthn assertion — one round trip, server verifies inline. */
   const submitBiometric = useCallback(
     async (assertion: string): Promise<{ ok: boolean; message?: string }> => {
       return completePurchase({ webauthnAssertion: assertion })

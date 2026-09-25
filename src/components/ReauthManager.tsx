@@ -9,7 +9,7 @@ import InactivityPrompt from '@/components/reauth/InactivityPrompt'
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock'
 import { isCeremonyActive } from '@/lib/biometricStorage'
 
-const SOFT_IDLE_MS = Number(import.meta.env.VITE_SOFT_IDLE_MS ?? 15 * 1000)
+const SOFT_IDLE_MS = Number(import.meta.env.VITE_SOFT_IDLE_MS ?? 50 * 10 * 1000)
 const HARD_IDLE_MS = Number(import.meta.env.VITE_HARD_IDLE_MS ?? 20 * 1000)
 const PROMPT_DURATION_MS = Number(import.meta.env.VITE_PROMPT_DURATION_MS ?? 10000)
 

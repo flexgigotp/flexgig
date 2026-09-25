@@ -53,7 +53,7 @@ export default function TxIcon({ tx }: TxIconProps) {
     alt = 'Bank'
   } else if (text.includes('mtn')) {
     cls = 'mtn targets'
-    img = '/public/frontend/img/mtn.png' // ← vanilla uses /img/, not /svg/
+    img = '/frontend/img/mtn.png' // ← vanilla uses /img/, not /svg/
     alt = 'MTN'
   } else if (text.includes('airtel')) {
     cls = 'airtel targets'

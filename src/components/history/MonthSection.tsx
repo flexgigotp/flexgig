@@ -17,29 +17,19 @@ export default function MonthSection({
   onSelectTx,
   onSelectMonth,
 }: MonthSectionProps) {
-  // Server totals from `users.monthly_history` are authoritative and
-  // cover every tx ever made. Client-side sums only cover what's been
-  // paged in, so use them only as a fallback.
   const totalIn = serverTotal?.in ?? group.totalIn
   const totalOut = serverTotal?.out ?? group.totalOut
+  const isEmpty = group.txs.length === 0
 
   return (
     <>
-      {/*
-        This header is a DIRECT child of `.opay-body` (the scroll
-        container). Do NOT wrap it in a div with `overflow: hidden` —
-        that creates a new scroll context and kills `position: sticky`.
-
-        When the next month's header scrolls up and touches this one,
-        it will push this one off the top. That's the vanilla behaviour.
-      */}
       <div className="month-section-header">
         <div className="opay-month-header">
           <div
             className="opay-month-selector"
-            onClick={() => onSelectMonth(group.monthKey)}
             role="button"
             tabIndex={0}
+            onClick={() => onSelectMonth(group.monthKey)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault()
@@ -71,11 +61,22 @@ export default function MonthSection({
         </div>
       </div>
 
-      <div className="month-txs">
-        {group.txs.map((tx) => (
+      {isEmpty ? (
+        <div
+          style={{
+            padding: '40px 20px',
+            textAlign: 'center',
+            color: '#999',
+            fontSize: 14,
+          }}
+        >
+          No transactions in {group.prettyMonth}.
+        </div>
+      ) : (
+        group.txs.map((tx) => (
           <HistoryRow key={tx.id} tx={tx} onClick={onSelectTx} />
-        ))}
-      </div>
+        ))
+      )}
     </>
   )
 }

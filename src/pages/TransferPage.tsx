@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTransfer } from '@/hooks/useTransfer'
 import { useBiometric } from '@/hooks/useBiometric'
@@ -14,6 +14,7 @@ import { toast } from '@/stores/toastStore'
 export default function TransferPage() {
   const navigate = useNavigate()
   const bio = useBiometric()
+  const [confirming, setConfirming] = useState(false)
   const {
     stage,
     formData,
@@ -29,10 +30,14 @@ export default function TransferPage() {
   } = useTransfer()
 
   useEffect(() => {
-    if (stage !== 'receipt' && receipt && receipt.status !== 'processing') {
+    // Safety net for a hard refresh mid-flow: URL says receipt but we have
+    // no receipt state in memory. Mount-only, so it can't race with the
+    // in-flight setReceipt/navigate sequence in completeTransfer.
+    if (stage === 'receipt' && !receipt) {
       navigate('/dashboard', { replace: true })
     }
-  }, [stage, receipt, navigate])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (stage === 'confirm' && bio.enabled && bio.forTx && bio.isSupported) {
@@ -76,7 +81,12 @@ export default function TransferPage() {
       const res = await bio.authenticate('transfer', { inline: true })
 
       if (res.ok && res.assertion) {
-        await submitBiometric(res.assertion)
+        setConfirming(true)
+        try {
+          await submitBiometric(res.assertion)
+        } finally {
+          setConfirming(false)
+        }
         return
       }
 
@@ -96,10 +106,15 @@ export default function TransferPage() {
       }
       return
     }
-    await submitBiometric(res.assertion!)
+    setConfirming(true)
+    try {
+      await submitBiometric(res.assertion!)
+    } finally {
+      setConfirming(false)
+    }
   }
 
-  if (stage === 'receipt' && receipt) {
+  if (receipt) {
     return (
       <div className="fg-transfer-overlay">
         <TransferReceiptView
@@ -173,12 +188,9 @@ export default function TransferPage() {
           <CheckoutPinSheet
             onSubmit={submitPin}
             onClose={goBack}
-            onForgotPin={() =>
-              toast.info('PIN reset — check your email', 4000)
-            }
             biometricEnabled={bio.enabled && bio.forTx}
             onBiometric={handleBiometricFromPin}
-            biometricBusy={bio.isAuthenticating}
+            biometricBusy={bio.isAuthenticating || confirming}
           />
         )}
       </div>
@@ -190,7 +202,7 @@ export default function TransferPage() {
         </div>
       )}
 
-      {bio.phase === 'verifying' && <Loader transparent />}
+      {(bio.phase === 'verifying' || confirming) && <Loader transparent />}
     </div>
   )
 }

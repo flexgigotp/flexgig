@@ -16,23 +16,25 @@ import BuyDataFlow from '@/components/buy-data/BuyDataFlow'
 import AllPlansSheet from '@/components/plans/AllPlansSheet'
 import AddMoneySheet from '@/components/addmoney/AddMoneySheet'
 import KYCSheet from '@/components/kyc/KYCSheet'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import SettingsTab from '@/components/settings/SettingsTab'
 import HelpSupportSheet from '@/components/settings/HelpSupportSheet'
 import SecuritySheet from '@/components/settings/SecuritySheet'
 import HistorySheet from '@/components/history/HistorySheet'
 import TransactionReceiptSheet from '@/components/history/TransactionReceiptSheet'
+import TransactionReportSheet from '@/components/history/TransactionReportSheet'
 import type { Transaction } from '@/types/api'
 import { useSession } from '@/hooks'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import { useBackTrap } from '@/hooks/useBackTrap'
 import { useModalParam } from '@/hooks/useModalParam'
 import { useDataPurchaseStore } from '@/stores/dataPurchaseStore'
-import { useHistoryStore } from '@/stores/historyStore'
 import { useBiometricPromptStore } from '@/stores/biometricPromptStore'
 import { getKYCState } from '@/lib/addMoneyStorage'
 import { safeCloseModal } from '@/lib/safeCloseModal'
 import { toast } from '@/stores/toastStore'
 import { useBiometric } from '@/hooks/useBiometric'
+import PushPromptCard from '@/components/dashboard/PushPromptCard'
 
 export default function Dashboard() {
   const { user, balance, logout } = useSession()
@@ -40,10 +42,21 @@ export default function Dashboard() {
   const [tab, setTab] = useState<DashboardTab>('home')
   const navigate = useNavigate()
 
-  const handleLogout = async () => {
-    if (!window.confirm('Log out of FlexGig?')) return
-    await logout()
-    navigate('/', { replace: true })
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+
+  // Settings' "Log out" button just opens the dialog.
+  const handleLogout = () => setLogoutConfirmOpen(true)
+
+  const confirmLogout = async () => {
+    setLoggingOut(true)
+    try {
+      await logout()
+      navigate('/', { replace: true })
+    } finally {
+      setLoggingOut(false)
+      setLogoutConfirmOpen(false)
+    }
   }
 
   const [searchParams] = useSearchParams()
@@ -65,10 +78,10 @@ export default function Dashboard() {
   // not let useBackTrap also grab it, or the two fight over popstate.
   const bioPromptVisible = useBiometricPromptStore((s) => s.visible)
 
-  // History sheet + receipt (stackable)
+  // History sheet + receipt + report (stackable)
   const historyModal = useModalParam('history')
-  const setHistoryMonth = useHistoryStore((s) => s.setSelectedMonth)
   const [receiptTx, setReceiptTx] = useState<Transaction | null>(null)
+  const [reportTx, setReportTx] = useState<Transaction | null>(null)
 
   const handleOpenAddMoney = () => {
     const kyc = getKYCState()
@@ -128,6 +141,33 @@ export default function Dashboard() {
     return () => window.clearTimeout(t)
   }, [plansOpen])
 
+  /**
+   * Transition from receipt → report.
+   *
+   * The receipt's useEffect has already pushed ?receipt=<id>. We replace
+   * that same history entry with ?report=<id> and a __fgReport state
+   * marker BEFORE unmounting the receipt. That way:
+   *
+   *   - receipt cleanup sees window.history.state.__fgReceipt is gone
+   *     and skips its own replaceState (so it doesn't clobber our URL)
+   *   - report mount sees __fgReport already set and skips its own
+   *     pushState (so we don't stack a duplicate entry)
+   *   - one history entry covers the whole receipt → report flow, so a
+   *     single back press returns the user to the dashboard
+   */
+  const handleReportFromReceipt = (tx: Transaction) => {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('receipt')
+    url.searchParams.set('report', tx.id)
+    window.history.replaceState(
+      { __fgReport: true },
+      '',
+      url.pathname + url.search
+    )
+    setReceiptTx(null)
+    setReportTx(tx)
+  }
+
   useBackTrap(
     !checkoutActive &&
       !plansOpen &&
@@ -135,7 +175,8 @@ export default function Dashboard() {
       !securityModal.isOpen &&
       !bioPromptVisible &&
       !historyModal.isOpen &&
-      !receiptTx
+      !receiptTx &&
+      !reportTx
   )
 
   return (
@@ -160,6 +201,7 @@ export default function Dashboard() {
               onSetupPin={() => navigate('/pin-setup')}
               onUpdateProfile={() => navigate('/profile-update')}
             />
+            <PushPromptCard />
             <BalanceCard balance={balance} />
             <QuickActions
               onTransfer={() => navigate('/transfer')}
@@ -209,10 +251,8 @@ export default function Dashboard() {
           onClose={settingsModal.close}
           onOpenHelp={helpModal.open}
           onOpenSecurity={securityModal.open}
-          onOpenReferrals={() => toast.info('Referrals — coming in Drop 4')}
-          onOpenEditProfile={() =>
-            toast.info('Edit profile — coming in Drop 3')
-          }
+          onOpenReferrals={() => toast.info('Referrals — coming soon')}
+          onOpenEditProfile={() => navigate('/profile-update')}
           onLogout={handleLogout}
         />
       )}
@@ -271,10 +311,6 @@ export default function Dashboard() {
         <HistorySheet
           onClose={historyModal.close}
           onSelectTransaction={(tx) => setReceiptTx(tx)}
-          onSelectMonth={(m) => {
-            setHistoryMonth(m)
-            // month picker comes in the next pass; for now just store it
-          }}
         />
       )}
 
@@ -285,8 +321,30 @@ export default function Dashboard() {
         <TransactionReceiptSheet
           tx={receiptTx}
           onClose={() => setReceiptTx(null)}
+          onReport={handleReportFromReceipt}
         />
       )}
+
+      {/* Report sheet — opened from the receipt. Owns the URL param
+          ?report=<id>, which the receipt's handler already swapped in. */}
+      {reportTx && (
+        <TransactionReportSheet
+          tx={reportTx}
+          onClose={() => setReportTx(null)}
+        />
+      )}
+
+      <ConfirmDialog
+        open={logoutConfirmOpen}
+        title="Log out?"
+        message="Are you sure you want to log out of FlexGig?"
+        confirmLabel="Log out"
+        cancelLabel="Cancel"
+        destructive
+        loading={loggingOut}
+        onConfirm={confirmLogout}
+        onCancel={() => setLogoutConfirmOpen(false)}
+      />
     </div>
   )
 }

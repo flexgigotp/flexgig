@@ -5,9 +5,13 @@ import { useNavigate } from 'react-router-dom'
 import { useSession } from '@/hooks'
 import { useBiometric } from '@/hooks/useBiometric'
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock'
+import { useModalParam } from '@/hooks/useModalParam'
 import { toast } from '@/stores/toastStore'
 import Loader from '@/components/Loader'
 import ChangePasswordSheet from './ChangePasswordSheet'
+import ResetPasswordSheet from './ResetPasswordSheet'
+import SetPasswordSheet from './SetPasswordSheet'
+import PushToggleRow from './PushToggleRow'
 
 interface SecuritySheetProps {
   onClose: () => void
@@ -21,7 +25,11 @@ export default function SecuritySheet({ onClose }: SecuritySheetProps) {
 
   const bio = useBiometric()
 
-  const [showChangePwd, setShowChangePwd] = useState(false)
+  // URL params — three separate flows, one visible at a time
+  const cpModal = useModalParam('cp')
+  const rpModal = useModalParam('rp')
+  const spwModal = useModalParam('spw')
+
   const [showChildren, setShowChildren] = useState(bio.enabled)
   const [balanceVisible, setBalanceVisible] = useState(() => {
     try {
@@ -36,35 +44,48 @@ export default function SecuritySheet({ onClose }: SecuritySheetProps) {
   const hasPin = user?.hasPin === true
   const busy = bio.isRegistering
 
+  // ── Transition: CP → Reset (forgot password) ────────────────
+  const handleForgotPassword = () => {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('cp')
+    url.searchParams.set('rp', '1')
+    navigate(url.pathname + url.search, { replace: true })
+  }
+
+  // ── Transition: Reset → Set Password (OTP verified) ─────────
+  const handleOtpVerified = () => {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('rp')
+    url.searchParams.set('spw', '1')
+    navigate(url.pathname + url.search, { replace: true })
+  }
+
   const handlePinClick = () => {
     if (busy) return
     onClose()
     navigate(hasPin ? '/pin-change' : '/pin-setup')
   }
 
-  // ── Parent toggle ─────────────────────────────────────────
   const handleParentToggle = async () => {
     if (busy) return
 
-    // Turning OFF
     if (bio.enabled) {
       const confirmed = window.confirm(
         'Disable biometrics? You will need your PIN next time.'
       )
       if (!confirmed) return
 
-      setShowChildren(false) // hide immediately
+      setShowChildren(false)
       const res = await bio.revoke()
       if (res.ok) {
         toast.success('Biometrics disabled')
       } else {
         toast.error(res.message || 'Failed to disable biometrics')
-        setShowChildren(true) // restore on failure
+        setShowChildren(true)
       }
       return
     }
 
-    // Turning ON
     if (!hasPin) {
       toast.info('Please set a PIN first before enabling biometrics.')
       return
@@ -84,14 +105,12 @@ export default function SecuritySheet({ onClose }: SecuritySheetProps) {
     toast.error(res.message || 'Failed to enable biometrics')
   }
 
-  // ── Children toggles ───────────────────────────────────────
   const handleChildToggle = (which: 'login' | 'tx') => {
     if (busy) return
     const current = which === 'login' ? bio.forLogin : bio.forTx
     bio.setChildEnabled(which, !current)
   }
 
-  // ── Balance toggle ─────────────────────────────────────────
   const handleBalanceToggle = () => {
     const next = !balanceVisible
     setBalanceVisible(next)
@@ -164,14 +183,12 @@ export default function SecuritySheet({ onClose }: SecuritySheetProps) {
             </div>
           </div>
 
-          {/* ── Children — animated reveal ──────────────── */}
           {showChildren && bio.enabled && (
             <div
               className="setting-subgroup show"
               role="group"
               aria-label="Biometric usage"
             >
-              {/* Login / reauth */}
               <div className="setting-row visible" role="listitem">
                 <div className="setting-left">
                   <div className="setting-title">
@@ -196,7 +213,6 @@ export default function SecuritySheet({ onClose }: SecuritySheetProps) {
                 </div>
               </div>
 
-              {/* Checkout */}
               <div className="setting-row visible" role="listitem">
                 <div className="setting-left">
                   <div className="setting-title">Use for checkout</div>
@@ -263,10 +279,10 @@ export default function SecuritySheet({ onClose }: SecuritySheetProps) {
             className="setting-row"
             role="button"
             tabIndex={0}
-            onClick={() => !busy && setShowChangePwd(true)}
+            onClick={() => !busy && cpModal.open()}
             onKeyDown={(e) => {
               if ((e.key === 'Enter' || e.key === ' ') && !busy) {
-                setShowChangePwd(true)
+                cpModal.open()
               }
             }}
           >
@@ -316,14 +332,27 @@ export default function SecuritySheet({ onClose }: SecuritySheetProps) {
               </button>
             </div>
           </div>
+          <PushToggleRow />
         </div>
 
         <div style={{ height: 10 }} />
       </div>
 
-      {showChangePwd && (
-        <ChangePasswordSheet onClose={() => setShowChangePwd(false)} />
+      {cpModal.isOpen && (
+        <ChangePasswordSheet
+          onClose={cpModal.close}
+          onForgotPassword={handleForgotPassword}
+        />
       )}
+
+      {rpModal.isOpen && (
+        <ResetPasswordSheet
+          onClose={rpModal.close}
+          onVerified={handleOtpVerified}
+        />
+      )}
+
+      {spwModal.isOpen && <SetPasswordSheet onClose={spwModal.close} />}
 
       {bio.isRegistering && <Loader transparent />}
     </div>,

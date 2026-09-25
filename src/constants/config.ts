@@ -15,6 +15,9 @@ export const API_ENDPOINTS = {
   USER_PROFILE: '/api/user/profile',
   USER_UPDATE_PROFILE: '/api/user/profile/update',
   USER_AVATAR: '/api/user/avatar',
+  PROFILE_GET: '/api/profile',
+  PROFILE_UPDATE: '/api/profile/update',
+  PROFILE_CHECK_USERNAME: '/api/profile/check-username',
 
   // Referral
   REFERRAL_INFO: '/api/referral/info',

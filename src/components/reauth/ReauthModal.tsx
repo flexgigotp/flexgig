@@ -3,18 +3,23 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PinInputs from '@/components/pin/PinInputs'
 import PinKeypad from '@/components/pin/PinKeypad'
+import ResetPinSheet from '@/components/pin/ResetPinSheet'
+import SetupPinModal from '@/components/pin/SetupPinModal'
 import Loader from '@/components/Loader'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import { usePinKeyboard } from '@/hooks/usePinKeyboard'
+import { useUpdateGuard } from '@/hooks/useUpdateGuard'
 import { reauthApi } from '@/services/api'
 import { useSession } from '@/hooks'
 import { useBiometric } from '@/hooks/useBiometric'
-import { toast } from '@/stores/toastStore'
 
 interface ReauthModalProps {
   onSuccess: () => void
 }
 
 const PIN_LENGTH = 4
+
+type ForgotStage = 'none' | 'otp' | 'setup'
 
 export default function ReauthModal({ onSuccess }: ReauthModalProps) {
   const { user, logout } = useSession()
@@ -24,50 +29,79 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  // Forgot-PIN sub-flow. When anything but 'none', we render the OTP or
+  // PIN-setup screen instead of the reauth PIN UI — so the full-screen
+  // modals never compete for z-index with this overlay.
+  const [forgotStage, setForgotStage] = useState<ForgotStage>('none')
+  // Block the device back button while the forgot-PIN sub-flow is active.
+  //
+  // Depends on the *boolean* (blocking vs not) rather than the specific
+  // stage, so the otp→setup transition doesn't tear down and re-push the
+  // sentinel — which previously caused the popstate handler to consume
+  // the pop we ourselves queued, leaving the user's real back press
+  // unblocked.
+  const blockingForgot = forgotStage !== 'none'
 
-  // Auto-attempt the biometric prompt at most once per modal open
+  useUpdateGuard()
+
+  useEffect(() => {
+    if (!blockingForgot) return
+
+    // Push a sentinel entry above the current one. Because the URL is
+    // identical, the user sees nothing — but the browser now has a
+    // distinct entry to pop.
+    window.history.pushState({ __fgReauthBlock: true }, '', location.href)
+
+    const onPop = () => {
+      // We got popped off the sentinel. Re-push immediately so the
+      // user stays pinned on this screen. URL is unchanged → no flash.
+      window.history.pushState({ __fgReauthBlock: true }, '', location.href)
+    }
+
+    window.addEventListener('popstate', onPop)
+
+    return () => {
+      window.removeEventListener('popstate', onPop)
+      // Pop our sentinel so the stack doesn't grow across multiple
+      // forgot-PIN cycles. Guarded so we don't clobber a real
+      // navigation the parent may have already performed.
+      if (window.history.state?.__fgReauthBlock) {
+        window.history.back()
+      }
+    }
+  }, [blockingForgot])
+
   const autoAttemptedRef = useRef(false)
-  // Guard so success can only complete once
   const finishedRef = useRef(false)
 
   const bioEligible =
     bio.isReady && bio.isSupported && bio.enabled && bio.forLogin
 
-  // Keypad must be inert while either ceremony is running
-  const keypadDisabled = submitting || bio.isAuthenticating
-
-  // Loader shows only during active server round trips, never during
-  // the OS-native prompt — that window is owned by the OS.
+  const keypadDisabled =
+    submitting || bio.isAuthenticating || logoutConfirmOpen
   const showLoader = submitting || bio.phase === 'verifying'
-
-  // Toast shows while we're fetching the WebAuthn options. Once the
-  // native prompt is up, the OS takes over — no app UI needed.
   const showBioToast = bio.phase === 'preparing'
 
-  // Warm the auth-options cache as soon as the modal mounts
   useEffect(() => {
     if (bioEligible) bio.prefetch()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bioEligible])
 
-  // Fire-and-forget on success: /webauthn/auth/verify already cleared
-  // the server lock, so /reauth/complete is belt-and-braces only.
   const finishWithSuccess = () => {
     if (finishedRef.current) return
     finishedRef.current = true
-
     void reauthApi.complete()
     onSuccess()
   }
 
-  // ── Auto-attempt biometrics on mount (when browser permits) ──
-  // Native prompt requires recent user activation (Safari: always,
-  // Android Chrome: usually). Without it the request rejects and the
-  // user sees a pointless loader — so only auto-fire while transient
-  // activation is alive; otherwise wait for the fingerprint button.
+  // ── Auto-attempt biometrics on mount ─────────────────────
   useEffect(() => {
     if (autoAttemptedRef.current) return
     if (!bioEligible) return
+    // Don't auto-prompt while in the forgot-PIN flow
+    if (forgotStage !== 'none') return
 
     const nav = navigator as Navigator & {
       userActivation?: { isActive: boolean }
@@ -78,17 +112,15 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
 
     void (async () => {
       const result = await bio.authenticate('reauth')
-
       if (result.ok) {
         finishWithSuccess()
         return
       }
       if (result.message === 'Cancelled') return
-
       setError(result.message || 'Biometric authentication failed')
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bioEligible])
+  }, [bioEligible, forgotStage])
 
   // ── PIN path ─────────────────────────────────────────────
   const handleDigit = (d: string) => {
@@ -127,27 +159,62 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
     setError('')
 
     const result = await bio.authenticate('reauth')
-
     if (result.ok) {
       finishWithSuccess()
       return
     }
     if (result.message === 'Cancelled') return
-
     setError(result.message || 'Biometric authentication failed')
   }
 
   // ── Escape hatches ───────────────────────────────────────
-  const handleLogout = async () => {
-    await logout()
-    navigate('/', { replace: true })
+  const handleLogout = () => setLogoutConfirmOpen(true)
+
+  const confirmLogout = async () => {
+    setLoggingOut(true)
+    try {
+      await logout()
+      navigate('/', { replace: true })
+    } finally {
+      setLoggingOut(false)
+      setLogoutConfirmOpen(false)
+    }
   }
 
   const handleForgotPin = () => {
-    toast.info('PIN reset — check your email', 4000)
+    setError('')
+    setPin('')
+    setForgotStage('otp')
   }
 
-  usePinKeyboard(handleDigit, handleDelete, keypadDisabled)
+  // ── Forgot-PIN flow transitions ──────────────────────────
+  const handleOtpVerified = () => {
+    setForgotStage('setup')
+  }
+
+  const handleOtpCancelled = () => {
+    // No identity proven yet — safe to return to PIN entry
+    setForgotStage('none')
+  }
+
+  const handleSetupSuccess = () => {
+    // PIN was reset. Clear the reauth lock and let the caller proceed.
+    finishWithSuccess()
+  }
+
+  const handleSetupCancelled = () => {
+    // User proved identity (OTP) but bailed on the new-PIN step. Return
+    // to PIN entry — they can retry Forgot PIN or Logout if stuck.
+    setForgotStage('none')
+  }
+
+  // Disable the hardware keyboard PIN handler while the forgot-PIN
+  // flow owns the screen.
+  usePinKeyboard(
+    handleDigit,
+    handleDelete,
+    keypadDisabled || forgotStage !== 'none'
+  )
 
   const displayName =
     user?.username ||
@@ -156,7 +223,26 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
     'User'
   const avatarUrl = user?.profilePicture
 
-  // ── Fingerprint button injected into the keypad's blank slot ──
+  // ── Forgot-PIN sub-screens take over the whole mount ─────
+  if (forgotStage === 'otp') {
+    return (
+      <ResetPinSheet
+        onClose={handleOtpCancelled}
+        onVerified={handleOtpVerified}
+      />
+    )
+  }
+
+  if (forgotStage === 'setup') {
+    return (
+      <SetupPinModal
+        onClose={handleSetupCancelled}
+        onSuccess={handleSetupSuccess}
+      />
+    )
+  }
+
+  // ── Fingerprint button in the keypad's blank slot ────────
   const bioSlot = bioEligible ? (
     <button
       type="button"
@@ -261,8 +347,6 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
         </div>
       </div>
 
-      {/* Loading toast — appears while we fetch WebAuthn options so
-          the user knows the fingerprint prompt is on its way. */}
       {showBioToast && (
         <div className="bio-loading-toast" role="status" aria-live="polite">
           <span className="bio-loading-spinner" aria-hidden />
@@ -270,9 +354,19 @@ export default function ReauthModal({ onSuccess }: ReauthModalProps) {
         </div>
       )}
 
-      {/* Loader — only during server round trips (PIN verify or
-          biometric verify). Hidden during the OS-native prompt. */}
       {showLoader && <Loader transparent />}
+
+      <ConfirmDialog
+        open={logoutConfirmOpen}
+        title="Log out?"
+        message="You'll need to sign in again to continue."
+        confirmLabel="Log out"
+        cancelLabel="Cancel"
+        destructive
+        loading={loggingOut}
+        onConfirm={confirmLogout}
+        onCancel={() => setLogoutConfirmOpen(false)}
+      />
     </div>
   )
 }
